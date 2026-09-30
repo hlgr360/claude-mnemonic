@@ -5,8 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -1481,22 +1485,101 @@ func TestSleepCtx_Cancelled(t *testing.T) {
 	assert.Less(t, elapsed, 500*time.Millisecond)
 }
 
-// TestHookClients_DisableKeepAlives asserts shared clients disable keep-alives
-// to prevent TIME_WAIT connection leaks in short-lived hook processes.
-func TestHookClients_DisableKeepAlives(t *testing.T) {
-	hTransport, ok := hookClient.Transport.(*http.Transport)
-	require.True(t, ok, "hookClient.Transport should be *http.Transport")
-	assert.True(t, hTransport.DisableKeepAlives, "hookClient must disable keep-alives")
-	assert.Equal(t, 1, hTransport.MaxIdleConns)
+// TestHTTPDo_Behaviour covers the raw HTTP/1.0 client against a real server.
+func TestHTTPDo_Behaviour(t *testing.T) {
+	big := strings.Repeat("x", 200_000)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/echo":
+			b, _ := io.ReadAll(r.Body)
+			assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
+			_, _ = w.Write(b)
+		case "/big":
+			_, _ = w.Write([]byte(`{"v":"` + big + `"}`))
+		case "/missing":
+			w.WriteHeader(http.StatusNotFound)
+		case "/empty":
+			w.WriteHeader(http.StatusNoContent)
+		}
+	}))
+	defer srv.Close()
+	port, err := strconv.Atoi(srv.URL[strings.LastIndex(srv.URL, ":")+1:])
+	require.NoError(t, err)
 
-	hcTransport, ok := healthClient.Transport.(*http.Transport)
-	require.True(t, ok, "healthClient.Transport should be *http.Transport")
-	assert.True(t, hcTransport.DisableKeepAlives, "healthClient must disable keep-alives")
-	assert.Equal(t, 1, hcTransport.MaxIdleConns)
+	tests := []struct {
+		name       string
+		method     string
+		path       string
+		body       []byte
+		wantStatus int
+		wantLen    int
+	}{
+		{"post echoes body", "POST", "/echo", []byte(`{"a":1}`), 200, 7},
+		{"large body over server buffer", "GET", "/big", nil, 200, len(big) + 8},
+		{"not found", "GET", "/missing", nil, 404, 0},
+		{"no content", "GET", "/empty", nil, 204, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp, err := httpDo(context.Background(), time.Second, tt.method, port, tt.path, tt.body)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantStatus, resp.Status)
+			assert.Len(t, resp.Body, tt.wantLen)
+		})
+	}
 }
 
-// TestHookClient_Timeout verifies hookClient timeout is set.
-func TestHookClient_Timeout(t *testing.T) {
-	assert.Equal(t, 10*time.Second, hookClient.Timeout)
-	assert.Equal(t, HealthCheckTimeout, healthClient.Timeout)
+// TestHTTPDo_Failures covers connection, timeout, cancel and malformed replies.
+func TestHTTPDo_Failures(t *testing.T) {
+	t.Run("connection refused", func(t *testing.T) {
+		l, err := net.Listen("tcp", "127.0.0.1:0")
+		require.NoError(t, err)
+		port := l.Addr().(*net.TCPAddr).Port
+		require.NoError(t, l.Close())
+		_, err = httpDo(context.Background(), time.Second, "GET", port, "/", nil)
+		assert.Error(t, err)
+	})
+
+	t.Run("wedged server times out", func(t *testing.T) {
+		l, err := net.Listen("tcp", "127.0.0.1:0")
+		require.NoError(t, err)
+		defer func() { _ = l.Close() }()
+		go func() {
+			c, err := l.Accept()
+			if err == nil {
+				defer func() { _ = c.Close() }()
+				time.Sleep(2 * time.Second)
+			}
+		}()
+		start := time.Now()
+		_, err = httpDo(context.Background(), 200*time.Millisecond, "GET", l.Addr().(*net.TCPAddr).Port, "/", nil)
+		assert.Error(t, err)
+		assert.Less(t, time.Since(start), time.Second)
+	})
+
+	t.Run("cancelled context aborts", func(t *testing.T) {
+		l, err := net.Listen("tcp", "127.0.0.1:0")
+		require.NoError(t, err)
+		defer func() { _ = l.Close() }()
+		go func() {
+			c, err := l.Accept()
+			if err == nil {
+				defer func() { _ = c.Close() }()
+				time.Sleep(2 * time.Second)
+			}
+		}()
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		defer cancel()
+		start := time.Now()
+		_, err = httpDo(ctx, 5*time.Second, "GET", l.Addr().(*net.TCPAddr).Port, "/", nil)
+		assert.Error(t, err)
+		assert.Less(t, time.Since(start), time.Second)
+	})
+
+	t.Run("malformed response", func(t *testing.T) {
+		for _, raw := range []string{"", "garbage", "HTTP/1.0\r\n\r\n", "HTTP/1.0 abc OK\r\n\r\n"} {
+			_, err := parseHTTPResponse([]byte(raw))
+			assert.Error(t, err, "input %q", raw)
+		}
+	})
 }

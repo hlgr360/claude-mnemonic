@@ -2,12 +2,10 @@
 package hooks
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"net"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -27,6 +25,9 @@ const (
 
 	// HealthCheckTimeout is the timeout for health checks.
 	HealthCheckTimeout = 2 * time.Second
+
+	// hookTimeout bounds a single hook->worker request.
+	hookTimeout = 10 * time.Second
 
 	// StartupTimeout is the timeout for worker startup.
 	StartupTimeout = 10 * time.Second
@@ -52,26 +53,6 @@ var (
 	// circuitBreakerMu protects lastStartupFailure.
 	circuitBreakerMu   sync.Mutex
 	lastStartupFailure time.Time
-
-	// hookClient is a shared HTTP client for hook->worker requests.
-	// DisableKeepAlives prevents TIME_WAIT connection leaks since each hook
-	// is a separate OS process that exits quickly.
-	hookClient = &http.Client{
-		Timeout: 10 * time.Second,
-		Transport: &http.Transport{
-			DisableKeepAlives: true,
-			MaxIdleConns:      1,
-		},
-	}
-
-	// healthClient is a shared HTTP client for health/version checks.
-	healthClient = &http.Client{
-		Timeout: HealthCheckTimeout,
-		Transport: &http.Transport{
-			DisableKeepAlives: true,
-			MaxIdleConns:      1,
-		},
-	}
 )
 
 // IsWorkerAvailable performs a fast check without network calls.
@@ -110,22 +91,21 @@ func GetWorkerPort() int {
 // Parses the JSON health response to check the "ready" field when available.
 // Falls back to HTTP status code check for backwards compatibility.
 func IsWorkerRunning(port int) bool {
-	resp, err := healthClient.Get(fmt.Sprintf("http://127.0.0.1:%d/api/health", port))
+	resp, err := httpDo(context.Background(), HealthCheckTimeout, "GET", port, "/api/health", nil)
 	if err != nil {
 		return false
 	}
-	defer func() { _ = resp.Body.Close() }()
 
 	// Try to parse JSON response for structured health check
 	var health struct {
 		Ready bool `json:"ready"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&health); err == nil {
+	if err := json.Unmarshal(resp.Body, &health); err == nil {
 		return health.Ready
 	}
 
 	// Fallback: treat HTTP 200 as healthy (backwards compatibility)
-	return resp.StatusCode == http.StatusOK
+	return resp.Status == 200
 }
 
 // workerCachePath returns the path to the worker cache file.
@@ -396,18 +376,17 @@ func updateCacheFromPort(port int) {
 
 // GetWorkerVersion gets the version of the running worker.
 func GetWorkerVersion(port int) string {
-	resp, err := healthClient.Get(fmt.Sprintf("http://127.0.0.1:%d/api/version", port))
+	resp, err := httpDo(context.Background(), HealthCheckTimeout, "GET", port, "/api/version", nil)
 	if err != nil {
 		return ""
 	}
-	defer func() { _ = resp.Body.Close() }()
 
-	if resp.StatusCode != http.StatusOK {
+	if resp.Status != 200 {
 		return ""
 	}
 
 	var result map[string]string
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.Unmarshal(resp.Body, &result); err != nil {
 		return ""
 	}
 
@@ -510,58 +489,46 @@ func findWorkerBinary() string {
 	return ""
 }
 
-// POST sends a POST request to the worker.
-func POST(port int, path string, body interface{}) (map[string]interface{}, error) {
-	jsonBody, err := json.Marshal(body)
+// request performs one worker call and returns the decoded JSON object.
+// A non-JSON body yields (nil, nil) when lenient, else the decode error.
+func request(ctx context.Context, method string, port int, path string, body interface{}, lenient bool) (map[string]interface{}, error) {
+	var payload []byte
+	if body != nil {
+		var err error
+		if payload, err = json.Marshal(body); err != nil {
+			return nil, err
+		}
+	}
+
+	resp, err := httpDo(ctx, hookTimeout, method, port, path, payload)
 	if err != nil {
 		return nil, err
 	}
-
-	resp, err := hookClient.Post(
-		fmt.Sprintf("http://127.0.0.1:%d%s", port, path),
-		"application/json",
-		bytes.NewReader(jsonBody),
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("request failed: %s", resp.Status)
+	if resp.Status >= 400 {
+		return nil, fmt.Errorf("request failed: %s", resp.StatusText)
 	}
 
 	var result map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		// Not all endpoints return JSON
-		return nil, nil
+	if err := json.Unmarshal(resp.Body, &result); err != nil {
+		if lenient {
+			// Not all endpoints return JSON
+			return nil, nil
+		}
+		return nil, err
 	}
-
 	return result, nil
+}
+
+// POST sends a POST request to the worker.
+func POST(port int, path string, body interface{}) (map[string]interface{}, error) {
+	return request(context.Background(), "POST", port, path, body, true)
 }
 
 // POSTWithContext sends a POST request using the provided context.
 // Used for fire-and-forget calls where we want to control the timeout externally.
 func POSTWithContext(ctx context.Context, port int, path string, body interface{}) error {
-	jsonBody, err := json.Marshal(body)
-	if err != nil {
-		return err
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		fmt.Sprintf("http://127.0.0.1:%d%s", port, path),
-		bytes.NewReader(jsonBody))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := hookClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = resp.Body.Close() }()
-	return nil
+	_, err := request(ctx, "POST", port, path, body, true)
+	return err
 }
 
 // POSTWithContextResult sends a POST request using the provided context and
@@ -570,56 +537,12 @@ func POSTWithContext(ctx context.Context, port int, path string, body interface{
 // aborts at the hook deadline instead of blocking for the full client timeout.
 // A non-JSON body is returned as (nil, nil), matching POST's behavior.
 func POSTWithContextResult(ctx context.Context, port int, path string, body interface{}) (map[string]interface{}, error) {
-	jsonBody, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		fmt.Sprintf("http://127.0.0.1:%d%s", port, path),
-		bytes.NewReader(jsonBody))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := hookClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("request failed: %s", resp.Status)
-	}
-
-	var result map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		// Not all endpoints return JSON
-		return nil, nil
-	}
-
-	return result, nil
+	return request(ctx, "POST", port, path, body, true)
 }
 
 // GET sends a GET request to the worker.
 func GET(port int, path string) (map[string]interface{}, error) {
-	resp, err := hookClient.Get(fmt.Sprintf("http://127.0.0.1:%d%s", port, path))
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("request failed: %s", resp.Status)
-	}
-
-	var result map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, err
-	}
-
-	return result, nil
+	return request(context.Background(), "GET", port, path, nil, false)
 }
 
 // GETWithContext sends a GET request using the provided context and decodes the
@@ -627,28 +550,7 @@ func GET(port int, path string) (map[string]interface{}, error) {
 // Used on the prompt critical path so a wedged worker aborts at the hook
 // deadline instead of blocking for the full client timeout.
 func GETWithContext(ctx context.Context, port int, path string) (map[string]interface{}, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		fmt.Sprintf("http://127.0.0.1:%d%s", port, path), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	resp, err := hookClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("request failed: %s", resp.Status)
-	}
-
-	var result map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, err
-	}
-
-	return result, nil
+	return request(ctx, "GET", port, path, nil, false)
 }
 
 // versionsCompatible checks if two versions are compatible for dev builds.
