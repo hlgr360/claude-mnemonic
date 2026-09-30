@@ -3,15 +3,18 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"net/url"
 	"os"
 	"time"
 
 	"github.com/lukaszraczylo/claude-mnemonic/pkg/hooks"
 )
+
+// statsTimeout bounds the worker stats request.
+const statsTimeout = 100 * time.Millisecond
 
 // StatusInput is the JSON input from Claude Code's statusline feature.
 type StatusInput struct {
@@ -105,26 +108,19 @@ func handleStatusline(input *StatusInput, port int) string {
 // getWorkerStats fetches stats from the worker service.
 func getWorkerStats(port int, project string) *WorkerStats {
 	// Build URL with optional project parameter
-	endpoint := fmt.Sprintf("http://127.0.0.1:%d/api/stats", port)
+	endpoint := "/api/stats"
 	if project != "" {
 		endpoint += "?project=" + url.QueryEscape(project)
 	}
 
-	// Create HTTP client with short timeout (statusline must be fast)
-	client := &http.Client{Timeout: 100 * time.Millisecond}
-
-	resp, err := client.Get(endpoint)
+	// Short timeout: statusline must be fast
+	body, err := hooks.GETBody(context.Background(), statsTimeout, port, endpoint)
 	if err != nil {
-		return nil
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
 		return nil
 	}
 
 	var stats WorkerStats
-	if err := json.NewDecoder(resp.Body).Decode(&stats); err != nil {
+	if err := json.Unmarshal(body, &stats); err != nil {
 		return nil
 	}
 

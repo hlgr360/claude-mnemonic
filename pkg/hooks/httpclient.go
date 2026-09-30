@@ -79,3 +79,16 @@ func parseHTTPResponse(raw []byte) (*httpResponse, error) {
 	}
 	return &httpResponse{Status: code, StatusText: rest, Body: body}, nil
 }
+
+// GETBody fetches path from the worker within timeout and returns the raw body.
+// Statuses of 400 and above are returned as errors.
+func GETBody(ctx context.Context, timeout time.Duration, port int, path string) ([]byte, error) {
+	resp, err := httpDo(ctx, timeout, "GET", port, path, nil)
+	if err != nil {
+		return nil, err
+	}
+	if resp.Status >= 400 {
+		return nil, fmt.Errorf("request failed: %s", resp.StatusText)
+	}
+	return resp.Body, nil
+}
