@@ -57,7 +57,9 @@ compress_libs() {
     local plat="$1"
     local f
     for f in "${ASSETS_DIR}/${plat}"/*.dylib "${ASSETS_DIR}/${plat}"/*.so "${ASSETS_DIR}/${plat}"/*.dll; do
-        [ -f "$f" ] && gzip -9 -n -f "$f"
+        if [ -f "$f" ]; then
+            gzip -9 -n -f "$f"
+        fi
     done
 }
 
