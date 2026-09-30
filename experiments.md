@@ -12,6 +12,35 @@ Mutate: Go code and build flags. Frozen: public API, DB schema, plugin manifest.
 | 02 | pkg/hooks: raw HTTP/1.0 client replaces net/http | 87603952 | -14.7% | KEEP |
 | 03 | statusline: shared client, drop net/http | 84531056 | -3.5% vs 02 | KEEP |
 | 04 | embed gzipped ONNX runtime libs, gunzip at first use | 57216880 | -32.3% vs 03 | KEEP |
+| 05 | hooks built with CGO_ENABLED=0 | 57216880 | 0% | revert (not applied) |
+| - | statically dedupe or compress tokenizer.json | - | projected ~1.2-1.6% | not run, under 3% threshold |
+| - | drop net/http from mcp | - | none possible | not run, oss-telemetry links net/http |
+
+Campaign B stopped on diminishing returns: 102698416 -> 57216880 bytes (-44.3%).
+
+## Campaign A: hook latency (stub worker, 200 runs, p50)
+
+Harness: hook binary against a local stub worker (100-observation context), same machine, alternating runs. Lower is better.
+
+| hook | before (ee28544) | after trial 02 | delta |
+|------|------------------|----------------|-------|
+| session-start | 4.6-5.6 ms | 3.3 ms | -30% or better |
+| user-prompt | 4.3-4.7 ms | 3.5-3.7 ms | -15% to -22% |
+
+Hooks now sit near the process-start floor. No further trials run.
+
+## Campaign D: reliability
+
+Metric: failing cases in the extraction fault test (`TestWriteGunzipped`). Lower is better.
+
+| id | mutation | failing cases | kept? |
+|----|----------|---------------|-------|
+| 01 | baseline (truncated archive leaves partial lib.so) | 1 | base |
+| 02 | extract via temp file and rename | 0 | KEEP |
+
+## Campaign C: search accuracy
+
+Not run. It needs a fixed observation corpus, a labelled query set and the downloaded embedding model. Building that eval set is a separate task.
 
 Notes:
 - Trial 04 needs `scripts/download-onnx-libs.sh` to produce `.gz` files; existing raw libs trigger a re-download.

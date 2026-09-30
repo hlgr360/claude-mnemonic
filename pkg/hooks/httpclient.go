@@ -21,9 +21,9 @@ const maxResponseBytes = 32 << 20
 // makes the server skip chunked encoding and close the connection, so the body
 // is simply everything after the header block.
 type httpResponse struct {
-	Status     int
 	StatusText string
 	Body       []byte
+	Status     int
 }
 
 func httpDo(ctx context.Context, timeout time.Duration, method string, port int, path string, body []byte) (*httpResponse, error) {

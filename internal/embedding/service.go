@@ -647,6 +647,7 @@ func writeGunzipped(path string, gz []byte) (err error) {
 		}
 	}()
 
+	// #nosec G110 -- archive is embedded at build time, not external input
 	if _, err = io.Copy(f, zr); err != nil {
 		_ = f.Close()
 		return err
