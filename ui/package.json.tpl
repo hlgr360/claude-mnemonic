@@ -10,19 +10,19 @@
     "type-check": "vue-tsc --noEmit"
   },
   "dependencies": {
-    "vis-data": "^8.0.4",
-    "vis-network": "^10.1.0",
-    "vue": "^3.5.34"
+    "vis-data": "^8.0.5",
+    "vis-network": "^10.1.2",
+    "vue": "^3.5.43"
   },
   "devDependencies": {
-    "@fortawesome/fontawesome-free": "^7.2.0",
-    "@tailwindcss/postcss": "^4.3.0",
-    "@types/node": "^25.9.1",
-    "@vitejs/plugin-vue": "^6.0.7",
-    "postcss": "^8.5.15",
-    "tailwindcss": "^4.3.0",
+    "@fortawesome/fontawesome-free": "^7.3.1",
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/node": "^25.9.8",
+    "@vitejs/plugin-vue": "^6.0.9",
+    "postcss": "^8.5.28",
+    "tailwindcss": "^4.3.3",
     "typescript": "~6.0.3",
-    "vite": "^8.0.14",
-    "vue-tsc": "^3.3.1"
+    "vite": "^8.3.0",
+    "vue-tsc": "^3.3.11"
   }
 }
