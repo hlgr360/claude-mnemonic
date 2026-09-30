@@ -1,9 +1,13 @@
 package embedding
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"errors"
 	"math"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -474,4 +478,58 @@ func cosineSimilarity(a, b []float32) float64 {
 	}
 
 	return dotProduct / (math.Sqrt(normA) * math.Sqrt(normB))
+}
+
+func gzipBytes(t *testing.T, data []byte) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	zw := gzip.NewWriter(&buf)
+	_, err := zw.Write(data)
+	require.NoError(t, err)
+	require.NoError(t, zw.Close())
+	return buf.Bytes()
+}
+
+func TestWriteGunzipped(t *testing.T) {
+	payload := bytes.Repeat([]byte("onnx"), 50_000)
+	good := gzipBytes(t, payload)
+
+	tests := []struct {
+		name     string
+		gz       []byte
+		wantErr  bool
+		wantFile bool
+	}{
+		{"valid archive", good, false, true},
+		{"truncated archive leaves no file", good[:len(good)/2], true, false},
+		{"not gzip leaves no file", []byte("plain text"), true, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "lib.so")
+
+			err := writeGunzipped(path, tt.gz)
+
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			_, statErr := os.Stat(path)
+			assert.Equal(t, tt.wantFile, statErr == nil)
+			entries, _ := os.ReadDir(dir)
+			if !tt.wantFile {
+				assert.Empty(t, entries, "no partial or temp files may remain")
+			}
+			if tt.wantFile {
+				got, err := os.ReadFile(path)
+				require.NoError(t, err)
+				assert.Equal(t, payload, got)
+				info, err := os.Stat(path)
+				require.NoError(t, err)
+				assert.Equal(t, os.FileMode(0o755), info.Mode().Perm())
+			}
+		})
+	}
 }

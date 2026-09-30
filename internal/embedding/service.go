@@ -628,21 +628,35 @@ func (s *Service) Close() error {
 }
 
 // writeGunzipped decompresses gz into path with the executable bit the dynamic linker needs.
-func writeGunzipped(path string, gz []byte) error {
+// It writes a temp file and renames it, so a crash never leaves a truncated library at path.
+func writeGunzipped(path string, gz []byte) (err error) {
 	zr, err := gzip.NewReader(bytes.NewReader(gz))
 	if err != nil {
 		return err
 	}
 	defer func() { _ = zr.Close() }()
 
-	// #nosec G302 G304 -- shared library needs 0755; path is under our own cache dir
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
+	f, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp*")
 	if err != nil {
 		return err
 	}
-	if _, err := io.Copy(f, zr); err != nil {
+	tmp := f.Name()
+	defer func() {
+		if err != nil {
+			_ = os.Remove(tmp)
+		}
+	}()
+
+	if _, err = io.Copy(f, zr); err != nil {
 		_ = f.Close()
 		return err
 	}
-	return f.Close()
+	if err = f.Close(); err != nil {
+		return err
+	}
+	// #nosec G302 -- shared library needs the executable bit for the dynamic linker
+	if err = os.Chmod(tmp, 0o755); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
