@@ -1,0 +1,276 @@
+{
+ "docs": [
+  {
+   "type": "bugfix",
+   "title": "Fixed race in session cache",
+   "narrative": "Concurrent map writes in the session cache caused panics; guarded with a RWMutex."
+  },
+  {
+   "type": "decision",
+   "title": "Chose SQLite WAL mode",
+   "narrative": "WAL lets readers proceed while a writer commits, so hooks can query during writes."
+  },
+  {
+   "type": "feature",
+   "title": "Added Prometheus metrics endpoint",
+   "narrative": "Exposes request latency histograms and error counters at /metrics for scraping."
+  },
+  {
+   "type": "bugfix",
+   "title": "Fixed memory leak in websocket hub",
+   "narrative": "Goroutines were never released when clients disconnected; added context cancellation."
+  },
+  {
+   "type": "refactor",
+   "title": "Extracted retry helper with backoff",
+   "narrative": "Exponential backoff with jitter now lives in one function used by all HTTP callers."
+  },
+  {
+   "type": "decision",
+   "title": "Use argon2id for password hashing",
+   "narrative": "bcrypt cost was too low for new hardware; argon2id with 64MB memory chosen."
+  },
+  {
+   "type": "feature",
+   "title": "Dark mode toggle in dashboard",
+   "narrative": "Theme preference persists in localStorage and follows prefers-color-scheme by default."
+  },
+  {
+   "type": "discovery",
+   "title": "Kubernetes readiness probe timing",
+   "narrative": "Pods were killed during warmup because the readiness probe fired before the model loaded."
+  },
+  {
+   "type": "bugfix",
+   "title": "Fixed off-by-one in pagination",
+   "narrative": "The last page skipped one row when total count was an exact multiple of page size."
+  },
+  {
+   "type": "decision",
+   "title": "Adopted table-driven tests",
+   "narrative": "Subtests with named cases make failures easier to locate and new cases cheap to add."
+  },
+  {
+   "type": "feature",
+   "title": "Rate limiting middleware",
+   "narrative": "Token bucket per client IP returns 429 with a Retry-After header when exceeded."
+  },
+  {
+   "type": "bugfix",
+   "title": "Fixed timezone bug in scheduler",
+   "narrative": "Cron jobs fired an hour late after daylight saving because times were stored in local zone."
+  },
+  {
+   "type": "discovery",
+   "title": "Slow query caused by missing index",
+   "narrative": "EXPLAIN showed a sequential scan on the events table; a composite index cut it from 900ms to 4ms."
+  },
+  {
+   "type": "refactor",
+   "title": "Split monolithic handler file",
+   "narrative": "The 3000 line handlers file was divided by domain: sessions, observations, search."
+  },
+  {
+   "type": "decision",
+   "title": "Embeddings computed locally with ONNX",
+   "narrative": "Avoids sending user text to third parties and works offline."
+  },
+  {
+   "type": "feature",
+   "title": "Export observations as JSON",
+   "narrative": "New CLI command dumps all stored observations to a portable JSON file for backup."
+  },
+  {
+   "type": "bugfix",
+   "title": "Fixed CORS preflight failure",
+   "narrative": "OPTIONS requests were rejected by auth middleware; moved CORS handling before authentication."
+  },
+  {
+   "type": "discovery",
+   "title": "Docker image size dominated by build cache",
+   "narrative": "Multi-stage build with a distroless runtime reduced the image from 1.2GB to 80MB."
+  },
+  {
+   "type": "decision",
+   "title": "Structured logging with zerolog",
+   "narrative": "JSON logs with fields are easier to filter in aggregation than free-form strings."
+  },
+  {
+   "type": "feature",
+   "title": "Full text search with FTS5",
+   "narrative": "Keyword queries use SQLite FTS5 with porter stemming alongside vector similarity."
+  },
+  {
+   "type": "bugfix",
+   "title": "Fixed panic on nil config",
+   "narrative": "Missing settings file returned a nil pointer; defaults are now loaded instead."
+  },
+  {
+   "type": "discovery",
+   "title": "GC pauses from large slices",
+   "narrative": "Preallocating slice capacity removed repeated growth and lowered p99 latency."
+  },
+  {
+   "type": "decision",
+   "title": "Graceful shutdown on SIGTERM",
+   "narrative": "Server drains in-flight requests for 30 seconds before exiting so deploys drop nothing."
+  },
+  {
+   "type": "refactor",
+   "title": "Replaced global state with dependency injection",
+   "narrative": "Services receive their stores through constructors, which makes tests independent."
+  },
+  {
+   "type": "feature",
+   "title": "OAuth login with GitHub",
+   "narrative": "Users authenticate via the GitHub authorization code flow and receive a session cookie."
+  },
+  {
+   "type": "bugfix",
+   "title": "Fixed flaky integration test",
+   "narrative": "The test relied on sleep; replaced with polling on a readiness condition."
+  },
+  {
+   "type": "discovery",
+   "title": "Git hooks slowed commits",
+   "narrative": "Pre-commit ran the full test suite; limited it to changed packages."
+  },
+  {
+   "type": "decision",
+   "title": "Pinned dependency versions",
+   "narrative": "Lockfile committed and CI uses frozen installs to keep builds reproducible."
+  },
+  {
+   "type": "feature",
+   "title": "Webhook retries with dead letter queue",
+   "narrative": "Failed deliveries retry five times and then land in a dead letter table for inspection."
+  },
+  {
+   "type": "discovery",
+   "title": "Unicode normalization broke search",
+   "narrative": "Accented characters did not match until queries and content were NFC normalized."
+  }
+ ],
+ "queries": [
+  {
+   "doc": 0,
+   "query": "why did concurrent writes to the cache crash the program"
+  },
+  {
+   "doc": 1,
+   "query": "how can readers keep working while the database is being written"
+  },
+  {
+   "doc": 2,
+   "query": "where do I scrape request latency numbers from"
+  },
+  {
+   "doc": 3,
+   "query": "goroutines not freed after clients drop connection"
+  },
+  {
+   "doc": 4,
+   "query": "shared function for repeating failed requests with growing delays"
+  },
+  {
+   "doc": 5,
+   "query": "which algorithm protects stored passwords"
+  },
+  {
+   "doc": 6,
+   "query": "can the UI switch to a dark theme"
+  },
+  {
+   "doc": 7,
+   "query": "containers restarted while the model was still loading"
+  },
+  {
+   "doc": 8,
+   "query": "last page of results missing an item"
+  },
+  {
+   "doc": 9,
+   "query": "why do our tests use named cases"
+  },
+  {
+   "doc": 10,
+   "query": "how are abusive clients throttled"
+  },
+  {
+   "doc": 11,
+   "query": "scheduled jobs running late after clocks changed"
+  },
+  {
+   "doc": 12,
+   "query": "query got fast after adding an index"
+  },
+  {
+   "doc": 13,
+   "query": "large source file was broken up by domain"
+  },
+  {
+   "doc": 14,
+   "query": "do we send text to an external embedding API"
+  },
+  {
+   "doc": 15,
+   "query": "how to back up everything I stored"
+  },
+  {
+   "doc": 16,
+   "query": "browser blocked cross-origin request before login check"
+  },
+  {
+   "doc": 17,
+   "query": "how did we make the container image smaller"
+  },
+  {
+   "doc": 18,
+   "query": "why are logs emitted as JSON"
+  },
+  {
+   "doc": 19,
+   "query": "keyword matching with stemming"
+  },
+  {
+   "doc": 20,
+   "query": "crash when settings file is absent"
+  },
+  {
+   "doc": 21,
+   "query": "reduce latency spikes from memory allocation"
+  },
+  {
+   "doc": 22,
+   "query": "what happens to requests during deployment shutdown"
+  },
+  {
+   "doc": 23,
+   "query": "stop using package level variables for services"
+  },
+  {
+   "doc": 24,
+   "query": "sign in with a third party identity provider"
+  },
+  {
+   "doc": 25,
+   "query": "test that fails randomly because of timing"
+  },
+  {
+   "doc": 26,
+   "query": "commit takes too long because of checks"
+  },
+  {
+   "doc": 27,
+   "query": "make builds reproducible across machines"
+  },
+  {
+   "doc": 28,
+   "query": "what happens when a callback delivery fails repeatedly"
+  },
+  {
+   "doc": 29,
+   "query": "accented letters not found when searching"
+  }
+ ]
+}

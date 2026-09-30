@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,6 +27,9 @@ const EmbeddingDim = 384
 
 // Model version constants
 const (
+	// BGEStorageVersion tags stored vectors; bump it to force a rebuild when vectors change.
+	BGEStorageVersion = "bge-v1.5-l2"
+
 	// BGEModelVersion is the version string for bge-small-en-v1.5
 	BGEModelVersion = "bge-v1.5"
 	// BGEModelName is the human-readable name for bge-small-en-v1.5
@@ -128,7 +132,7 @@ func (m *bgeModel) Name() string {
 
 // Version returns the short version string for storage.
 func (m *bgeModel) Version() string {
-	return BGEModelVersion
+	return BGEStorageVersion
 }
 
 // Dimensions returns the embedding vector size.
@@ -512,10 +516,26 @@ func meanPooling(embeddings []float32, attentionMask []int64, batchSize, seqLen,
 			}
 		}
 
-		results[b] = result
+		results[b] = l2Normalize(result)
 	}
 
 	return results
+}
+
+// l2Normalize scales v to unit length in place; sqlite-vec distances assume unit vectors.
+func l2Normalize(v []float32) []float32 {
+	var sum float64
+	for _, x := range v {
+		sum += float64(x) * float64(x)
+	}
+	if sum == 0 {
+		return v
+	}
+	inv := float32(1 / math.Sqrt(sum))
+	for i := range v {
+		v[i] *= inv
+	}
+	return v
 }
 
 // clsPooling extracts the [CLS] token embedding (first token).
@@ -529,7 +549,7 @@ func clsPooling(embeddings []float32, batchSize, seqLen, hiddenSize int) [][]flo
 		// CLS token is at position 0
 		embOffset := b * seqLen * hiddenSize
 		copy(result, embeddings[embOffset:embOffset+hiddenSize])
-		results[b] = result
+		results[b] = l2Normalize(result)
 	}
 
 	return results
