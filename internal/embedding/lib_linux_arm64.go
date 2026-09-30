@@ -6,10 +6,10 @@ import (
 	_ "embed"
 )
 
-//go:embed assets/lib/linux-arm64/libonnxruntime.so
+//go:embed assets/lib/linux-arm64/libonnxruntime.so.gz
 var onnxRuntimeLib []byte
 
-//go:embed assets/lib/linux-arm64/libonnxruntime_providers_shared.so
+//go:embed assets/lib/linux-arm64/libonnxruntime_providers_shared.so.gz
 var onnxRuntimeProvidersLib []byte
 
 const onnxRuntimeLibName = "libonnxruntime.so"

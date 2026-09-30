@@ -6,7 +6,7 @@ import (
 	_ "embed"
 )
 
-//go:embed assets/lib/darwin-arm64/libonnxruntime.dylib
+//go:embed assets/lib/darwin-arm64/libonnxruntime.dylib.gz
 var onnxRuntimeLib []byte
 
 const onnxRuntimeLibName = "libonnxruntime.dylib"

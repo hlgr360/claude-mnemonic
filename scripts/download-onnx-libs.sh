@@ -51,9 +51,20 @@ get_installed_version() {
     fi
 }
 
+# Gzip the libraries: Go embeds the .gz and gunzips once at first use, which
+# shrinks the worker binary by roughly 25 MB.
+compress_libs() {
+    local plat="$1"
+    local f
+    for f in "${ASSETS_DIR}/${plat}"/*.dylib "${ASSETS_DIR}/${plat}"/*.so "${ASSETS_DIR}/${plat}"/*.dll; do
+        [ -f "$f" ] && gzip -9 -n -f "$f"
+    done
+}
+
 # Write version file after successful download
 write_version_file() {
     local plat="$1"
+    compress_libs "$plat"
     echo "${ONNX_VERSION}" > "${ASSETS_DIR}/${plat}/.version"
 }
 
@@ -110,9 +121,9 @@ download_windows_amd64() {
 lib_exists() {
     local plat="$1"
     case "$plat" in
-        darwin-*) [ -f "${ASSETS_DIR}/${plat}/libonnxruntime.dylib" ] ;;
-        linux-*) [ -f "${ASSETS_DIR}/${plat}/libonnxruntime.so" ] ;;
-        windows-*) [ -f "${ASSETS_DIR}/${plat}/onnxruntime.dll" ] ;;
+        darwin-*) [ -f "${ASSETS_DIR}/${plat}/libonnxruntime.dylib.gz" ] ;;
+        linux-*) [ -f "${ASSETS_DIR}/${plat}/libonnxruntime.so.gz" ] ;;
+        windows-*) [ -f "${ASSETS_DIR}/${plat}/onnxruntime.dll.gz" ] ;;
         *) return 1 ;;
     esac
 }

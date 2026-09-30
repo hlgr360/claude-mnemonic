@@ -3,10 +3,12 @@ package embedding
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -134,7 +136,7 @@ func (m *bgeModel) Dimensions() int {
 	return EmbeddingDim
 }
 
-// extractONNXLibrary extracts the embedded ONNX runtime library to a temp directory.
+// extractONNXLibrary gunzips the embedded ONNX runtime library to a temp directory.
 // Uses content hash to avoid re-extracting if already present.
 func extractONNXLibrary() (string, error) {
 	// Create a hash of the library content for cache key
@@ -157,16 +159,14 @@ func extractONNXLibrary() (string, error) {
 	}
 
 	// Write main library
-	// #nosec G306 -- Shared library needs executable permission (0755) for dynamic linker
-	if err := os.WriteFile(libPath, onnxRuntimeLib, 0755); err != nil {
+	if err := writeGunzipped(libPath, onnxRuntimeLib); err != nil {
 		return "", fmt.Errorf("write library: %w", err)
 	}
 
 	// Write providers library if present (Linux only)
 	if len(onnxRuntimeProvidersLib) > 0 && onnxRuntimeProvidersLibName != "" {
 		providersPath := filepath.Join(cacheDir, onnxRuntimeProvidersLibName)
-		// #nosec G306 -- Shared library needs executable permission (0755) for dynamic linker
-		if err := os.WriteFile(providersPath, onnxRuntimeProvidersLib, 0755); err != nil {
+		if err := writeGunzipped(providersPath, onnxRuntimeProvidersLib); err != nil {
 			return "", fmt.Errorf("write providers library: %w", err)
 		}
 	}
@@ -625,4 +625,24 @@ func (s *Service) EmbedBatchWithContext(ctx context.Context, texts []string) ([]
 // Close releases model resources.
 func (s *Service) Close() error {
 	return s.model.Close()
+}
+
+// writeGunzipped decompresses gz into path with the executable bit the dynamic linker needs.
+func writeGunzipped(path string, gz []byte) error {
+	zr, err := gzip.NewReader(bytes.NewReader(gz))
+	if err != nil {
+		return err
+	}
+	defer func() { _ = zr.Close() }()
+
+	// #nosec G302 G304 -- shared library needs 0755; path is under our own cache dir
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(f, zr); err != nil {
+		_ = f.Close()
+		return err
+	}
+	return f.Close()
 }

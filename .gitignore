@@ -95,3 +95,6 @@ docs/dist
 plugin/.claude-plugin/plugin.json
 plugin/.claude-plugin/marketplace.json
 user-prompt
+
+# Compressed ONNX runtime libs are produced by scripts/download-onnx-libs.sh
+internal/embedding/assets/lib/**/*.gz
