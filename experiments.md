@@ -40,7 +40,20 @@ Metric: failing cases in the extraction fault test (`TestWriteGunzipped`). Lower
 
 ## Campaign C: search accuracy
 
-Not run. It needs a fixed observation corpus, a labelled query set and the downloaded embedding model. Building that eval set is a separate task.
+Harness: `scripts/eval-search` seeds 30 labelled observations, starts a real worker (fresh HOME, model cache copied), waits for the vector rebuild, then runs 30 paraphrased queries against `/api/context/search`. Metric: MRR@10 (higher is better). Threshold: at least +0.02. Runs are deterministic (repeat runs identical).
+
+| id | mutation | MRR@10 | recall@5 | kept? |
+|----|----------|--------|----------|-------|
+| 01 | baseline | 0.7944 | 0.8667 | base |
+| 02 | L2-normalise embeddings (similarity was negative for every vector hit, so search fell back to FTS) | 0.8944 | 0.9667 | KEEP |
+| 03 | reranking alpha 0.7 -> 0.5 | 0.9111 | 0.9667 | revert (+0.017 < 0.02) |
+| 04 | reranking alpha 0.7 -> 0.9 | 0.9111 | 0.9667 | revert (+0.017 < 0.02) |
+| 05 | reranker off | 0.8889 | 0.9667 | revert |
+| 06 | reranker pure mode | 0.8714 | 0.9667 | revert |
+| 07 | CLS pooling instead of mean | 0.8944 | 0.9667 | revert |
+
+Trial 02 changes stored vectors. `BGEStorageVersion` is bumped to `bge-v1.5-l2`, so existing installs rebuild vectors on next start.
+Caveat: 30 queries is a small set, so borderline gains such as alpha 0.5 are not distinguishable from noise.
 
 Notes:
 - Trial 04 needs `scripts/download-onnx-libs.sh` to produce `.gz` files; existing raw libs trigger a re-download.
