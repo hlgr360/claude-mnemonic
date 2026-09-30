@@ -8,12 +8,14 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/lukaszraczylo/claude-mnemonic/internal/config"
 	"github.com/lukaszraczylo/claude-mnemonic/internal/mcp"
 	"github.com/lukaszraczylo/claude-mnemonic/internal/watcher"
+	"github.com/lukaszraczylo/claude-mnemonic/pkg/hooks"
 	"github.com/lukaszraczylo/oss-telemetry"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -22,9 +24,18 @@ import (
 // Version is set at build time via ldflags.
 var Version = "dev"
 
+// defaultProject derives the project ID the same way the hooks do.
+func defaultProject() string {
+	dir := os.Getenv("CLAUDE_PROJECT_DIR")
+	if dir == "" {
+		dir, _ = os.Getwd()
+	}
+	return hooks.ProjectIDWithName(dir)
+}
+
 func main() {
 	// Parse flags
-	project := flag.String("project", "", "Project name (required)")
+	project := flag.String("project", "", "Project ID (default: derived from CLAUDE_PROJECT_DIR or cwd)")
 	debug := flag.Bool("debug", false, "Enable debug logging")
 	flag.Parse()
 
@@ -35,8 +46,8 @@ func main() {
 	}
 	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, NoColor: true})
 
-	if *project == "" {
-		log.Fatal().Msg("--project is required")
+	if *project == "" || strings.Contains(*project, "${") {
+		*project = defaultProject()
 	}
 
 	// Get worker port from config
