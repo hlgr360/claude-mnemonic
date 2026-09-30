@@ -1,3 +1,8 @@
+---
+description: Restart the Claude Mnemonic worker process
+allowed-tools: Bash(curl:*)
+---
+
 # Restart Claude Mnemonic Worker
 
 Restart the claude-mnemonic worker process. Use this command when experiencing issues with the memory system.

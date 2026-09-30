@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/session-start",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/session-start\"",
             "timeout": 30
           }
         ]
@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/user-prompt",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/user-prompt\"",
             "timeout": 10
           }
         ]
@@ -29,7 +29,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/post-tool-use",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/post-tool-use\"",
             "timeout": 10
           }
         ]
@@ -40,7 +40,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/subagent-stop",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/subagent-stop\"",
             "timeout": 10
           }
         ]
@@ -51,7 +51,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/stop",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/stop\"",
             "timeout": 30
           }
         ]
