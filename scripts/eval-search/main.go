@@ -117,7 +117,7 @@ func run(c corpus, port string) error {
 	var mrr, recall, results float64
 	for _, q := range c.Queries {
 		u := fmt.Sprintf("http://127.0.0.1:%s/api/context/search?project=%s&query=%s", port, project, url.QueryEscape(q.Query))
-		resp, err := client.Get(u)
+		resp, err := client.Get(u) // #nosec G704 -- dev tool, loopback URL from a numeric port
 		if err != nil {
 			return err
 		}
