@@ -500,15 +500,13 @@ func TestObservationStore_CleanupOldObservations(t *testing.T) {
 
 	// Store observations beyond the limit WITHOUT async cleanup
 	// We disable async cleanup by not setting cleanupFunc
-	var allIDs []int64
 	for i := 0; i < 105; i++ {
 		observation := &models.ParsedObservation{
 			Type:  models.ObsTypeDiscovery,
 			Title: "Observation",
 		}
-		id, _, err := observationStore.StoreObservation(ctx, "claude-1", "test-project", observation, i, 10)
+		_, _, err := observationStore.StoreObservation(ctx, "claude-1", "test-project", observation, i, 10)
 		require.NoError(t, err)
-		allIDs = append(allIDs, id)
 		time.Sleep(2 * time.Millisecond) // Ensure different timestamps
 	}
 

@@ -1,6 +1,7 @@
 package sdk
 
 import (
+	"context"
 	"testing"
 
 	"github.com/lukaszraczylo/claude-mnemonic/internal/vector/sqlitevec"
@@ -121,7 +122,7 @@ func TestCheckVectorDeduplication_NilClient(t *testing.T) {
 		Narrative: "Some narrative text",
 	}
 
-	result := p.checkVectorDeduplication(nil, obs, "test-project")
+	result := p.checkVectorDeduplication(context.Background(), obs, "test-project")
 	if result.Action != "insert" {
 		t.Errorf("expected Action='insert' when vectorClient is nil, got %q", result.Action)
 	}
@@ -136,7 +137,7 @@ func TestCheckVectorDeduplication_EmptySearchText(t *testing.T) {
 		// All empty fields
 	}
 
-	result := p.checkVectorDeduplication(nil, obs, "test-project")
+	result := p.checkVectorDeduplication(context.Background(), obs, "test-project")
 	if result.Action != "insert" {
 		t.Errorf("expected Action='insert' for empty observation, got %q", result.Action)
 	}

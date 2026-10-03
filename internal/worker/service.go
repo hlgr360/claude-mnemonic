@@ -1213,7 +1213,6 @@ func (s *Service) setupMiddleware() {
 
 	s.router.Use(middleware.Logger)
 	s.router.Use(middleware.Recoverer)
-	s.router.Use(middleware.RealIP)
 
 	// Add security headers (X-Frame-Options, X-Content-Type-Options, CSP, etc.)
 	s.router.Use(SecurityHeaders)

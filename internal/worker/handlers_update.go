@@ -218,9 +218,8 @@ func (s *Service) handleUpdateRestart(w http.ResponseWriter, r *http.Request) {
 
 	// Restart in background after response is sent
 	go func() {
-		if err := s.updater.Restart(); err != nil {
-			log.Error().Err(err).Msg("Failed to restart worker")
-		}
+		// Restart only returns when the new worker failed to start.
+		log.Error().Err(s.updater.Restart()).Msg("Failed to restart worker")
 	}()
 }
 
@@ -244,8 +243,7 @@ func (s *Service) handleRestart(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		// Small delay to ensure response is sent
 		time.Sleep(100 * time.Millisecond)
-		if err := s.updater.Restart(); err != nil {
-			log.Error().Err(err).Msg("Failed to restart worker")
-		}
+		// Restart only returns when the new worker failed to start.
+		log.Error().Err(s.updater.Restart()).Msg("Failed to restart worker")
 	}()
 }
