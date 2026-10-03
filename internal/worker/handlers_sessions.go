@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/lukaszraczylo/claude-mnemonic/internal/privacy"
@@ -373,7 +374,12 @@ func (s *Service) handleGetSessionByClaudeID(w http.ResponseWriter, r *http.Requ
 type SummarizeRequest struct {
 	LastUserMessage      string `json:"lastUserMessage"`
 	LastAssistantMessage string `json:"lastAssistantMessage"`
+	// Conversation is an excerpt of the conversation a compaction is about to drop (PreCompact hook).
+	Conversation string `json:"conversation,omitempty"`
 }
+
+// summarizeMaxConversation bounds the conversation excerpt a client may send.
+const summarizeMaxConversation = 64 << 10
 
 // handleSummarize handles summarize requests from stop hook.
 func (s *Service) handleSummarize(w http.ResponseWriter, r *http.Request) {
@@ -390,8 +396,19 @@ func (s *Service) handleSummarize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The excerpt spans many prompts, any of which may hold <private> text.
+	req.Conversation = privacy.Clean(req.Conversation)
+	if len(req.Conversation) > summarizeMaxConversation {
+		// Keep the end: the most recent part of a conversation matters most.
+		cut := len(req.Conversation) - summarizeMaxConversation
+		for cut < len(req.Conversation) && !utf8.RuneStart(req.Conversation[cut]) {
+			cut++
+		}
+		req.Conversation = req.Conversation[cut:]
+	}
+
 	// Queue summarize request
-	if err := s.sessionManager.QueueSummarize(r.Context(), id, req.LastUserMessage, req.LastAssistantMessage); err != nil {
+	if err := s.sessionManager.QueueSummarizeConversation(r.Context(), id, req.LastUserMessage, req.LastAssistantMessage, req.Conversation); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

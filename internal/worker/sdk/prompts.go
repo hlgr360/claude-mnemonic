@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // ObservationTypes defines valid observation types.
@@ -76,7 +77,9 @@ type SummaryRequest struct {
 	UserPrompt           string
 	LastUserMessage      string
 	LastAssistantMessage string
-	SessionDBID          int64
+	// Conversation is an excerpt of the conversation that a compaction is about to drop.
+	Conversation string
+	SessionDBID  int64
 }
 
 // BuildSummaryPrompt builds a prompt requesting a session summary.
@@ -86,6 +89,13 @@ func BuildSummaryPrompt(req SummaryRequest) string {
 	sb.WriteString("PROGRESS SUMMARY CHECKPOINT\n")
 	sb.WriteString("===========================\n")
 	sb.WriteString("Write progress notes of what was done, what was learned, and what's next. This is a checkpoint to capture progress so far. The session is ongoing - you may receive more requests and tool executions after this summary. Write \"next_steps\" as the current trajectory of work (what's actively being worked on or coming up next), not as post-session future work. Always write at least a minimal summary explaining current progress, even if work is still in early stages, so that users see a summary output tied to each request.\n\n")
+
+	if req.Conversation != "" {
+		sb.WriteString("The conversation is about to be compacted, so most of it will be dropped. This summary has to carry what would otherwise be lost: what the user is working toward, what was decided and why, what was ruled out, and what is still open.\n\n")
+		sb.WriteString("Recent conversation (oldest first):\n")
+		sb.WriteString(truncateTail(StripSystemXML(req.Conversation), maxConversationChars))
+		sb.WriteString("\n\n")
+	}
 
 	if req.LastAssistantMessage != "" {
 		// Strip system XML artifacts from captured transcript content
@@ -112,6 +122,21 @@ Never reference yourself or your own actions. Do not output anything other than 
 Thank you, this summary will be very useful for keeping track of our progress!`)
 
 	return sb.String()
+}
+
+// maxConversationChars bounds the conversation excerpt put into a summary prompt.
+const maxConversationChars = 24000
+
+// truncateTail keeps the end of s (the most recent part of a conversation) within maxLen bytes.
+func truncateTail(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	cut := len(s) - maxLen
+	for cut < len(s) && !utf8.RuneStart(s[cut]) {
+		cut++
+	}
+	return "(earlier part left out) ..." + s[cut:]
 }
 
 // truncate truncates a string to the specified length.

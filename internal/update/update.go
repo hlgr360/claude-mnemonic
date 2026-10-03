@@ -480,6 +480,7 @@ func (u *Updater) replaceBinaries(extractDir string) error {
 		"hooks/user-prompt",
 		"hooks/post-tool-use",
 		"hooks/stop",
+		"hooks/pre-compact",
 		"hooks/subagent-stop",
 		"hooks/statusline",
 	}

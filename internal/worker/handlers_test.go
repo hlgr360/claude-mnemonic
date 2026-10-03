@@ -10,8 +10,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/lukaszraczylo/claude-mnemonic/internal/config"
@@ -3062,4 +3064,33 @@ func TestHandleSearchByPrompt_RespectsTimeout(t *testing.T) {
 	// Acceptable: any error status, or an empty/error body on 200 (DB returned nothing).
 	// The key regression: it must NOT block for the full 15s timeout.
 	t.Logf("handler returned status=%d in %v", rec.Code, elapsed)
+}
+
+// TestHandleSummarize_ConversationIsCleanedBoundedAndQueued tests the PreCompact hook's excerpt.
+func TestHandleSummarize_ConversationIsCleanedBoundedAndQueued(t *testing.T) {
+	svc, cleanup := testService(t)
+	defer cleanup()
+	ctx := context.Background()
+	sessionID, err := svc.sessionStore.CreateSDKSession(ctx, "summarize-compact", "test-project", "test prompt")
+	require.NoError(t, err)
+
+	huge := "OLDEST " + strings.Repeat("é", summarizeMaxConversation) + " the key <private>sk-live-999</private> decision"
+	body, _ := json.Marshal(SummarizeRequest{LastUserMessage: "u", LastAssistantMessage: "a", Conversation: huge})
+	req := httptest.NewRequest(http.MethodPost, "/sessions/"+strconv.FormatInt(sessionID, 10)+"/summarize", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	svc.router.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var queued string
+	for _, m := range svc.sessionManager.DrainMessages(sessionID) {
+		if m.Summarize != nil {
+			queued = m.Summarize.Conversation
+		}
+	}
+	require.NotEmpty(t, queued, "the excerpt was queued with the request")
+	assert.NotContains(t, queued, "sk-live-999", "private text is removed before it reaches the summariser")
+	assert.NotContains(t, queued, "OLDEST", "the oldest part is dropped when it is too big")
+	assert.Contains(t, queued, "decision", "the newest part is kept")
+	assert.LessOrEqual(t, len(queued), summarizeMaxConversation)
+	assert.True(t, utf8.ValidString(queued), "the cut does not split a character")
 }

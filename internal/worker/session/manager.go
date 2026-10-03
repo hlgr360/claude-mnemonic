@@ -32,6 +32,8 @@ type ObservationData struct {
 type SummarizeData struct {
 	LastUserMessage      string
 	LastAssistantMessage string
+	// Conversation is an excerpt of the conversation about to be compacted (PreCompact hook); empty for the Stop hook.
+	Conversation string
 }
 
 // PendingMessage represents a message queued for SDK processing.
@@ -277,6 +279,12 @@ func (m *Manager) QueueObservation(ctx context.Context, sessionDBID int64, data 
 
 // QueueSummarize queues a summarize request for SDK processing.
 func (m *Manager) QueueSummarize(ctx context.Context, sessionDBID int64, lastUserMessage, lastAssistantMessage string) error {
+	return m.QueueSummarizeConversation(ctx, sessionDBID, lastUserMessage, lastAssistantMessage, "")
+}
+
+// QueueSummarizeConversation queues a summary request that also carries an excerpt of the
+// conversation, for a compaction that is about to drop it.
+func (m *Manager) QueueSummarizeConversation(ctx context.Context, sessionDBID int64, lastUserMessage, lastAssistantMessage, conversation string) error {
 	m.mu.Lock()
 	session, ok := m.sessions[sessionDBID]
 	if !ok {
@@ -297,6 +305,7 @@ func (m *Manager) QueueSummarize(ctx context.Context, sessionDBID int64, lastUse
 		Summarize: &SummarizeData{
 			LastUserMessage:      lastUserMessage,
 			LastAssistantMessage: lastAssistantMessage,
+			Conversation:         conversation,
 		},
 	})
 	queueDepth := len(session.pendingMessages)

@@ -274,3 +274,34 @@ func TestSummaryRequest_Struct(t *testing.T) {
 	assert.Equal(t, "Please fix the auth bug", req.LastUserMessage)
 	assert.Equal(t, "I've fixed the authentication issue", req.LastAssistantMessage)
 }
+
+func TestBuildSummaryPrompt_WithAConversationExplainsWhyAndIncludesIt(t *testing.T) {
+	req := SummaryRequest{
+		SessionDBID:          1,
+		LastAssistantMessage: "Done with the handler.",
+		Conversation:         "User: should we use names or ids?\n\nAssistant: names, ids are cumbersome",
+	}
+	result := BuildSummaryPrompt(req)
+
+	assert.Contains(t, result, "about to be compacted")
+	assert.Contains(t, result, "what was decided and why")
+	assert.Contains(t, result, "names, ids are cumbersome")
+	assert.Contains(t, result, "Done with the handler.", "the last response is still included")
+	assert.Less(t, strings.Index(result, "names, ids are cumbersome"), strings.Index(result, "Done with the handler."), "conversation first, then the last response")
+}
+
+func TestBuildSummaryPrompt_WithoutAConversationIsUnchanged(t *testing.T) {
+	result := BuildSummaryPrompt(SummaryRequest{SessionDBID: 1, LastAssistantMessage: "Did the work."})
+	assert.NotContains(t, result, "compacted")
+	assert.NotContains(t, result, "Recent conversation")
+}
+
+func TestBuildSummaryPrompt_KeepsTheEndOfAHugeConversation(t *testing.T) {
+	conversation := "OLDEST-MARKER " + strings.Repeat("é", maxConversationChars) + " NEWEST-MARKER"
+	result := BuildSummaryPrompt(SummaryRequest{SessionDBID: 1, Conversation: conversation})
+
+	assert.Contains(t, result, "NEWEST-MARKER")
+	assert.NotContains(t, result, "OLDEST-MARKER")
+	assert.Contains(t, result, "(earlier part left out)")
+	assert.True(t, strings.ToValidUTF8(result, "\uFFFD") == result, "the cut does not split a character")
+}

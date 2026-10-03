@@ -144,7 +144,9 @@ from the worker's log, which `make start-worker` truncates, so they are only ava
 
 ## Recovering after a compaction
 
-Claude Code re-injects the saved context after a compaction by itself (its session-start hook fires then).
+Claude Code re-injects the saved context after a compaction by itself (its session-start hook fires then), and
+its pre-compact hook asks the worker to summarise the conversation just before it is compacted, so decisions that
+only lived in the conversation are stored first.
 Desktop chat has no hooks, so a long chat that gets summarised can lose which project it was in and what it was
 doing. Two tools cover that:
 
