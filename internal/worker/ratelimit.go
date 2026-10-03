@@ -2,6 +2,7 @@
 package worker
 
 import (
+	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -206,14 +207,13 @@ func (pcrl *PerClientRateLimiter) Stats() map[string]any {
 }
 
 // PerClientRateLimitMiddleware creates middleware that applies per-client rate limiting.
-// Uses X-Forwarded-For or RemoteAddr to identify clients.
+// Identifies clients by the peer IP of the connection; forwarding headers are spoofable and ignored.
 func PerClientRateLimitMiddleware(limiter *PerClientRateLimiter) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Get client identifier (prefer X-Real-IP from RealIP middleware)
 			clientKey := r.RemoteAddr
-			if xff := r.Header.Get("X-Real-IP"); xff != "" {
-				clientKey = xff
+			if host, _, err := net.SplitHostPort(clientKey); err == nil {
+				clientKey = host
 			}
 
 			if !limiter.Allow(clientKey) {

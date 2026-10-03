@@ -1226,7 +1226,7 @@ func (s *Service) setupMiddleware() {
 	// Add gzip compression for responses >1KB (reduces bandwidth ~70% for JSON)
 	s.router.Use(middleware.Compress(5)) // Level 5 = good balance of speed vs compression
 
-	// Apply per-client rate limiting (after RealIP so we get the real client IP)
+	// Apply per-client rate limiting (keyed on the socket peer address; forwarding headers are untrusted)
 	if s.rateLimiter != nil {
 		s.router.Use(PerClientRateLimitMiddleware(s.rateLimiter))
 	}
