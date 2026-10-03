@@ -71,8 +71,16 @@ type CatchUpDecision struct {
 	CreatedAt string `json:"created_at"`
 }
 
+// CatchUpBrief is the project's brief as a new chat receives it.
+type CatchUpBrief struct {
+	Text   string `json:"text"`
+	Source string `json:"source"`
+	AsOf   string `json:"as_of"`
+}
+
 // CatchUpResponse is the digest a new chat reads to recover where the work stood.
 type CatchUpResponse struct {
+	Brief     *CatchUpBrief     `json:"brief,omitempty"`
 	Project   string            `json:"project"`
 	Threads   []CatchUpThread   `json:"threads"`
 	Decisions []CatchUpDecision `json:"decisions"`
@@ -155,15 +163,15 @@ func (s *Service) handleCheckpoint(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.afterCheckpoint(id, canonical, created)
+	s.afterSummaryWrite(id, canonical, created, "checkpoint")
 
 	noStore(w)
 	writeJSON(w, CheckpointResponse{Project: canonical, Thread: thread, ID: id, Created: created})
 }
 
-// afterCheckpoint refreshes the note's search documents (old ones are removed
-// first, because the text changed) and tells the dashboard.
-func (s *Service) afterCheckpoint(id int64, project string, created bool) {
+// afterSummaryWrite refreshes a written summary row's search documents (old ones are removed first,
+// because the text changed) and tells the dashboard. action names what was written: "checkpoint", "brief".
+func (s *Service) afterSummaryWrite(id int64, project string, created bool, action string) {
 	if s.vectorSync != nil {
 		s.asyncVectorSync(func() {
 			ctx, cancel := context.WithTimeout(s.ctx, 10*time.Second)
@@ -174,18 +182,18 @@ func (s *Service) afterCheckpoint(id int64, project string, created bool) {
 			}
 			if !created {
 				if derr := s.vectorSync.DeleteSummaries(ctx, []int64{id}); derr != nil && s.ctx.Err() == nil {
-					log.Debug().Err(derr).Int64("id", id).Msg("checkpoint: failed to drop old thread vectors")
+					log.Debug().Err(derr).Int64("id", id).Msg(action + ": failed to drop old vectors")
 				}
 			}
 			if serr := s.vectorSync.SyncSummary(ctx, summaries[0]); serr != nil && s.ctx.Err() == nil {
-				log.Debug().Err(serr).Int64("id", id).Msg("checkpoint: failed to sync thread note")
+				log.Debug().Err(serr).Int64("id", id).Msg(action + ": failed to sync")
 			}
 		})
 	}
 	if s.sseBroadcaster != nil {
 		s.sseBroadcaster.Broadcast(map[string]any{
 			"type":    "summary",
-			"action":  "checkpoint",
+			"action":  action,
 			"project": project,
 			"count":   1,
 		})
@@ -250,6 +258,11 @@ func (s *Service) handleCatchUp(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, d := range decisions {
 		resp.Decisions = append(resp.Decisions, CatchUpDecision{Title: d.Title, Subtitle: d.Subtitle, CreatedAt: d.CreatedAt})
+	}
+
+	if brief, berr := s.summaryStore.GetBrief(ctx, canonical); berr == nil && brief != nil {
+		b := briefResponse(brief)
+		resp.Brief = &CatchUpBrief{Text: b.Text, Source: b.Source, AsOf: b.AsOf}
 	}
 
 	noStore(w)

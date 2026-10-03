@@ -507,3 +507,54 @@ func TestValidBackend(t *testing.T) {
 	assert.False(t, ValidBackend(""))
 	assert.False(t, ValidBackend("Claude"), "callers normalise the case first")
 }
+
+func TestLoad_ProjectBriefIsOffByDefaultWithSensibleThresholds(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	cfg, err := Load()
+	require.NoError(t, err)
+
+	assert.False(t, cfg.ProjectBriefEnabled, "a brief spends Claude usage, so it is opt-in")
+	assert.Equal(t, 10, cfg.ProjectBriefMinNewObs)
+	assert.Equal(t, 7, cfg.ProjectBriefMaxAgeDays)
+	assert.Equal(t, 3, cfg.ProjectBriefMaxPerRun)
+	assert.Equal(t, 60, cfg.ProjectBriefIntervalMinutes)
+	assert.Equal(t, BackendClaude, cfg.LLMBackendBrief)
+}
+
+func TestLoad_ProjectBriefSettings(t *testing.T) {
+	writeSettings(t, `{
+		"CLAUDE_MNEMONIC_PROJECT_BRIEF_ENABLED": true,
+		"CLAUDE_MNEMONIC_PROJECT_BRIEF_MIN_NEW_OBSERVATIONS": 3,
+		"CLAUDE_MNEMONIC_PROJECT_BRIEF_MAX_AGE_DAYS": 14,
+		"CLAUDE_MNEMONIC_PROJECT_BRIEF_MAX_PER_RUN": 1,
+		"CLAUDE_MNEMONIC_PROJECT_BRIEF_INTERVAL_MINUTES": 5,
+		"CLAUDE_MNEMONIC_LLM_BACKEND_BRIEF": "Ollama"
+	}`)
+	cfg, err := Load()
+	require.NoError(t, err)
+
+	assert.True(t, cfg.ProjectBriefEnabled)
+	assert.Equal(t, 3, cfg.ProjectBriefMinNewObs)
+	assert.Equal(t, 14, cfg.ProjectBriefMaxAgeDays)
+	assert.Equal(t, 1, cfg.ProjectBriefMaxPerRun)
+	assert.Equal(t, 5, cfg.ProjectBriefIntervalMinutes)
+	assert.Equal(t, BackendOllama, cfg.LLMBackendBrief)
+}
+
+func TestLoad_UnusableProjectBriefSettingsKeepTheDefaults(t *testing.T) {
+	writeSettings(t, `{
+		"CLAUDE_MNEMONIC_PROJECT_BRIEF_ENABLED": "yes",
+		"CLAUDE_MNEMONIC_PROJECT_BRIEF_MIN_NEW_OBSERVATIONS": 0,
+		"CLAUDE_MNEMONIC_PROJECT_BRIEF_MAX_AGE_DAYS": -2,
+		"CLAUDE_MNEMONIC_PROJECT_BRIEF_MAX_PER_RUN": "many",
+		"CLAUDE_MNEMONIC_LLM_BACKEND_BRIEF": "gpt"
+	}`)
+	cfg, err := Load()
+	require.NoError(t, err)
+
+	assert.False(t, cfg.ProjectBriefEnabled, "only a real boolean enables it")
+	assert.Equal(t, 10, cfg.ProjectBriefMinNewObs)
+	assert.Equal(t, 7, cfg.ProjectBriefMaxAgeDays)
+	assert.Equal(t, 3, cfg.ProjectBriefMaxPerRun)
+	assert.Equal(t, BackendClaude, cfg.LLMBackendBrief)
+}

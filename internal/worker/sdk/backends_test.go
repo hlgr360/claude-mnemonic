@@ -22,6 +22,7 @@ import (
 func cfgWith(summary, observation, verify string, fallback bool) *config.Config {
 	cfg := config.Default()
 	cfg.LLMBackendSummary, cfg.LLMBackendObservation, cfg.LLMBackendVerify = summary, observation, verify
+	cfg.LLMBackendBrief = config.BackendClaude
 	cfg.LLMFallbackToClaude = fallback
 	return cfg
 }
@@ -31,6 +32,7 @@ func TestTaskBackend(t *testing.T) {
 	assert.Equal(t, "ollama", taskBackend(cfg, TaskSummary))
 	assert.Equal(t, "claude", taskBackend(cfg, TaskObservation))
 	assert.Equal(t, "ollama", taskBackend(cfg, TaskVerify))
+	assert.Equal(t, "claude", taskBackend(cfg, TaskBrief))
 	assert.Equal(t, "claude", taskBackend(cfg, Task("something else")), "an unknown task runs on the default")
 }
 
@@ -38,7 +40,10 @@ func TestNeedsClaude(t *testing.T) {
 	assert.True(t, needsClaude(config.Default()), "the default is the Claude CLI")
 	assert.True(t, needsClaude(cfgWith("ollama", "ollama", "claude", false)), "one task still on Claude")
 	assert.True(t, needsClaude(cfgWith("ollama", "ollama", "ollama", true)), "the fallback needs the CLI")
-	assert.False(t, needsClaude(cfgWith("ollama", "ollama", "ollama", false)), "everything local with no fallback works without the CLI")
+	allLocal := cfgWith("ollama", "ollama", "ollama", false)
+	assert.True(t, needsClaude(allLocal), "the brief task is still on Claude")
+	allLocal.LLMBackendBrief = config.BackendOllama
+	assert.False(t, needsClaude(allLocal), "everything local with no fallback works without the CLI")
 }
 
 func TestBuildCompleters(t *testing.T) {
@@ -166,7 +171,7 @@ func TestIsAvailable(t *testing.T) {
 	assert.True(t, (&Processor{claudePath: claudeStandIn(t, "x")}).IsAvailable())
 
 	local := &Processor{completers: map[Task]llm.Completer{
-		TaskSummary: &stubCompleter{}, TaskObservation: &stubCompleter{}, TaskVerify: &stubCompleter{},
+		TaskSummary: &stubCompleter{}, TaskObservation: &stubCompleter{}, TaskVerify: &stubCompleter{}, TaskBrief: &stubCompleter{},
 	}}
 	assert.True(t, local.IsAvailable(), "every task local: the CLI is not needed")
 

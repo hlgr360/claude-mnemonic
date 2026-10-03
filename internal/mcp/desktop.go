@@ -208,8 +208,8 @@ func desktopTools() []Tool {
 		},
 		{
 			Name: "context",
-			Description: memoryPrefix + "load the saved context for a chosen project (what Claude Code receives at session start): recent observations and decisions. " +
-				"Call it once after the user picks a project. Not for declined chats.",
+			Description: memoryPrefix + "load the saved context for a chosen project (what Claude Code receives at session start): recent observations and decisions, " +
+				"preceded by the project's short dated brief when one has been written. Call it once after the user picks a project. Not for declined chats.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -276,7 +276,7 @@ func desktopTools() []Tool {
 		},
 		{
 			Name: "catch_up",
-			Description: memoryPrefix + "recover where the work stood: the user's open threads (goal, progress, decisions, next steps), most recently worked on first, plus the project's latest decisions. " +
+			Description: memoryPrefix + "recover where the work stood: the project's short dated brief when there is one, the user's open threads (goal, progress, decisions, next steps), most recently worked on first, plus the project's latest decisions. " +
 				"Call it after the user picks a project when they are continuing earlier work, and whenever you notice you have lost the thread of what you were doing (for example after the conversation was compacted). " +
 				"Read-only, so it is also fine in a chat where the user declined to save anything.",
 			InputSchema: map[string]any{
@@ -470,7 +470,30 @@ func (s *Server) toolContext(ctx context.Context, args json.RawMessage) (string,
 	if a.Path != "" {
 		params["cwd"] = a.Path
 	}
-	return s.proxyGetRaw(ctx, "/api/context/inject", params)
+	out, err := s.proxyGetRaw(ctx, "/api/context/inject", params)
+	if err != nil {
+		return "", err
+	}
+	if brief := s.projectBrief(ctx, id); brief != "" {
+		return "Project brief (it can lag behind recent work):\n\n" + brief + "\n\n---\nSaved observations (raw):\n" + out, nil
+	}
+	return out, nil
+}
+
+// projectBrief returns the project's brief text, or "" when it has none or the worker cannot say: the
+// brief is an extra, so its absence never changes or breaks what the tool returns without it.
+func (s *Server) projectBrief(ctx context.Context, project string) string {
+	raw, err := s.proxyGetRaw(ctx, "/api/projects/"+url.PathEscape(project)+"/brief", nil)
+	if err != nil {
+		return ""
+	}
+	var b struct {
+		Text string `json:"text"`
+	}
+	if json.Unmarshal([]byte(raw), &b) != nil {
+		return ""
+	}
+	return strings.TrimSpace(b.Text)
 }
 
 func (s *Server) toolRemember(ctx context.Context, args json.RawMessage) (string, error) {
@@ -571,6 +594,11 @@ func (s *Server) toolCheckpoint(ctx context.Context, args json.RawMessage) (stri
 
 // catchUpDigest mirrors the worker's catch-up answer.
 type catchUpDigest struct {
+	Brief *struct {
+		Text   string `json:"text"`
+		Source string `json:"source"`
+		AsOf   string `json:"as_of"`
+	} `json:"brief"`
 	Project string `json:"project"`
 	Threads []struct {
 		Thread    string `json:"thread"`
@@ -618,6 +646,9 @@ func (s *Server) toolCatchUp(ctx context.Context, args json.RawMessage) (string,
 // renderCatchUp writes the digest as text a model can act on straight away.
 func renderCatchUp(d catchUpDigest) string {
 	var b strings.Builder
+	if d.Brief != nil && strings.TrimSpace(d.Brief.Text) != "" {
+		fmt.Fprintf(&b, "Project brief for %s (it can lag behind recent work; the notes below are newer):\n\n%s\n\n---\n", d.Project, d.Brief.Text)
+	}
 	if len(d.Threads) == 0 {
 		fmt.Fprintf(&b, "No thread notes are saved for project %s yet.\n", d.Project)
 	} else {
@@ -643,7 +674,7 @@ func renderCatchUp(d catchUpDigest) string {
 			}
 		}
 	}
-	if len(d.Threads) == 0 && len(d.Decisions) == 0 {
+	if len(d.Threads) == 0 && len(d.Decisions) == 0 && d.Brief == nil {
 		b.WriteString("Nothing to recover from here: call context for the project's saved observations.\n")
 	} else {
 		b.WriteString("\nUse this to continue where things left off. Say so if it looks out of date, and keep it current with checkpoint when the user chose to save.\n")

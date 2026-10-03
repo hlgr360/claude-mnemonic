@@ -51,6 +51,7 @@ type Config struct {
 	LLMBackendSummary            string   `json:"llm_backend_summary"`
 	LLMBackendObservation        string   `json:"llm_backend_observation"`
 	LLMBackendVerify             string   `json:"llm_backend_verify"`
+	LLMBackendBrief              string   `json:"llm_backend_brief"`
 	ContextObsConcepts           []string `json:"context_obs_concepts"`
 	ContextObsTypes              []string `json:"context_obs_types"`
 	ContextFullCount             int      `json:"context_full_count"`
@@ -61,6 +62,10 @@ type Config struct {
 	WorkerPort                   int      `json:"worker_port"`
 	OllamaNumCtx                 int      `json:"ollama_num_ctx"`
 	OllamaTimeoutSeconds         int      `json:"ollama_timeout_seconds"`
+	ProjectBriefMinNewObs        int      `json:"project_brief_min_new_observations"`
+	ProjectBriefMaxAgeDays       int      `json:"project_brief_max_age_days"`
+	ProjectBriefMaxPerRun        int      `json:"project_brief_max_per_run"`
+	ProjectBriefIntervalMinutes  int      `json:"project_brief_interval_minutes"`
 	DeduplicationThreshold       float64  `json:"deduplication_threshold"`
 	RerankingMinImprovement      float64  `json:"reranking_min_improvement"`
 	ContextObservations          int      `json:"context_observations"`
@@ -88,6 +93,7 @@ type Config struct {
 	ContextShowLastSummary       bool     `json:"context_show_last_summary"`
 	CleanupStaleObservations     bool     `json:"cleanup_stale_observations"`
 	LLMFallbackToClaude          bool     `json:"llm_fallback_to_claude"`
+	ProjectBriefEnabled          bool     `json:"project_brief_enabled"`
 }
 
 var (
@@ -171,44 +177,52 @@ func Default() *Config {
 		Model:          DefaultModel,
 		EmbeddingModel: DefaultEmbeddingModel,
 		// Local LLM (Ollama) is opt-in: every task runs on the Claude CLI unless a backend is set.
-		OllamaKeepAlive:           "10m",
-		OllamaNumCtx:              16384, // room for a compaction excerpt plus the prompt
-		OllamaTimeoutSeconds:      120,
-		LLMBackendSummary:         BackendClaude,
-		LLMBackendObservation:     BackendClaude,
-		LLMBackendVerify:          BackendClaude,
-		LLMFallbackToClaude:       true,  // an unreachable Ollama falls back to the CLI
-		RerankingEnabled:          true,  // Enable by default for improved relevance
-		RerankingCandidates:       100,   // Retrieve top 100 candidates
-		RerankingResults:          10,    // Return top 10 after reranking
-		RerankingAlpha:            0.7,   // Favor cross-encoder score
-		RerankingMinImprovement:   0,     // Always apply reranking
-		GraphEnabled:              true,  // Enable graph-aware search by default
-		GraphMaxHops:              2,     // Two-hop traversal
-		GraphBranchFactor:         5,     // Expand top 5 neighbors per node
-		GraphEdgeWeight:           0.3,   // Minimum edge weight to follow
-		GraphRebuildIntervalMin:   60,    // Rebuild graph every 60 minutes
-		VectorStorageStrategy:     "hub", // Hub storage strategy (LEANN-inspired)
-		HubThreshold:              5,     // Require 5+ accesses to store embedding
-		ContextObservations:       100,
-		ContextFullCount:          25,
-		ContextSessionCount:       10,
-		ContextShowReadTokens:     true,
-		ContextShowWorkTokens:     true,
-		ContextFullField:          "narrative",
-		ContextShowLastSummary:    true,
-		ContextObsTypes:           DefaultObservationTypes,
-		ContextObsConcepts:        DefaultObservationConcepts,
-		ContextRelevanceThreshold: 0.3,   // Minimum 30% similarity to include
-		ContextMaxPromptResults:   10,    // Cap at 10 results max (0 = no cap, threshold only)
-		ContextMaxTokensStartup:   16000, // Max tokens for SessionStart context injection
-		ContextMaxTokensPrompt:    8000,  // Max tokens for UserPromptSubmit context injection
-		DeduplicationEnabled:      true,  // Enable write-time vector dedup
-		DeduplicationThreshold:    0.9,   // Similarity threshold for merging (0.9 = very similar)
-		MaintenanceEnabled:        true,  // Enable scheduled maintenance
-		MaintenanceIntervalHours:  6,     // Run every 6 hours
-		ObservationRetentionDays:  0,     // 0 = no age-based deletion (keep all)
-		CleanupStaleObservations:  false, // Don't auto-cleanup stale observations
+		OllamaKeepAlive:       "10m",
+		OllamaNumCtx:          16384, // room for a compaction excerpt plus the prompt
+		OllamaTimeoutSeconds:  120,
+		LLMBackendSummary:     BackendClaude,
+		LLMBackendObservation: BackendClaude,
+		LLMBackendVerify:      BackendClaude,
+		LLMFallbackToClaude:   true, // an unreachable Ollama falls back to the CLI
+		LLMBackendBrief:       BackendClaude,
+		// Project briefs spend Claude usage, so they are opt-in. A brief is refreshed after enough new
+		// observations, or when it is old and something is new.
+		ProjectBriefEnabled:         false,
+		ProjectBriefMinNewObs:       10,
+		ProjectBriefMaxAgeDays:      7,
+		ProjectBriefMaxPerRun:       3,
+		ProjectBriefIntervalMinutes: 60,
+		RerankingEnabled:            true,  // Enable by default for improved relevance
+		RerankingCandidates:         100,   // Retrieve top 100 candidates
+		RerankingResults:            10,    // Return top 10 after reranking
+		RerankingAlpha:              0.7,   // Favor cross-encoder score
+		RerankingMinImprovement:     0,     // Always apply reranking
+		GraphEnabled:                true,  // Enable graph-aware search by default
+		GraphMaxHops:                2,     // Two-hop traversal
+		GraphBranchFactor:           5,     // Expand top 5 neighbors per node
+		GraphEdgeWeight:             0.3,   // Minimum edge weight to follow
+		GraphRebuildIntervalMin:     60,    // Rebuild graph every 60 minutes
+		VectorStorageStrategy:       "hub", // Hub storage strategy (LEANN-inspired)
+		HubThreshold:                5,     // Require 5+ accesses to store embedding
+		ContextObservations:         100,
+		ContextFullCount:            25,
+		ContextSessionCount:         10,
+		ContextShowReadTokens:       true,
+		ContextShowWorkTokens:       true,
+		ContextFullField:            "narrative",
+		ContextShowLastSummary:      true,
+		ContextObsTypes:             DefaultObservationTypes,
+		ContextObsConcepts:          DefaultObservationConcepts,
+		ContextRelevanceThreshold:   0.3,   // Minimum 30% similarity to include
+		ContextMaxPromptResults:     10,    // Cap at 10 results max (0 = no cap, threshold only)
+		ContextMaxTokensStartup:     16000, // Max tokens for SessionStart context injection
+		ContextMaxTokensPrompt:      8000,  // Max tokens for UserPromptSubmit context injection
+		DeduplicationEnabled:        true,  // Enable write-time vector dedup
+		DeduplicationThreshold:      0.9,   // Similarity threshold for merging (0.9 = very similar)
+		MaintenanceEnabled:          true,  // Enable scheduled maintenance
+		MaintenanceIntervalHours:    6,     // Run every 6 hours
+		ObservationRetentionDays:    0,     // 0 = no age-based deletion (keep all)
+		CleanupStaleObservations:    false, // Don't auto-cleanup stale observations
 		// WAL checkpoint loop tunables (issue #49). Defaults mirror the worker constants:
 		// check the WAL every 60s and TRUNCATE-checkpoint once it reaches 4 MiB.
 		WALCheckpointIntervalSeconds: 60,
@@ -267,6 +281,7 @@ func Load() (*Config, error) {
 		"CLAUDE_MNEMONIC_LLM_BACKEND_SUMMARY":     &cfg.LLMBackendSummary,
 		"CLAUDE_MNEMONIC_LLM_BACKEND_OBSERVATION": &cfg.LLMBackendObservation,
 		"CLAUDE_MNEMONIC_LLM_BACKEND_VERIFY":      &cfg.LLMBackendVerify,
+		"CLAUDE_MNEMONIC_LLM_BACKEND_BRIEF":       &cfg.LLMBackendBrief,
 	} {
 		if v, ok := settings[key].(string); ok && ValidBackend(strings.ToLower(strings.TrimSpace(v))) {
 			*target = strings.ToLower(strings.TrimSpace(v))
@@ -274,6 +289,20 @@ func Load() (*Config, error) {
 	}
 	if v, ok := settings["CLAUDE_MNEMONIC_LLM_FALLBACK_TO_CLAUDE"].(bool); ok {
 		cfg.LLMFallbackToClaude = v
+	}
+	// Project brief settings
+	if v, ok := settings["CLAUDE_MNEMONIC_PROJECT_BRIEF_ENABLED"].(bool); ok {
+		cfg.ProjectBriefEnabled = v
+	}
+	for key, target := range map[string]*int{
+		"CLAUDE_MNEMONIC_PROJECT_BRIEF_MIN_NEW_OBSERVATIONS": &cfg.ProjectBriefMinNewObs,
+		"CLAUDE_MNEMONIC_PROJECT_BRIEF_MAX_AGE_DAYS":         &cfg.ProjectBriefMaxAgeDays,
+		"CLAUDE_MNEMONIC_PROJECT_BRIEF_MAX_PER_RUN":          &cfg.ProjectBriefMaxPerRun,
+		"CLAUDE_MNEMONIC_PROJECT_BRIEF_INTERVAL_MINUTES":     &cfg.ProjectBriefIntervalMinutes,
+	} {
+		if v, ok := settings[key].(float64); ok && v > 0 {
+			*target = int(v)
+		}
 	}
 	// Reranking settings
 	if v, ok := settings["CLAUDE_MNEMONIC_RERANKING_ENABLED"].(bool); ok {

@@ -108,7 +108,7 @@ threading.Thread(target=server.serve_forever, daemon=True).start()
 
 print("== the worker sees the local backend")
 st = call("GET", "/api/llm/status")
-check("the summary task is on Ollama, the others on Claude", st["backends"] == {"summary": "ollama", "observation": "claude", "verify": "claude"}, st["backends"])
+check("the summary task is on Ollama, the others on Claude", st["backends"] == {"summary": "ollama", "observation": "claude", "verify": "claude", "brief": "claude"}, st["backends"])
 check("Ollama is reachable and the configured model is installed", st["ollama"]["reachable"] and st["ollama"]["model_installed"] and st["ollama"]["configured_model"] == MODEL, st["ollama"])
 check("the installed models are listed", [m["name"] for m in st["ollama"]["installed"]] == [MODEL], st["ollama"]["installed"])
 

@@ -25,11 +25,11 @@ import urllib.error
 import urllib.request
 
 DEFAULT_URL = "http://localhost:11434"
-TASKS = ("summary", "observation", "verify")
+TASKS = ("summary", "observation", "verify", "brief")
 PREFIX = "CLAUDE_MNEMONIC_"
 MODELS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ollama-models.json")
 SMALL_MODEL_WARNING = ("Local models are clearly worse than Haiku here: their summaries invent details, and in our test none was good "
-                       "enough to replace Haiku (issue #26). None of the three tasks is risk-free: 'verify' permanently deletes an "
+                       "enough to replace Haiku (issue #26). None of the tasks is risk-free: 'verify' permanently deletes an "
                        "observation when the model calls it invalid. Compare on your own sessions before moving any task.")
 
 ask = input  # replaced in tests
