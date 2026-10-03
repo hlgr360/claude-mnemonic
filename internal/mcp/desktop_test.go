@@ -207,17 +207,17 @@ func TestToolsList_DesktopToolsOnlyInDesktopMode(t *testing.T) {
 	code := NewServer(nil, "", "p_aaaaaa", "v")
 	initialize(t, code, "claude-code")
 	codeTools := toolNames(t, code)
-	for _, n := range []string{"project_suggest", "project_resolve", "project_list", "context", "remember", "project_manage"} {
+	for _, n := range []string{"project_suggest", "project_resolve", "project_list", "context", "remember", "project_manage", "checkpoint", "catch_up"} {
 		assert.NotContains(t, codeTools, n, "Code's tool list must not change")
 	}
 
 	desktop := NewServer(nil, "", "p_aaaaaa", "v")
 	initialize(t, desktop, "claude-ai")
 	desktopTools := toolNames(t, desktop)
-	for _, n := range []string{"project_suggest", "project_resolve", "project_list", "context", "remember", "project_manage"} {
+	for _, n := range []string{"project_suggest", "project_resolve", "project_list", "context", "remember", "project_manage", "checkpoint", "catch_up"} {
 		assert.Contains(t, desktopTools, n)
 	}
-	assert.Len(t, desktopTools, len(codeTools)+6, "desktop adds exactly the six project tools")
+	assert.Len(t, desktopTools, len(codeTools)+8, "desktop adds exactly the eight project tools")
 }
 
 func TestToolDescriptions_CarryTheProtocol(t *testing.T) {
@@ -231,6 +231,10 @@ func TestToolDescriptions_CarryTheProtocol(t *testing.T) {
 	assert.Contains(t, byName["remember"], "never in a declined")
 	assert.Contains(t, byName["remember"], "never with a guessed project")
 	assert.Contains(t, byName["project_resolve"], "absolute path")
+	assert.Contains(t, byName["checkpoint"], "never in a declined")
+	assert.Contains(t, byName["checkpoint"], "same thread name")
+	assert.Contains(t, byName["catch_up"], "compacted")
+	assert.Contains(t, byName["catch_up"], "Read-only")
 
 	for _, tool := range desktopTools() {
 		assert.Equal(t, "object", tool.InputSchema["type"], tool.Name)
@@ -241,7 +245,7 @@ func TestDesktopToolsAreUnknownInCodeMode(t *testing.T) {
 	s := NewServer(nil, "", "p_aaaaaa", "v")
 	initialize(t, s, "claude-code")
 
-	for _, name := range []string{"remember", "project_list", "context", "project_suggest", "project_resolve", "project_manage"} {
+	for _, name := range []string{"remember", "project_list", "context", "project_suggest", "project_resolve", "project_manage", "checkpoint", "catch_up"} {
 		_, err := call(s, name, map[string]any{"text": "x"})
 		require.Error(t, err, name)
 		assert.Contains(t, err.Error(), "unknown tool", name)
@@ -1074,4 +1078,123 @@ func TestMemoryWording_StaysReasonablyShort(t *testing.T) {
 	// Descriptions sit in the model's context on every turn; keep the wording lean.
 	assert.Less(t, len(memoryBlurb), 600)
 	assert.Less(t, len(memoryPrefix), 120)
+}
+
+func threadWorker(t *testing.T, checkpointReply, catchUpReply string) *fakeWorker {
+	t.Helper()
+	return newFakeWorker(t, map[string]func(http.ResponseWriter, *http.Request){
+		"GET /api/projects/resolve": func(w http.ResponseWriter, r *http.Request) {
+			q := r.URL.Query()
+			switch {
+			case q.Get("id") == "repo_aaaaaa" || q.Get("name") == "repo":
+				jsonReply(`{"id":"repo_aaaaaa","match":"exact","known":true}`)(w, r)
+			case strings.HasPrefix(q.Get("path"), "/"):
+				jsonReply(`{"id":"folder_cccccc","match":"path","known":false}`)(w, r)
+			default:
+				jsonReply(`{"match":"none","candidates":["repo_aaaaaa"]}`)(w, r)
+			}
+		},
+		"POST /api/threads/checkpoint":             jsonReply(checkpointReply),
+		"GET /api/projects/repo_aaaaaa/catch-up":   jsonReply(catchUpReply),
+		"GET /api/projects/folder_cccccc/catch-up": jsonReply(`{"project":"folder_cccccc","threads":[],"decisions":[]}`),
+	})
+}
+
+func TestCheckpoint_SavesTheThreadNoteForTheChosenProject(t *testing.T) {
+	fw := threadWorker(t, `{"project":"repo_aaaaaa","thread":"Overlay design","id":7,"created":true}`, `{}`)
+	s := desktopServer(t, fw)
+
+	out, err := call(s, "checkpoint", map[string]any{
+		"project": "repo", "thread": "Overlay design", "goal": "ship it", "progress": "store done",
+		"decisions": "names not ids", "next_steps": "handlers",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, `Saved a new note for thread "Overlay design" in project repo_aaaaaa.`, out)
+
+	posts := fw.requests("/api/threads/checkpoint")
+	require.Len(t, posts, 1)
+	b := posts[0].body
+	assert.Equal(t, "repo_aaaaaa", b["project"], "a name is resolved to the project id")
+	assert.Equal(t, "Overlay design", b["thread"])
+	assert.Equal(t, "ship it", b["goal"])
+	assert.Equal(t, "store done", b["progress"])
+	assert.Equal(t, "names not ids", b["decisions"])
+	assert.Equal(t, "handlers", b["next_steps"])
+	assert.Equal(t, "claude-ai", b["source"])
+	assert.Equal(t, false, b["allow_new_project"], "a project chosen by name must already exist")
+}
+
+func TestCheckpoint_ReportsAnUpdateAndAllowsANewProjectOnlyFromAPath(t *testing.T) {
+	fw := threadWorker(t, `{"project":"folder_cccccc","thread":"T","id":7,"created":false}`, `{}`)
+	s := desktopServer(t, fw)
+
+	out, err := call(s, "checkpoint", map[string]any{"path": "/Users/x/folder", "thread": "T", "goal": "g"})
+	require.NoError(t, err)
+	assert.Equal(t, `Updated the note for thread "T" in project folder_cccccc.`, out)
+	assert.Equal(t, true, fw.requests("/api/threads/checkpoint")[0].body["allow_new_project"])
+}
+
+func TestCheckpoint_NeedsAThreadAndAProject(t *testing.T) {
+	fw := threadWorker(t, `{}`, `{}`)
+	s := desktopServer(t, fw)
+
+	_, err := call(s, "checkpoint", map[string]any{"project": "repo_aaaaaa", "goal": "g"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "thread is required")
+
+	_, err = call(s, "checkpoint", map[string]any{"thread": "T", "goal": "g"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "a project is required", "a declined chat has no project, so nothing is written")
+	assert.Empty(t, fw.requests("/api/threads/checkpoint"))
+}
+
+func TestCheckpoint_RejectsAGuessedProjectName(t *testing.T) {
+	fw := threadWorker(t, `{}`, `{}`)
+	s := desktopServer(t, fw)
+
+	_, err := call(s, "checkpoint", map[string]any{"project": "relative/dir", "thread": "T", "goal": "g"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown project")
+	assert.Empty(t, fw.requests("/api/threads/checkpoint"))
+}
+
+func TestCatchUp_RendersThreadsAndDecisionsAsText(t *testing.T) {
+	fw := threadWorker(t, `{}`, `{"project":"repo_aaaaaa","threads":[
+		{"thread":"Overlay design","goal":"ship it","progress":"store done","decisions":"names not ids","next_steps":"handlers","updated_at":"2026-10-03T16:00:00Z"},
+		{"thread":"Docs","goal":"write DESKTOP.md","updated_at":"2026-10-02T09:00:00Z"}],
+		"decisions":[{"title":"Use names","subtitle":"ids are cumbersome","created_at":"2026-10-01"},{"title":"Plain one","created_at":"2026-09-30"}]}`)
+	s := desktopServer(t, fw)
+
+	out, err := call(s, "catch_up", map[string]any{"project": "repo_aaaaaa", "threads": 3})
+	require.NoError(t, err)
+	assert.Contains(t, out, "Where the work stood in project repo_aaaaaa (most recently worked on first)")
+	assert.Less(t, strings.Index(out, "Thread: Overlay design"), strings.Index(out, "Thread: Docs"), "the order of the worker is kept")
+	for _, want := range []string{"  Goal: ship it", "  Progress: store done", "  Decisions: names not ids", "  Next: handlers",
+		"- Use names: ids are cumbersome (2026-10-01)", "- Plain one (2026-09-30)", "keep it current with checkpoint"} {
+		assert.Contains(t, out, want)
+	}
+	assert.NotContains(t, out, "Progress: \n", "empty fields are left out")
+
+	reqs := fw.requests("/api/projects/repo_aaaaaa/catch-up")
+	require.Len(t, reqs, 1)
+	assert.Equal(t, "3", reqs[0].query["threads"])
+}
+
+func TestCatchUp_WithNothingSavedSaysSoAndPointsToContext(t *testing.T) {
+	fw := threadWorker(t, `{}`, `{"project":"repo_aaaaaa","threads":[],"decisions":[]}`)
+	s := desktopServer(t, fw)
+
+	out, err := call(s, "catch_up", map[string]any{"project": "repo_aaaaaa"})
+	require.NoError(t, err)
+	assert.Contains(t, out, "No thread notes are saved for project repo_aaaaaa yet")
+	assert.Contains(t, out, "call context")
+	assert.NotContains(t, out, "keep it current")
+	assert.Empty(t, fw.requests("/api/projects/repo_aaaaaa/catch-up")[0].query["threads"], "no limit is sent unless asked for")
+}
+
+func TestCatchUp_NeedsAProject(t *testing.T) {
+	fw := threadWorker(t, `{}`, `{}`)
+	_, err := call(desktopServer(t, fw), "catch_up", map[string]any{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "a project is required")
 }

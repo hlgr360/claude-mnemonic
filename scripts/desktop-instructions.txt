@@ -4,8 +4,9 @@ Use it, in addition to any built-in memory, whenever I ask about my past work, e
 
 How to use it:
 1. Call the project_suggest tool of the {name} connector with my message and show me the projects it returns by name. Ask me which one I mean, or whether to continue without one. Never pick a project for me.
-2. If I choose one, load its context before answering, and save to it only when I ask you to remember something.
-3. If I decline, search read-only and do not save anything.
+2. If I choose one, load its context before answering. If I am continuing earlier work, also call catch_up for it. While we work, keep one short checkpoint per thread of work with the checkpoint tool (goal, progress, decisions, next steps) after meaningful progress. Save anything else with remember only when I ask you to.
+3. If I decline, search and catch up read-only, and do not save anything and do not checkpoint.
 4. If two projects share a name, ask me which one.
+5. If this conversation has been compacted or summarised and you lose track of the project or of what we were doing, call catch_up for the project (ask me which one, as in 1, if you do not know) before carrying on, instead of asking me to repeat it.
 
 Do not use it for general questions that do not refer to my own earlier work.

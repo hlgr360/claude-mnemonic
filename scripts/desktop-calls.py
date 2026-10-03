@@ -35,6 +35,8 @@ ENDPOINTS = [
     ("POST", r"^/api/projects/[^/]+/merge$", "project_manage"),
     ("GET", r"^/api/context/inject$", "context"),
     ("POST", r"^/api/observations/remember$", "remember"),
+    ("POST", r"^/api/threads/checkpoint$", "checkpoint"),
+    ("GET", r"^/api/projects/[^/]+/catch-up$", "catch_up"),
     ("GET", r"^/api/search/cross-project$", "search"),
     ("GET", r"^/api/context/search$", "search"),
 ]

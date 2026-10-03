@@ -47,6 +47,8 @@ Desktop mode adds these tools (Claude Code's tool list is unchanged):
 | `project_list` | All projects with counts and last activity |
 | `context` | Loads the saved context of a chosen project |
 | `remember` | Saves a decision, finding or fix to a chosen project |
+| `checkpoint` | Keeps one living note per line of work (goal, progress, decisions, next steps) in a chosen project; the same thread name updates the note |
+| `catch_up` | Returns the project's thread notes (most recently worked on first) and latest decisions, read-only |
 | `project_manage` | Stats, alias, merge and delete projects (previews first, see below) |
 
 `search` and the other existing tools keep working; with no project chosen, `search` covers
@@ -65,9 +67,10 @@ Use it, in addition to any built-in memory, whenever I ask about my past work, e
 
 How to use it:
 1. Call the project_suggest tool of the claude-mnemonic connector with my message and show me the projects it returns by name. Ask me which one I mean, or whether to continue without one. Never pick a project for me.
-2. If I choose one, load its context before answering, and save to it only when I ask you to remember something.
-3. If I decline, search read-only and do not save anything.
+2. If I choose one, load its context before answering. If I am continuing earlier work, also call catch_up for it. While we work, keep one short checkpoint per thread of work with the checkpoint tool (goal, progress, decisions, next steps) after meaningful progress. Save anything else with remember only when I ask you to.
+3. If I decline, search and catch up read-only, and do not save anything and do not checkpoint.
 4. If two projects share a name, ask me which one.
+5. If this conversation has been compacted or summarised and you lose track of the project or of what we were doing, call catch_up for the project (ask me which one, as in 1, if you do not know) before carrying on, instead of asking me to repeat it.
 
 Do not use it for general questions that do not refer to my own earlier work.
 ```
@@ -138,6 +141,22 @@ If the connector has a different name, Desktop logs it under that name, so add
 
 The verdict per prompt comes from Desktop's own count of tool calls between your marks. Tool names are inferred
 from the worker's log, which `make start-worker` truncates, so they are only available for the current worker run.
+
+## Recovering after a compaction
+
+Claude Code re-injects the saved context after a compaction by itself (its session-start hook fires then).
+Desktop chat has no hooks, so a long chat that gets summarised can lose which project it was in and what it was
+doing. Two tools cover that:
+
+- `checkpoint` writes the state of one thread of work (for example "Overlay design") as a single note that is
+  replaced each time it is called, so a long chat leaves one current note per thread instead of a pile of copies.
+  The notes are stored with Claude Code's session summaries, searchable like them, and private parts are stripped.
+- `catch_up` reads them back: the threads most recently worked on first, plus the project's latest decisions.
+
+With the instruction above, chat checkpoints as it goes once you have chosen a project, calls `catch_up` when you
+continue earlier work (also in a new chat), and calls it again when it notices it has lost the thread after a
+compaction. Nothing is checkpointed in a chat where you declined to choose a project. To recover by hand, say
+"catch up on <project>".
 
 ## Project names
 

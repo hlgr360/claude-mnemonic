@@ -360,7 +360,8 @@ class Instructions(unittest.TestCase):
     def test_the_rules_the_server_also_enforces_are_in_it(self):
         text = inst.render_instructions()
         for want in ("in addition to any built-in memory", "Never pick a project for me", "do not save anything",
-                     "If two projects share a name, ask me", "Do not use it for general questions", "Tell me which source"):
+                     "If two projects share a name, ask me", "Do not use it for general questions", "Tell me which source",
+                     "call catch_up", "checkpoint tool", "do not checkpoint", "compacted or summarised"):
             self.assertIn(want, text)
 
     def test_the_document_and_the_installer_cannot_drift_apart(self):
