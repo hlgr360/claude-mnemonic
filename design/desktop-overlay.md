@@ -194,3 +194,13 @@ Verification: unit tests in every touched package (race detector on), `npm test`
 installer tests, and end-to-end runs of the built binaries against an isolated worker: Desktop mode over
 stdio, a real worktree, real embeddings, merge and delete, the lazy worker start, and the dashboard in
 headless Chrome (30 checks, repeated on fresh data).
+
+Project names (#10)
+- Rows from `/api/projects/{summary,suggest}` carry `label` (show) and `use` (pass back): the name when unique among
+  real projects (case-insensitively, alias ids not counted as namesakes), otherwise the name plus observation count,
+  last use and a sample title, with the id as `use`.
+- `/api/projects/resolve` flags an ambiguous name and returns `candidate_details`; remember, context and project_manage
+  turn that into an "ask the user which one" message instead of choosing.
+- `project_manage` resolves exact names strictly (one real project, never aliases or partial matches) and passes
+  everything else through for the worker to refuse. The folder path is not stored, so counts, dates and titles are
+  the disambiguators.

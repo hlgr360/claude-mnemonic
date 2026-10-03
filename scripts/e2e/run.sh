@@ -41,7 +41,7 @@ export E2E_DIR="$WORK" E2E_PORT="$WORKER_PORT" DO_NOT_TRACK=1 CGO_ENABLED=1
 
 cleanup() {
   kill $(lsof -ti ":$WORKER_PORT") $(lsof -ti ":37998") $(lsof -ti ":$UI_PORT") $(lsof -ti ":9333") 2>/dev/null
-  if [ "${KEEP:-0}" = "1" ]; then echo "kept: $WORK"; else rm -rf "$WORK" "${TMPDIR:-/tmp}"/e2e-* "${TMPDIR:-/tmp}"/e2e-admin-* "${TMPDIR:-/tmp}"/ui-e2e-* 2>/dev/null; fi
+  if [ "${KEEP:-0}" = "1" ]; then echo "kept: $WORK"; else rm -rf "$WORK" "${TMPDIR:-/tmp}"/e2e-* "${TMPDIR:-/tmp}"/e2e-admin-* "${TMPDIR:-/tmp}"/e2e-names-* "${TMPDIR:-/tmp}"/ui-e2e-* 2>/dev/null; fi
 }
 trap cleanup EXIT
 
@@ -75,6 +75,9 @@ suite "Code mode unchanged, pinned project, lazy worker start"        python3 "$
 
 fresh_worker || exit 1
 suite "Prune and merge with real embeddings and snapshots"             python3 "$HERE/drive_admin.py"
+
+fresh_worker || exit 1
+suite "Project names, and projects that share a name"                  python3 "$HERE/drive_names.py"
 
 if [ "$RUN_UI" = "1" ]; then
   if [ ! -d "$ROOT/ui/dist" ] || ! command -v node >/dev/null; then
