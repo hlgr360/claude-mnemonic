@@ -61,8 +61,9 @@ func (s *Service) olderNeighbours(ctx context.Context, obs *models.Observation, 
 	if observationStore == nil {
 		return nil, false, nil
 	}
-	// The vector client's project filter (project OR global scope) is not a form vec0 can answer, so the search is
-	// made over every project, deep enough to still find the project's own notes, and narrowed here.
+	// The vector client's project filter also returns global-scope notes of other projects. A conflict is always
+	// between two notes of one project, so the search is made over every project, deep enough to still find the
+	// project's own notes, and narrowed here.
 	results, ok, err := s.vectorSearch(ctx, conflictQuery(obs), conflictVectorFetch,
 		sqlitevec.BuildWhereFilter(sqlitevec.DocTypeObservation, ""))
 	if err != nil || !ok {

@@ -61,7 +61,7 @@ func conflictService(t *testing.T, similarity float64, mutate func(*config.Confi
 	svc.conflictProposer = p.propose
 	// Every project's observations are returned, as the real search does: the job narrows them to one project.
 	svc.vectorQueryFn = func(ctx context.Context, _ string, _ int, where map[string]interface{}) ([]sqlitevec.QueryResult, error) {
-		assert.NotContains(t, where, "project", "the vector client cannot answer a project filter")
+		assert.NotContains(t, where, "project", "the job narrows to the project itself")
 		var rows []gorm.Observation
 		require.NoError(t, svc.store.DB.WithContext(ctx).Find(&rows).Error)
 		var out []sqlitevec.QueryResult
