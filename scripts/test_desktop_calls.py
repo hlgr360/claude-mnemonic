@@ -57,6 +57,7 @@ class Parsing(unittest.TestCase):
             ("GET", "/api/projects/summary"): "project_list", ("GET", "/api/context/inject"): "context",
             ("POST", "/api/observations/remember"): "remember", ("GET", "/api/search/cross-project"): "search",
             ("GET", "/api/context/search"): "search", ("GET", "/api/projects/x_111111/stats"): "project_manage",
+            ("POST", "/api/threads/checkpoint"): "checkpoint", ("GET", "/api/projects/x_111111/catch-up"): "catch_up",
             ("DELETE", "/api/projects/x_111111"): "project_manage", ("POST", "/api/projects/x_111111/merge"): "project_manage",
         }
         for (method, path), tool in cases.items():

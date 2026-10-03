@@ -74,18 +74,18 @@ func TestHandleCheckpoint_ValidatesTheRequest(t *testing.T) {
 
 	cases := []struct {
 		name string
+		want string
 		req  CheckpointRequest
 		code int
-		want string
 	}{
-		{"no project", CheckpointRequest{Thread: "t", Goal: "g"}, 400, "project is required"},
-		{"bad project", CheckpointRequest{Project: "../etc", Thread: "t", Goal: "g"}, 400, ""},
-		{"no thread", CheckpointRequest{Project: "repo_aaaaaa", Goal: "g"}, 400, "thread is required"},
-		{"thread of only symbols", CheckpointRequest{Project: "repo_aaaaaa", Thread: "!!!", Goal: "g"}, 400, "thread is required"},
-		{"nothing to say", CheckpointRequest{Project: "repo_aaaaaa", Thread: "t", NextSteps: "only next"}, 400, "nothing to store"},
-		{"entirely private", CheckpointRequest{Project: "repo_aaaaaa", Thread: "t", Goal: "<private>secret</private>"}, 400, "nothing to store"},
-		{"too long", CheckpointRequest{Project: "repo_aaaaaa", Thread: "t", Goal: "g", Progress: long}, 400, "too long"},
-		{"unknown project", CheckpointRequest{Project: "invented_zzzzzz", Thread: "t", Goal: "g"}, 422, "unknown project"},
+		{"no project", "project is required", CheckpointRequest{Thread: "t", Goal: "g"}, 400},
+		{"bad project", "", CheckpointRequest{Project: "../etc", Thread: "t", Goal: "g"}, 400},
+		{"no thread", "thread is required", CheckpointRequest{Project: "repo_aaaaaa", Goal: "g"}, 400},
+		{"thread of only symbols", "thread is required", CheckpointRequest{Project: "repo_aaaaaa", Thread: "!!!", Goal: "g"}, 400},
+		{"nothing to say", "nothing to store", CheckpointRequest{Project: "repo_aaaaaa", Thread: "t", NextSteps: "only next"}, 400},
+		{"entirely private", "nothing to store", CheckpointRequest{Project: "repo_aaaaaa", Thread: "t", Goal: "<private>secret</private>"}, 400},
+		{"too long", "too long", CheckpointRequest{Project: "repo_aaaaaa", Thread: "t", Goal: "g", Progress: long}, 400},
+		{"unknown project", "unknown project", CheckpointRequest{Project: "invented_zzzzzz", Thread: "t", Goal: "g"}, 422},
 	}
 	for _, c := range cases {
 		rec, _ := checkpoint(t, svc, c.req)

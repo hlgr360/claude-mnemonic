@@ -84,8 +84,9 @@ const desktopInstructions = memoryBlurb + `
 claude-mnemonic keeps memory per project. This client has no working directory, so choose a project explicitly:
 - If a project folder is open, call project_resolve with its absolute path, then context with the returned id.
 - Otherwise call project_suggest with the user's first message, offer the user the candidates (plus "none"), and wait for their choice.
-- If the user declines, stay read-only: use search without a project, and never call remember.
-- Pass the chosen project id to remember and context on every call.`
+- If the user declines, stay read-only: use search and catch_up without saving, and never call remember or checkpoint.
+- Pass the chosen project id to remember, checkpoint, catch_up and context on every call.
+- Once a project is chosen, keep one checkpoint per thread of work current. If the conversation was compacted and you lost the thread, call catch_up.`
 
 // workerBootstrap starts the worker when it is not running.
 type workerBootstrap struct {
@@ -254,13 +255,46 @@ func desktopTools() []Tool {
 				},
 			},
 		},
+		{
+			Name: "checkpoint",
+			Description: memoryPrefix + "save the current state of the line of work you are on, so it can be picked up after the conversation is compacted or in a new chat. " +
+				"One note per thread: calling it again with the same thread name replaces the note, so keep it current. Call it after meaningful progress or a decision, and before a long conversation gets summarised. " +
+				"Only after the user has chosen a project: never in a declined, read-only chat, and never with a guessed project. Text inside <private> tags is not stored.",
+			InputSchema: map[string]any{
+				"type":     "object",
+				"required": []string{"thread"},
+				"properties": map[string]any{
+					"thread":     map[string]any{"type": "string", "description": "Short name of the line of work, e.g. \"Overlay design\". The same name updates the same note"},
+					"goal":       map[string]any{"type": "string", "description": "What this thread is trying to achieve"},
+					"progress":   map[string]any{"type": "string", "description": "Where it stands now: what is done, what was tried"},
+					"decisions":  map[string]any{"type": "string", "description": "What was decided and why"},
+					"next_steps": map[string]any{"type": "string", "description": "What is still open or comes next"},
+					"project":    map[string]any{"type": "string", "description": "The project's use value from project_suggest or project_list: its name, or its id when two projects share a name"},
+					"path":       map[string]any{"type": "string", "description": "Absolute folder path; use instead of project to write to (or start) the project for that folder"},
+				},
+			},
+		},
+		{
+			Name: "catch_up",
+			Description: memoryPrefix + "recover where the work stood: the user's open threads (goal, progress, decisions, next steps), most recently worked on first, plus the project's latest decisions. " +
+				"Call it after the user picks a project when they are continuing earlier work, and whenever you notice you have lost the thread of what you were doing (for example after the conversation was compacted). " +
+				"Read-only, so it is also fine in a chat where the user declined to save anything.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"project": map[string]any{"type": "string", "description": "The project's use value from project_suggest or project_list: its name, or its id when two projects share a name"},
+					"path":    map[string]any{"type": "string", "description": "Alternatively the absolute folder path"},
+					"threads": map[string]any{"type": "number", "default": 5, "minimum": 1, "maximum": 20, "description": "How many threads to return"},
+				},
+			},
+		},
 	}
 }
 
 // isDesktopTool reports whether name is one of the tools added by Desktop mode.
 func isDesktopTool(name string) bool {
 	switch name {
-	case "project_suggest", "project_resolve", "project_list", "context", "remember", "project_manage":
+	case "project_suggest", "project_resolve", "project_list", "context", "remember", "project_manage", "checkpoint", "catch_up":
 		return true
 	}
 	return false
@@ -281,6 +315,10 @@ func (s *Server) callDesktopTool(ctx context.Context, name string, args json.Raw
 		return s.toolRemember(ctx, args)
 	case "project_manage":
 		return s.toolProjectManage(ctx, args)
+	case "checkpoint":
+		return s.toolCheckpoint(ctx, args)
+	case "catch_up":
+		return s.toolCatchUp(ctx, args)
 	}
 	return "", fmt.Errorf("unknown tool %q", name)
 }
@@ -481,6 +519,136 @@ func (s *Server) toolRemember(ctx context.Context, args json.RawMessage) (string
 		return fmt.Sprintf("Already saved as observation #%d in project %s.", resp.ID, resp.Project), nil
 	}
 	return fmt.Sprintf("Saved observation #%d to project %s.", resp.ID, resp.Project), nil
+}
+
+func (s *Server) toolCheckpoint(ctx context.Context, args json.RawMessage) (string, error) {
+	var a struct {
+		Thread    string `json:"thread"`
+		Goal      string `json:"goal"`
+		Progress  string `json:"progress"`
+		Decisions string `json:"decisions"`
+		NextSteps string `json:"next_steps"`
+		Project   string `json:"project"`
+		Path      string `json:"path"`
+	}
+	if err := json.Unmarshal(args, &a); err != nil {
+		return "", fmt.Errorf("checkpoint: invalid arguments: %w", err)
+	}
+	if strings.TrimSpace(a.Thread) == "" {
+		return "", fmt.Errorf("checkpoint: thread is required: give the line of work a short name")
+	}
+	id, allowNew, err := s.projectFromArgs(ctx, "checkpoint", a.Project, a.Path)
+	if err != nil {
+		return "", err
+	}
+
+	raw, err := s.proxyPostRaw(ctx, "/api/threads/checkpoint", map[string]any{
+		"project":           id,
+		"thread":            a.Thread,
+		"goal":              a.Goal,
+		"progress":          a.Progress,
+		"decisions":         a.Decisions,
+		"next_steps":        a.NextSteps,
+		"source":            s.getClientName(),
+		"allow_new_project": allowNew,
+	})
+	if err != nil {
+		return "", err
+	}
+	var resp struct {
+		Project string `json:"project"`
+		Thread  string `json:"thread"`
+		Created bool   `json:"created"`
+	}
+	if err := json.Unmarshal([]byte(raw), &resp); err != nil {
+		return "", fmt.Errorf("decode checkpoint response: %w", err)
+	}
+	if resp.Created {
+		return fmt.Sprintf("Saved a new note for thread %q in project %s.", resp.Thread, resp.Project), nil
+	}
+	return fmt.Sprintf("Updated the note for thread %q in project %s.", resp.Thread, resp.Project), nil
+}
+
+// catchUpDigest mirrors the worker's catch-up answer.
+type catchUpDigest struct {
+	Project string `json:"project"`
+	Threads []struct {
+		Thread    string `json:"thread"`
+		Goal      string `json:"goal"`
+		Progress  string `json:"progress"`
+		Decisions string `json:"decisions"`
+		NextSteps string `json:"next_steps"`
+		UpdatedAt string `json:"updated_at"`
+	} `json:"threads"`
+	Decisions []struct {
+		Title     string `json:"title"`
+		Subtitle  string `json:"subtitle"`
+		CreatedAt string `json:"created_at"`
+	} `json:"decisions"`
+}
+
+func (s *Server) toolCatchUp(ctx context.Context, args json.RawMessage) (string, error) {
+	var a struct {
+		Project string `json:"project"`
+		Path    string `json:"path"`
+		Threads int    `json:"threads"`
+	}
+	if err := json.Unmarshal(args, &a); err != nil {
+		return "", fmt.Errorf("catch_up: invalid arguments: %w", err)
+	}
+	id, _, err := s.projectFromArgs(ctx, "catch_up", a.Project, a.Path)
+	if err != nil {
+		return "", err
+	}
+	params := map[string]string{}
+	if a.Threads > 0 {
+		params["threads"] = strconv.Itoa(a.Threads)
+	}
+	raw, err := s.proxyGetRaw(ctx, "/api/projects/"+url.PathEscape(id)+"/catch-up", params)
+	if err != nil {
+		return "", err
+	}
+	var d catchUpDigest
+	if err := json.Unmarshal([]byte(raw), &d); err != nil {
+		return "", fmt.Errorf("decode catch_up response: %w", err)
+	}
+	return renderCatchUp(d), nil
+}
+
+// renderCatchUp writes the digest as text a model can act on straight away.
+func renderCatchUp(d catchUpDigest) string {
+	var b strings.Builder
+	if len(d.Threads) == 0 {
+		fmt.Fprintf(&b, "No thread notes are saved for project %s yet.\n", d.Project)
+	} else {
+		fmt.Fprintf(&b, "Where the work stood in project %s (most recently worked on first):\n", d.Project)
+	}
+	for _, t := range d.Threads {
+		fmt.Fprintf(&b, "\nThread: %s (updated %s)\n", t.Thread, t.UpdatedAt)
+		for _, f := range []struct{ label, text string }{
+			{"Goal", t.Goal}, {"Progress", t.Progress}, {"Decisions", t.Decisions}, {"Next", t.NextSteps},
+		} {
+			if f.text != "" {
+				fmt.Fprintf(&b, "  %s: %s\n", f.label, f.text)
+			}
+		}
+	}
+	if len(d.Decisions) > 0 {
+		b.WriteString("\nRecent decisions in this project:\n")
+		for _, x := range d.Decisions {
+			if x.Subtitle != "" {
+				fmt.Fprintf(&b, "- %s: %s (%s)\n", x.Title, x.Subtitle, x.CreatedAt)
+			} else {
+				fmt.Fprintf(&b, "- %s (%s)\n", x.Title, x.CreatedAt)
+			}
+		}
+	}
+	if len(d.Threads) == 0 && len(d.Decisions) == 0 {
+		b.WriteString("Nothing to recover from here: call context for the project's saved observations.\n")
+	} else {
+		b.WriteString("\nUse this to continue where things left off. Say so if it looks out of date, and keep it current with checkpoint when the user chose to save.\n")
+	}
+	return b.String()
 }
 
 // searchAcrossProjects serves search when no project is chosen.
