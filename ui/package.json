@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vue-tsc -b && vite build",
     "preview": "vite preview",
-    "type-check": "vue-tsc --noEmit"
+    "type-check": "vue-tsc --noEmit",
+    "test": "node --test \"tests/*.test.mjs\""
   },
   "dependencies": {
     "vis-data": "^8.0.5",

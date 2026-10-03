@@ -32,6 +32,14 @@ func NewProjectAliasStore(store *Store) *ProjectAliasStore {
 // alias that already pointed at the new alias is re-pointed too, so the table
 // stays flat.
 func (s *ProjectAliasStore) SetAlias(ctx context.Context, alias, canonical, source string) error {
+	return immediateTx(ctx, s.db, func(tx *gorm.DB) error {
+		return setAliasIn(tx, alias, canonical, source)
+	})
+}
+
+// setAliasIn is SetAlias against an open transaction, so project merges can
+// record their alias atomically with the data move.
+func setAliasIn(tx *gorm.DB, alias, canonical, source string) error {
 	alias, canonical = strings.TrimSpace(alias), strings.TrimSpace(canonical)
 	if alias == "" || canonical == "" {
 		return errors.New("alias and canonical project are required")
@@ -40,31 +48,29 @@ func (s *ProjectAliasStore) SetAlias(ctx context.Context, alias, canonical, sour
 		source = "manual"
 	}
 
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var existing ProjectAlias
-		err := tx.Where("alias = ?", canonical).First(&existing).Error
-		switch {
-		case err == nil:
-			canonical = existing.Canonical
-		case !errors.Is(err, gorm.ErrRecordNotFound):
-			return fmt.Errorf("follow canonical alias: %w", err)
-		}
-		if alias == canonical {
-			return ErrAliasSelf
-		}
+	var existing ProjectAlias
+	err := tx.Where("alias = ?", canonical).First(&existing).Error
+	switch {
+	case err == nil:
+		canonical = existing.Canonical
+	case !errors.Is(err, gorm.ErrRecordNotFound):
+		return fmt.Errorf("follow canonical alias: %w", err)
+	}
+	if alias == canonical {
+		return ErrAliasSelf
+	}
 
-		// Anything that used to resolve through the new alias now resolves to canonical.
-		if err := tx.Model(&ProjectAlias{}).Where("canonical = ?", alias).
-			Update("canonical", canonical).Error; err != nil {
-			return fmt.Errorf("repoint aliases: %w", err)
-		}
+	// Anything that used to resolve through the new alias now resolves to canonical.
+	if err := tx.Model(&ProjectAlias{}).Where("canonical = ?", alias).
+		Update("canonical", canonical).Error; err != nil {
+		return fmt.Errorf("repoint aliases: %w", err)
+	}
 
-		row := ProjectAlias{Alias: alias, Canonical: canonical, Source: source}
-		return tx.Clauses(clause.OnConflict{
-			Columns:   []clause.Column{{Name: "alias"}},
-			DoUpdates: clause.AssignmentColumns([]string{"canonical", "source"}),
-		}).Create(&row).Error
-	})
+	row := ProjectAlias{Alias: alias, Canonical: canonical, Source: source}
+	return tx.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "alias"}},
+		DoUpdates: clause.AssignmentColumns([]string{"canonical", "source"}),
+	}).Create(&row).Error
 }
 
 // ResolveAlias returns the canonical project for id, or id itself when it is not an alias.

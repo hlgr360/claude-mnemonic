@@ -186,6 +186,9 @@ Four tools are exposed via MCP:
   `search_patterns`, `explain_ranking`, `temporal_trends`, `data_quality`,
   `export`, `suggest_consolidations`, `patterns`.
 
+Using Claude Desktop (chat, Cowork, Code tab)? See [DESKTOP.md](DESKTOP.md): it adds
+project selection, explicit `remember`, and project management.
+
 ## Slash Commands
 
 Available commands within Claude Code:

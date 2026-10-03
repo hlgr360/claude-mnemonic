@@ -1,0 +1,343 @@
+#!/usr/bin/env python3
+"""Tests for install-desktop.py. Run: python3 -m unittest scripts/test_install_desktop.py -v"""
+import importlib.util
+import io
+import json
+import os
+import stat
+import tempfile
+import unittest
+
+_spec = importlib.util.spec_from_file_location("install_desktop", os.path.join(os.path.dirname(os.path.abspath(__file__)), "install-desktop.py"))
+inst = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(inst)
+
+ENTRY = {"command": "/home/u/.claude-mnemonic/bin/mcp-server", "args": []}
+NAME = "claude-mnemonic"
+
+TWO = """{
+  "mcpServers": {
+    "joplin": {
+      "command": "uvx",
+      "args": ["joplin-mcp"]
+    },
+    "azure": {
+      "command": "npx",
+      "args": ["-y", "@azure/mcp", "--note", "has } and { and \\" quote"],
+      "env": {"TOKEN": "s3cr3t"}
+    }
+  },
+  "preferences": {
+    "sidebarMode": "chat"
+  }
+}
+"""
+FOUR = TWO.replace("  ", "    ")
+TABS = TWO.replace("  ", "\t")
+CRLF = TWO.replace("\n", "\r\n")
+COMPACT = '{"mcpServers":{"joplin":{"command":"uvx","args":["joplin-mcp"]}},"preferences":{"sidebarMode":"chat"}}'
+
+FORMATS = {"two-space": TWO, "four-space": FOUR, "tabs": TABS, "crlf": CRLF, "compact": COMPACT}
+
+
+def tmpfile(testcase, content=None, name="claude_desktop_config.json"):
+    d = tempfile.mkdtemp()
+    testcase.addCleanup(lambda: __import__("shutil").rmtree(d, ignore_errors=True))
+    path = os.path.join(d, name)
+    if content is not None:
+        with open(path, "w", encoding="utf-8", newline="") as f:
+            f.write(content)
+    return path
+
+
+def read(path):
+    with open(path, encoding="utf-8", newline="") as f:
+        return f.read()
+
+
+class SetAndRemove(unittest.TestCase):
+    def test_install_adds_exactly_one_entry_and_nothing_else(self):
+        for label, text in FORMATS.items():
+            with self.subTest(label):
+                out = inst.set_server(text, NAME, ENTRY)
+                want = json.loads(text)
+                want["mcpServers"][NAME] = ENTRY
+                self.assertEqual(json.loads(out), want)
+
+    def test_every_other_byte_is_untouched_exact_round_trip(self):
+        for label, text in FORMATS.items():
+            with self.subTest(label):
+                self.assertEqual(inst.remove_server(inst.set_server(text, NAME, ENTRY), NAME), text)
+
+    def test_the_other_servers_text_is_preserved_verbatim(self):
+        out = inst.set_server(TWO, NAME, ENTRY)
+        # the other servers' blocks, including odd characters and inline arrays, appear unchanged
+        self.assertIn('"args": ["-y", "@azure/mcp", "--note", "has } and { and \\" quote"],', out)
+        self.assertIn('"env": {"TOKEN": "s3cr3t"}', out)
+        self.assertTrue(out.endswith("}\n"))
+
+    def test_new_entry_matches_the_files_indentation_and_line_endings(self):
+        self.assertIn('\n    "claude-mnemonic": {\n      "command"', inst.set_server(TWO, NAME, ENTRY))
+        self.assertIn('\n        "claude-mnemonic": {\n            "command"', inst.set_server(FOUR, NAME, ENTRY))
+        self.assertIn('\n\t\t"claude-mnemonic": {\n\t\t\t"command"', inst.set_server(TABS, NAME, ENTRY))
+        crlf = inst.set_server(CRLF, NAME, ENTRY)
+        self.assertNotIn("\n\n", crlf.replace("\r\n", ""))
+        self.assertEqual(crlf.count("\n"), crlf.count("\r\n"), "no bare LF is introduced into a CRLF file")
+
+    def test_update_in_place_changes_only_our_entry_in_every_position(self):
+        new = {"command": "/new/path", "args": ["--project", "p_111111"]}
+        for position in ("first", "middle", "last", "only"):
+            with self.subTest(position):
+                names = {"first": [NAME, "a", "b"], "middle": ["a", NAME, "b"], "last": ["a", "b", NAME], "only": [NAME]}[position]
+                servers = {n: ({"command": "old"} if n == NAME else {"command": n, "args": ["x"]}) for n in names}
+                text = json.dumps({"mcpServers": servers, "other": 1}, indent=2) + "\n"
+                out = inst.set_server(text, NAME, new)
+                want = json.loads(text)
+                want["mcpServers"][NAME] = new
+                self.assertEqual(json.loads(out), want)
+                self.assertEqual(list(json.loads(out)["mcpServers"]), names, "order is kept")
+
+    def test_remove_in_every_position_keeps_valid_json_and_the_rest(self):
+        for position in ("first", "middle", "last", "only"):
+            with self.subTest(position):
+                names = {"first": [NAME, "a", "b"], "middle": ["a", NAME, "b"], "last": ["a", "b", NAME], "only": [NAME]}[position]
+                servers = {n: {"command": n, "args": ["x"]} for n in names}
+                text = json.dumps({"mcpServers": servers, "other": 1}, indent=2) + "\n"
+                out = inst.remove_server(text, NAME)
+                want = json.loads(text)
+                del want["mcpServers"][NAME]
+                self.assertEqual(json.loads(out), want)
+
+    def test_missing_mcpservers_key_is_added(self):
+        text = '{\n  "preferences": {"a": 1}\n}\n'
+        out = inst.set_server(text, NAME, ENTRY)
+        self.assertEqual(json.loads(out), {"mcpServers": {NAME: ENTRY}, "preferences": {"a": 1}})
+        self.assertIn('"preferences": {"a": 1}', out)
+
+    def test_empty_objects(self):
+        for text in ("{}", "{ }", "{\n}\n", '{"mcpServers": {}}', '{\n  "mcpServers": {}\n}\n'):
+            with self.subTest(text):
+                out = inst.set_server(text, NAME, ENTRY)
+                self.assertEqual(json.loads(out), {"mcpServers": {NAME: ENTRY}})
+                # Uninstalling leaves an empty mcpServers: it cannot know whether the user had one before.
+                self.assertEqual(json.loads(inst.remove_server(out, NAME)), {"mcpServers": {}})
+
+    def test_only_the_top_level_mcpservers_is_edited(self):
+        text = '{\n  "nested": {\n    "mcpServers": {"decoy": {}}\n  },\n  "mcpServers": {"a": {}}\n}\n'
+        out = json.loads(inst.set_server(text, NAME, ENTRY))
+        self.assertEqual(out["nested"], {"mcpServers": {"decoy": {}}})
+        self.assertEqual(set(out["mcpServers"]), {"a", NAME})
+
+    def test_a_similarly_named_server_is_never_touched(self):
+        text = json.dumps({"mcpServers": {"claude-mnemonic-extra": {"command": "x"}, "my-claude-mnemonic": {"command": "y"}}}, indent=2)
+        out = json.loads(inst.remove_server(inst.set_server(text, NAME, ENTRY), NAME))
+        self.assertEqual(out, json.loads(text))
+
+    def test_strings_with_braces_quotes_and_unicode_do_not_confuse_the_scanner(self):
+        tricky = {"mcpServers": {"x": {"command": "a\"}{\\b", "args": ["é", "日本", "{[", "]}"]}}, "k": "v"}
+        text = json.dumps(tricky, indent=2, ensure_ascii=False) + "\n"
+        out = inst.set_server(text, NAME, ENTRY)
+        self.assertEqual(json.loads(out)["mcpServers"]["x"], tricky["mcpServers"]["x"])
+        self.assertIn("日本", out, "non-ASCII text is preserved, not escaped")
+        self.assertEqual(inst.remove_server(out, NAME), text)
+
+    def test_not_an_object_is_rejected(self):
+        for text in ("[]", '"x"', "42", "null"):
+            with self.subTest(text), self.assertRaises(inst.ConfigError):
+                inst.set_server(text, NAME, ENTRY)
+        with self.assertRaises(inst.ConfigError):
+            inst.set_server('{"mcpServers": []}', NAME, ENTRY)
+
+    def test_remove_when_absent_returns_the_text_unchanged(self):
+        self.assertEqual(inst.remove_server(TWO, NAME), TWO)
+        self.assertEqual(inst.remove_server('{"a": 1}', NAME), '{"a": 1}')
+
+
+class Verify(unittest.TestCase):
+    def test_a_wrong_edit_is_refused(self):
+        original = '{"mcpServers": {"a": {"command": "x"}}}'
+        with self.assertRaises(inst.ConfigError):
+            inst.verify(original, '{"mcpServers": {"a": {"command": "CHANGED"}}}', NAME, ENTRY)
+        with self.assertRaises(inst.ConfigError):
+            inst.verify(original, '{"mcpServers": {"a"', NAME, ENTRY)
+        with self.assertRaises(inst.ConfigError):
+            inst.verify(original, '{"mcpServers": {"a": {"command": "x"}}, "extra": 1}', NAME, ENTRY)
+
+
+class CommandLine(unittest.TestCase):
+    def setUp(self):
+        self.binary = tmpfile(self, "#!/bin/sh\n", name="mcp-server")
+
+    def run_cli(self, *argv, config):
+        out, err = io.StringIO(), io.StringIO()
+        import contextlib
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = inst.main(["--config", config, "--binary", self.binary, *argv])
+        return code, out.getvalue(), err.getvalue()
+
+    def entry(self, *args):
+        return {"command": self.binary, "args": list(args)}
+
+    def test_install_into_an_existing_config_backs_up_and_adds(self):
+        cfg = tmpfile(self, TWO)
+        code, out, _ = self.run_cli(config=cfg)
+        self.assertEqual(code, 0)
+        self.assertIn("Added 'claude-mnemonic'", out)
+        self.assertIn("Quit Claude Desktop", out)
+        want = json.loads(TWO)
+        want["mcpServers"][NAME] = self.entry()
+        self.assertEqual(json.loads(read(cfg)), want)
+        backups = [f for f in os.listdir(os.path.dirname(cfg)) if ".bak-" in f]
+        self.assertEqual(len(backups), 1)
+        self.assertEqual(read(os.path.join(os.path.dirname(cfg), backups[0])), TWO, "the backup is the original, byte for byte")
+
+    def test_rapid_changes_never_overwrite_the_first_backup(self):
+        cfg = tmpfile(self, TWO)
+        self.run_cli(config=cfg)                       # backup 1: the original
+        self.run_cli("--project", "p_111111", config=cfg)   # backup 2, within the same second
+        self.run_cli("uninstall", config=cfg)          # backup 3
+        d = os.path.dirname(cfg)
+        backups = sorted(f for f in os.listdir(d) if ".bak-" in f)
+        self.assertEqual(len(backups), 3, "each change keeps its own backup")
+        contents = [read(os.path.join(d, b)) for b in backups]
+        self.assertIn(TWO, contents, "the original configuration is still among the backups")
+
+    def test_install_creates_a_missing_config(self):
+        cfg = os.path.join(tempfile.mkdtemp(), "Claude", "claude_desktop_config.json")
+        self.addCleanup(lambda: __import__("shutil").rmtree(os.path.dirname(os.path.dirname(cfg)), ignore_errors=True))
+        code, out, _ = self.run_cli(config=cfg)
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(read(cfg)), {"mcpServers": {NAME: self.entry()}})
+        self.assertTrue(read(cfg).endswith("\n"))
+        self.assertNotIn("Backup:", out, "there was nothing to back up")
+
+    def test_install_into_an_empty_file(self):
+        cfg = tmpfile(self, "   \n")
+        self.assertEqual(self.run_cli(config=cfg)[0], 0)
+        self.assertEqual(json.loads(read(cfg)), {"mcpServers": {NAME: self.entry()}})
+
+    def test_second_run_changes_nothing_and_makes_no_backup(self):
+        cfg = tmpfile(self, TWO)
+        self.run_cli(config=cfg)
+        after_first = read(cfg)
+        code, out, _ = self.run_cli(config=cfg)
+        self.assertEqual(code, 0)
+        self.assertIn("Already up to date", out)
+        self.assertEqual(read(cfg), after_first)
+        self.assertEqual(len([f for f in os.listdir(os.path.dirname(cfg)) if ".bak-" in f]), 1)
+
+    def test_a_changed_setting_updates_in_place(self):
+        cfg = tmpfile(self, TWO)
+        self.run_cli(config=cfg)
+        code, out, _ = self.run_cli("--project", "repo_ab12cd", "--mode", "desktop", config=cfg)
+        self.assertEqual(code, 0)
+        self.assertIn("Updated 'claude-mnemonic'", out)
+        self.assertEqual(json.loads(read(cfg))["mcpServers"][NAME], self.entry("--project", "repo_ab12cd", "--mode", "desktop"))
+
+    def test_auto_mode_adds_no_flag(self):
+        cfg = tmpfile(self, TWO)
+        self.run_cli("--mode", "auto", config=cfg)
+        self.assertEqual(json.loads(read(cfg))["mcpServers"][NAME]["args"], [])
+
+    def test_dry_run_shows_a_diff_and_writes_nothing(self):
+        cfg = tmpfile(self, TWO)
+        code, out, _ = self.run_cli("--dry-run", config=cfg)
+        self.assertEqual(code, 0)
+        self.assertIn("Dry run: would write", out)
+        self.assertIn('+    "claude-mnemonic": {', out)
+        self.assertEqual(read(cfg), TWO)
+        self.assertEqual(os.listdir(os.path.dirname(cfg)), [os.path.basename(cfg)], "no backup, no temp file")
+
+    def test_uninstall_removes_only_our_entry(self):
+        cfg = tmpfile(self, TWO)
+        self.run_cli(config=cfg)
+        code, out, _ = self.run_cli("uninstall", config=cfg)
+        self.assertEqual(code, 0)
+        self.assertIn("Removed 'claude-mnemonic'", out)
+        self.assertEqual(read(cfg), TWO, "back to the original text exactly")
+
+    def test_uninstall_when_not_configured_is_a_no_op(self):
+        cfg = tmpfile(self, TWO)
+        code, out, _ = self.run_cli("uninstall", config=cfg)
+        self.assertEqual(code, 0)
+        self.assertIn("Nothing to do", out)
+        self.assertEqual(read(cfg), TWO)
+
+    def test_status(self):
+        cfg = tmpfile(self, TWO)
+        self.assertIn("not configured", self.run_cli("status", config=cfg)[1])
+        self.run_cli(config=cfg)
+        out = self.run_cli("status", config=cfg)[1]
+        self.assertIn("configured as 'claude-mnemonic'", out)
+        self.assertIn(self.binary, out)
+        missing = os.path.join(tempfile.mkdtemp(), "none.json")
+        self.assertIn("does not exist yet", self.run_cli("status", config=missing)[1])
+
+    def test_status_warns_when_the_configured_binary_is_gone(self):
+        cfg = tmpfile(self, json.dumps({"mcpServers": {NAME: {"command": "/no/such/binary"}}}))
+        self.assertIn("that binary does not exist", self.run_cli("status", config=cfg)[1])
+
+    def test_invalid_json_is_refused_without_touching_the_file(self):
+        cfg = tmpfile(self, '{"mcpServers": {')
+        code, _, err = self.run_cli(config=cfg)
+        self.assertEqual(code, 1)
+        self.assertIn("not valid JSON", err)
+        self.assertEqual(read(cfg), '{"mcpServers": {')
+        self.assertEqual(os.listdir(os.path.dirname(cfg)), [os.path.basename(cfg)])
+
+    def test_wrong_shapes_are_refused(self):
+        for text in ("[]", '{"mcpServers": "x"}'):
+            with self.subTest(text):
+                cfg = tmpfile(self, text)
+                code, _, err = self.run_cli(config=cfg)
+                self.assertEqual(code, 1)
+                self.assertTrue(err.startswith("error:"))
+                self.assertEqual(read(cfg), text)
+
+    def test_a_missing_binary_is_refused_unless_forced(self):
+        cfg = tmpfile(self, TWO)
+        out, err = io.StringIO(), io.StringIO()
+        import contextlib
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = inst.main(["--config", cfg, "--binary", "/no/such/mcp-server"])
+        self.assertEqual(code, 1)
+        self.assertIn("make install", err.getvalue())
+        self.assertEqual(read(cfg), TWO)
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = inst.main(["--config", cfg, "--binary", "/no/such/mcp-server", "--force"])
+        self.assertEqual(code, 0)
+
+    def test_a_custom_name_leaves_the_default_entry_alone(self):
+        cfg = tmpfile(self, TWO)
+        self.run_cli(config=cfg)
+        self.run_cli("--name", "mnemonic-pinned", "--project", "p_111111", config=cfg)
+        servers = json.loads(read(cfg))["mcpServers"]
+        self.assertEqual(servers[NAME], self.entry())
+        self.assertEqual(servers["mnemonic-pinned"], self.entry("--project", "p_111111"))
+
+    @unittest.skipIf(os.name == "nt", "POSIX permissions")
+    def test_file_permissions_are_preserved(self):
+        cfg = tmpfile(self, TWO)
+        os.chmod(cfg, 0o640)
+        self.run_cli(config=cfg)
+        self.assertEqual(stat.S_IMODE(os.stat(cfg).st_mode), 0o640)
+
+    def test_crlf_and_tab_files_survive_a_full_install_and_uninstall(self):
+        for label in ("crlf", "tabs", "four-space", "compact"):
+            with self.subTest(label):
+                cfg = tmpfile(self, FORMATS[label])
+                self.run_cli(config=cfg)
+                self.run_cli("uninstall", config=cfg)
+                self.assertEqual(read(cfg), FORMATS[label])
+
+
+class Locations(unittest.TestCase):
+    def test_default_paths_are_absolute_and_named_right(self):
+        self.assertTrue(os.path.isabs(inst.default_config_path()))
+        self.assertTrue(inst.default_config_path().endswith("claude_desktop_config.json"))
+        self.assertIn(".claude-mnemonic", inst.default_binary_path())
+        self.assertTrue(os.path.basename(inst.default_binary_path()).startswith("mcp-server"))
+
+
+if __name__ == "__main__":
+    unittest.main()

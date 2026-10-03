@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { fetchProjects } from '@/utils/api'
+import ProjectManager from '@/components/ProjectManager.vue'
+import type { ProjectChange } from '@/components/ProjectManager.vue'
 
 const props = defineProps<{
   currentProject: string | null
@@ -14,6 +16,7 @@ const projects = ref<string[]>([])
 const searchQuery = ref('')
 const isOpen = ref(false)
 const loading = ref(false)
+const showManager = ref(false)
 
 const filteredProjects = computed(() => {
   if (!searchQuery.value) return projects.value
@@ -28,10 +31,10 @@ const selectedProjectName = computed(() => {
   return parts[parts.length - 1] || props.currentProject
 })
 
-async function loadProjects() {
+async function loadProjects(fresh = false) {
   loading.value = true
   try {
-    projects.value = await fetchProjects()
+    projects.value = await fetchProjects(fresh)
   } catch (err) {
     console.error('[ProjectFilter] Failed to load projects:', err)
   } finally {
@@ -48,7 +51,26 @@ function selectProject(project: string | null) {
 function toggleDropdown() {
   isOpen.value = !isOpen.value
   if (isOpen.value) {
-    loadProjects()
+    // /api/projects is cacheable for 5 minutes: bypass that on each open so a merged or deleted project never reappears.
+    loadProjects(true)
+  }
+}
+
+function openManager() {
+  isOpen.value = false
+  showManager.value = true
+}
+
+// After a merge, delete or alias change: re-read the list, and point the filter somewhere that still exists.
+async function onProjectsChanged(change: ProjectChange) {
+  await loadProjects(true)
+  if (change.kind === 'alias') return
+  if (props.currentProject === change.project) {
+    // The project we were looking at is gone: follow it into the merge target, or fall back to all projects.
+    emit('update:project', change.kind === 'merge' ? change.into ?? null : null)
+  } else {
+    // Another project changed; refresh what is shown.
+    emit('update:project', props.currentProject)
   }
 }
 
@@ -137,6 +159,19 @@ onMounted(() => {
           <i v-if="currentProject === project" class="fas fa-check ml-auto text-claude-400" />
         </button>
       </div>
+
+      <!-- Footer -->
+      <div class="border-t border-slate-700">
+        <button
+          class="w-full px-4 py-2 text-left text-sm text-slate-400 hover:bg-slate-700 hover:text-slate-200 transition-colors flex items-center gap-2"
+          @click="openManager"
+        >
+          <i class="fas fa-sliders" />
+          <span>Manage projects…</span>
+        </button>
+      </div>
     </div>
+
+    <ProjectManager v-if="showManager" @close="showManager = false" @changed="onProjectsChanged" />
   </div>
 </template>

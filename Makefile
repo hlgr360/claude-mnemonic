@@ -15,7 +15,7 @@ GOARCH ?= $(shell go env GOARCH)
 export CGO_ENABLED=1
 BUILD_TAGS := -tags "fts5"
 
-.PHONY: all build clean test install lint hooks worker mcp stop-worker start-worker restart-worker dashboard website dev-website setup-libs update-version restore-stamped
+.PHONY: all build clean test install lint hooks worker mcp stop-worker start-worker restart-worker dashboard website dev-website setup-libs update-version restore-stamped install-desktop uninstall-desktop test-scripts
 
 all: build
 
@@ -182,6 +182,18 @@ install: build stop-worker
 # Undo the version stamping done by update-version/dashboard so local installs leave the tree clean
 restore-stamped:
 	@git restore .claude-plugin/plugin.json marketplace.json ui/package.json ui/package-lock.json 2>/dev/null || true
+
+# Register the MCP server with Claude Desktop (preview first: python3 scripts/install-desktop.py --dry-run; see DESKTOP.md)
+install-desktop:
+	@python3 scripts/install-desktop.py
+
+# Remove the Claude Desktop registration again
+uninstall-desktop:
+	@python3 scripts/install-desktop.py uninstall
+
+# Tests for the helper scripts
+test-scripts:
+	@python3 -m unittest scripts/test_install_desktop.py
 
 # Uninstall
 uninstall: stop-worker

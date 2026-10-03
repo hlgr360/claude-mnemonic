@@ -136,6 +136,7 @@ type Service struct {
 	processor          *sdk.Processor
 	embedSvc           *embedding.Service
 	vectorClient       *sqlitevec.Client
+	vectorQueryFn      func(ctx context.Context, text string, n int, where map[string]interface{}) ([]sqlitevec.QueryResult, error) // test seam; see vectorSearch
 	vectorSync         *sqlitevec.Sync
 	vectorSyncSem      chan struct{}
 	queryExpander      *expansion.Expander
@@ -1312,13 +1313,19 @@ func (s *Service) setupRoutes() {
 		r.Get("/api/observations", s.handleGetObservations)
 		r.Get("/api/observations/{id}", s.handleGetObservationByID)
 		r.Put("/api/observations/{id}", s.handleUpdateObservation)
+		r.Post("/api/observations/remember", s.handleRemember)
 		r.Get("/api/summaries", s.handleGetSummaries)
 		r.Get("/api/prompts", s.handleGetPrompts)
 		r.Get("/api/projects", s.handleGetProjects)
 		r.Get("/api/projects/summary", s.handleListProjectSummaries)
 		r.Get("/api/projects/resolve", s.handleResolveProject)
+		r.Get("/api/projects/suggest", s.handleSuggestProjects)
+		r.Get("/api/search/cross-project", s.handleCrossProjectSearch)
 		r.Get("/api/projects/aliases", s.handleListProjectAliases)
 		r.Post("/api/projects/aliases", s.handleSetProjectAlias)
+		r.Get("/api/projects/{id}/stats", s.handleProjectStats)
+		r.Delete("/api/projects/{id}", s.handleDeleteProject)
+		r.Post("/api/projects/{id}/merge", s.handleMergeProject)
 		r.Delete("/api/projects/aliases/{alias}", s.handleDeleteProjectAlias)
 		r.Get("/api/stats", s.handleGetStats)
 		r.Get("/api/stats/retrieval", s.handleGetRetrievalStats)

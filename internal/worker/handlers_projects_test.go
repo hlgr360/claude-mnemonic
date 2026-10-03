@@ -100,18 +100,18 @@ func TestHandleSetProjectAlias_Validation(t *testing.T) {
 	defer cleanup()
 
 	tests := []struct {
-		name string
 		body any
+		name string
 		want int
 	}{
-		{"missing canonical", setAliasRequest{Alias: "a_111111"}, http.StatusBadRequest},
-		{"missing alias", setAliasRequest{Canonical: "b_222222"}, http.StatusBadRequest},
-		{"blank values", setAliasRequest{Alias: "  ", Canonical: " "}, http.StatusBadRequest},
-		{"self alias", setAliasRequest{Alias: "a_111111", Canonical: "a_111111"}, http.StatusBadRequest},
-		{"path traversal in alias", setAliasRequest{Alias: "../etc", Canonical: "b_222222"}, http.StatusBadRequest},
-		{"shell characters in canonical", setAliasRequest{Alias: "a_111111", Canonical: "b;rm -rf"}, http.StatusBadRequest},
-		{"valid", setAliasRequest{Alias: "a_111111", Canonical: "b_222222"}, http.StatusOK},
-		{"cycle", setAliasRequest{Alias: "b_222222", Canonical: "a_111111"}, http.StatusBadRequest},
+		{setAliasRequest{Alias: "a_111111"}, "missing canonical", http.StatusBadRequest},
+		{setAliasRequest{Canonical: "b_222222"}, "missing alias", http.StatusBadRequest},
+		{setAliasRequest{Alias: "  ", Canonical: " "}, "blank values", http.StatusBadRequest},
+		{setAliasRequest{Alias: "a_111111", Canonical: "a_111111"}, "self alias", http.StatusBadRequest},
+		{setAliasRequest{Alias: "../etc", Canonical: "b_222222"}, "path traversal in alias", http.StatusBadRequest},
+		{setAliasRequest{Alias: "a_111111", Canonical: "b;rm -rf"}, "shell characters in canonical", http.StatusBadRequest},
+		{setAliasRequest{Alias: "a_111111", Canonical: "b_222222"}, "valid", http.StatusOK},
+		{setAliasRequest{Alias: "b_222222", Canonical: "a_111111"}, "cycle", http.StatusBadRequest},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -154,8 +154,13 @@ func TestHandleProjectAliases_ListAndDelete(t *testing.T) {
 
 	rec := doRequest(t, svc, http.MethodGet, "/api/projects/aliases", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
-	var rows []struct{ Alias, Canonical, Source string }
+	var rows []struct {
+		Alias     string `json:"alias"`
+		Canonical string `json:"canonical"`
+		Source    string `json:"source"`
+	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &rows))
+	assert.Contains(t, rec.Body.String(), `"alias":"a_111111"`, "the API uses lowercase keys the dashboard can rely on")
 	require.Len(t, rows, 2)
 	assert.Equal(t, "a_111111", rows[0].Alias)
 	assert.Equal(t, "manual", rows[0].Source)
