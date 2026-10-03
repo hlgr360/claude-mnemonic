@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -415,4 +416,53 @@ func TestSanitizeLabelAndPrune(t *testing.T) {
 	assert.NoError(t, e2)
 	assert.NoError(t, e3, "only snapshot files are ever pruned")
 	assert.NoError(t, e4)
+}
+
+// holdWriteLock makes a second connection take the database write lock now and
+// commit after d, the way the worker's asynchronous vector sync does.
+func (f *adminFixture) holdWriteLock(t *testing.T, d time.Duration) {
+	t.Helper()
+	conn, err := f.store.sqlDB.Conn(f.ctx)
+	require.NoError(t, err)
+	_, err = conn.ExecContext(f.ctx, `BEGIN IMMEDIATE`)
+	require.NoError(t, err)
+	_, err = conn.ExecContext(f.ctx, `UPDATE observations SET importance_score = importance_score WHERE id = ?`, f.keeperObs)
+	require.NoError(t, err)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		time.Sleep(d)
+		_, _ = conn.ExecContext(f.ctx, `COMMIT`)
+		_ = conn.Close()
+	}()
+	t.Cleanup(func() { <-done })
+}
+
+// A transaction that reads first and then writes fails at once with SQLITE_BUSY_SNAPSHOT when
+// another connection commits in between, and the busy timeout does not apply. The project
+// operations therefore take the write lock up front and wait their turn instead.
+func TestProjectAdmin_WritesWaitForAConcurrentWriterInsteadOfFailing(t *testing.T) {
+	t.Run("alias", func(t *testing.T) {
+		f := newAdminFixture(t)
+		f.holdWriteLock(t, 300*time.Millisecond)
+		require.NoError(t, f.aliases.SetAlias(f.ctx, "x_111111", keeper, "manual"))
+		got, isAlias, err := f.aliases.ResolveAlias(f.ctx, "x_111111")
+		require.NoError(t, err)
+		assert.True(t, isAlias)
+		assert.Equal(t, keeper, got)
+	})
+	t.Run("merge", func(t *testing.T) {
+		f := newAdminFixture(t)
+		f.holdWriteLock(t, 300*time.Millisecond)
+		_, err := f.admin.Merge(f.ctx, doomed, keeper, "merge")
+		require.NoError(t, err)
+		assert.Zero(t, f.count(t, `SELECT COUNT(*) FROM observations WHERE project = ?`, doomed))
+	})
+	t.Run("delete", func(t *testing.T) {
+		f := newAdminFixture(t)
+		f.holdWriteLock(t, 300*time.Millisecond)
+		_, err := f.admin.Delete(f.ctx, doomed)
+		require.NoError(t, err)
+		assert.Zero(t, f.count(t, `SELECT COUNT(*) FROM observations WHERE project = ?`, doomed))
+	})
 }

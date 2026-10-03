@@ -32,7 +32,7 @@ func NewProjectAliasStore(store *Store) *ProjectAliasStore {
 // alias that already pointed at the new alias is re-pointed too, so the table
 // stays flat.
 func (s *ProjectAliasStore) SetAlias(ctx context.Context, alias, canonical, source string) error {
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return immediateTx(ctx, s.db, func(tx *gorm.DB) error {
 		return setAliasIn(tx, alias, canonical, source)
 	})
 }

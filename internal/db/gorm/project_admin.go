@@ -139,7 +139,7 @@ func escapeLike(s string) string {
 // Delete removes the project and everything it owns, and returns what was removed.
 func (s *ProjectAdminStore) Delete(ctx context.Context, project string) (ProjectStats, error) {
 	var removed ProjectStats
-	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := immediateTx(ctx, s.db, func(tx *gorm.DB) error {
 		if err := checkRemovable(tx, project); err != nil {
 			return err
 		}
@@ -180,7 +180,7 @@ func (s *ProjectAdminStore) Merge(ctx context.Context, from, into, source string
 	if from == into {
 		return moved, ErrMergeSelf
 	}
-	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := immediateTx(ctx, s.db, func(tx *gorm.DB) error {
 		if err := checkRemovable(tx, from); err != nil {
 			return err
 		}
