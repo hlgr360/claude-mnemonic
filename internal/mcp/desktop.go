@@ -47,10 +47,41 @@ func IsDesktopClient(name string) bool {
 	return n == "claude-ai" || strings.HasPrefix(n, "local-agent-mode")
 }
 
+// memoryBlurb says what claude-mnemonic is in the words people use, so a chat that has its own
+// built-in memory also reaches for this one when the person talks about memory or past work.
+// Chat shows only tool descriptions (not server instructions), so this text leads the key ones.
+const memoryBlurb = "claude-mnemonic is the user's persistent project memory, shared with Claude Code: decisions, findings and fixes from earlier sessions. " +
+	"Use it, in addition to any built-in memory, whenever the user asks about their past work, earlier decisions or project history, " +
+	"or talks about memory or remembering things for their projects, and say which source an answer came from. " +
+	"It is not needed for general questions that do not refer to the user's own earlier work."
+
+// memoryPrefix starts the descriptions of the other tools, which only need to say what they belong to.
+const memoryPrefix = "claude-mnemonic memory (the user's persistent project memory, shared with Claude Code): "
+
+// withMemoryDescriptions returns the base tools with the descriptions of the ones a person's
+// memory questions should reach (search, timeline) led by what claude-mnemonic is. The original text
+// is kept after it. Desktop mode only: Claude Code's own tool list is never changed.
+func withMemoryDescriptions(tools []Tool) []Tool {
+	out := make([]Tool, len(tools))
+	copy(out, tools)
+	for i := range out {
+		switch out[i].Name {
+		case "search":
+			out[i].Description = memoryPrefix + "search it for earlier decisions, findings, fixes and project history; " +
+				"with no project chosen it searches every project. " + out[i].Description
+		case "timeline":
+			out[i].Description = memoryPrefix + out[i].Description
+		}
+	}
+	return out
+}
+
 // desktopInstructions is returned in the initialize result. Some clients show
 // it to the model, others (Desktop chat) do not, so the same protocol is also
 // written into the tool descriptions.
-const desktopInstructions = `claude-mnemonic keeps memory per project. This client has no working directory, so choose a project explicitly:
+const desktopInstructions = memoryBlurb + `
+
+claude-mnemonic keeps memory per project. This client has no working directory, so choose a project explicitly:
 - If a project folder is open, call project_resolve with its absolute path, then context with the returned id.
 - Otherwise call project_suggest with the user's first message, offer the user the candidates (plus "none"), and wait for their choice.
 - If the user declines, stay read-only: use search without a project, and never call remember.
@@ -143,7 +174,7 @@ func desktopTools() []Tool {
 	return []Tool{
 		{
 			Name: "project_suggest",
-			Description: "START HERE in a conversation that has no project folder. Pass the user's first message; returns candidate projects ranked by content, name and recency. " +
+			Description: memoryBlurb + " START HERE for any such memory question in a conversation that has no project folder. Pass the user's first message; returns candidate projects ranked by content, name and recency. " +
 				"Then ASK the user which project to use or whether to continue WITHOUT one (read-only). Do not pick for them; if confident is true you may propose the top one for confirmation. " +
 				"Show projects to the user by their label and pass the matching use value in later calls (the project's name, or its id when two projects share a name). " +
 				"If they decline, never call remember.",
@@ -158,7 +189,7 @@ func desktopTools() []Tool {
 		},
 		{
 			Name: "project_resolve",
-			Description: "Map a project reference to its canonical project id. When a project folder is open, pass its absolute path (from your session context): this reproduces the id Claude Code uses for the same folder. " +
+			Description: memoryPrefix + "map a project reference to its canonical project id. When a project folder is open, pass its absolute path (from your session context): this reproduces the id Claude Code uses for the same folder. " +
 				"Also accepts a name or an id; ambiguous names return candidates instead of guessing.",
 			InputSchema: map[string]any{
 				"type": "object",
@@ -171,12 +202,12 @@ func desktopTools() []Tool {
 		},
 		{
 			Name:        "project_list",
-			Description: "List all projects with session and observation counts and last activity, most recent first. Show each project by its label; pass its use value (name, or id when two projects share a name) to other tools.",
+			Description: memoryPrefix + "list all projects with session and observation counts and last activity, most recent first. Show each project by its label; pass its use value (name, or id when two projects share a name) to other tools.",
 			InputSchema: map[string]any{"type": "object", "properties": map[string]any{}},
 		},
 		{
 			Name: "context",
-			Description: "Load the saved context for a chosen project (what Claude Code receives at session start): recent observations and decisions. " +
+			Description: memoryPrefix + "load the saved context for a chosen project (what Claude Code receives at session start): recent observations and decisions. " +
 				"Call it once after the user picks a project. Not for declined chats.",
 			InputSchema: map[string]any{
 				"type": "object",
@@ -207,7 +238,7 @@ func desktopTools() []Tool {
 		},
 		{
 			Name: "remember",
-			Description: "Save durable knowledge (a decision, a finding, a fix) to a project's memory. Only after the user has chosen a project: never in a declined, read-only chat, and never with a guessed project. " +
+			Description: memoryPrefix + "save durable knowledge (a decision, a finding, a fix), also when the user says to remember something about their project. Only after the user has chosen a project: never in a declined, read-only chat, and never with a guessed project. " +
 				"Pass the project id (or the folder path to start a new project). Text inside <private> tags is not stored.",
 			InputSchema: map[string]any{
 				"type":     "object",
