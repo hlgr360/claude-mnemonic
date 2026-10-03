@@ -51,8 +51,8 @@ type candidateDetail struct {
 
 // resolveResponse is a Resolution plus, when it names candidates, what tells them apart.
 type resolveResponse struct {
-	projects.Resolution
 	CandidateDetails []candidateDetail `json:"candidate_details,omitempty"`
+	projects.Resolution
 }
 
 // projectView is everything needed to label and describe projects.

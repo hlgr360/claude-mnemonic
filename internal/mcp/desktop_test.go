@@ -662,6 +662,13 @@ func TestRun_EndToEndOverStdio(t *testing.T) {
 func manageWorker(t *testing.T) *fakeWorker {
 	t.Helper()
 	return newFakeWorker(t, map[string]func(http.ResponseWriter, *http.Request){
+		"GET /api/projects/summary": jsonReply(`[
+			{"project":"repo_aaaaaa","display_name":"repo","label":"repo","use":"repo"},
+			{"project":"frag_bbbbbb","display_name":"frag","label":"frag","use":"frag"},
+			{"project":"frag_ffffff","display_name":"frag","label":"frag","use":"frag","alias_of":"repo_aaaaaa"},
+			{"project":"app_111111","display_name":"app","label":"app (49 observations, last used 2026-10-01, e.g. \"Naming rules\")","use":"app_111111"},
+			{"project":"app_222222","display_name":"app","label":"app (1 observation, last used 2026-10-02)","use":"app_222222"}]`),
+		"GET /api/projects/app_111111/stats":  jsonReply(`{"project":"app_111111"}`),
 		"GET /api/projects/repo_aaaaaa/stats": jsonReply(`{"project":"repo_aaaaaa","observations":3}`),
 		"DELETE /api/projects/repo_aaaaaa": func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Query().Get("confirm") == "tok123" {
@@ -679,6 +686,7 @@ func manageWorker(t *testing.T) *fakeWorker {
 			}
 			jsonReply(`{"dry_run":true,"confirm":"mtok","message":"Would move 2 observations."}`)(w, r)
 		},
+		"DELETE /api/projects/frag_bbbbbb":      jsonReply(`{"dry_run":true,"confirm":"ftok","message":"Would permanently delete project frag_bbbbbb."}`),
 		"POST /api/projects/aliases":            jsonReply(`{"alias":"x_111111","canonical":"repo_aaaaaa"}`),
 		"DELETE /api/projects/aliases/x_111111": func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) },
 		"DELETE /api/projects/frag_ffffff": func(w http.ResponseWriter, _ *http.Request) {
@@ -807,4 +815,165 @@ func TestProjectManage_PathIsEscaped(t *testing.T) {
 	require.Error(t, err, "the fake has no such route")
 	reqs := fw.requests("/api/projects/a/b c/stats")
 	require.Len(t, reqs, 1, "the id arrives as one escaped segment, decoded by the server")
+}
+
+func TestProjectManage_AcceptsAUniqueNameAndActsOnItsId(t *testing.T) {
+	fw := manageWorker(t)
+	s := desktopServer(t, fw)
+
+	for _, ref := range []string{"repo", "REPO", " repo ", "repo_aaaaaa"} {
+		out, err := call(s, "project_manage", map[string]any{"action": "stats", "project": ref})
+		require.NoError(t, err, ref)
+		assert.Contains(t, out, `"project":"repo_aaaaaa"`, ref)
+	}
+	assert.Empty(t, fw.requests("/api/projects/repo/stats"), "the name is never sent to the worker as if it were an id")
+	assert.Len(t, fw.requests("/api/projects/repo_aaaaaa/stats"), 4)
+}
+
+func TestProjectManage_DeleteByNameStillPreviewsFirst(t *testing.T) {
+	fw := manageWorker(t)
+	s := desktopServer(t, fw)
+
+	out, err := call(s, "project_manage", map[string]any{"action": "delete", "project": "repo"})
+	require.NoError(t, err)
+	assert.Contains(t, out, "only a PREVIEW")
+	reqs := fw.requests("/api/projects/repo_aaaaaa")
+	require.Len(t, reqs, 1)
+	assert.Empty(t, reqs[0].query["confirm"], "a name does not skip the preview")
+}
+
+func TestProjectManage_RefusesANameSharedByProjectsAndSaysHowTheyDiffer(t *testing.T) {
+	fw := manageWorker(t)
+	s := desktopServer(t, fw)
+
+	for _, action := range []string{"stats", "delete"} {
+		_, err := call(s, "project_manage", map[string]any{"action": action, "project": "app"})
+		require.Error(t, err, action)
+		msg := err.Error()
+		assert.Contains(t, msg, `2 projects are called "app"`, action)
+		assert.Contains(t, msg, "app_111111", action)
+		assert.Contains(t, msg, "app_222222", action)
+		assert.Contains(t, msg, `49 observations, last used 2026-10-01, e.g. "Naming rules"`, action)
+		assert.Contains(t, msg, "Ask the user which one", action)
+	}
+	assert.Empty(t, fw.requests("/api/projects/app_111111"), "nothing was previewed, let alone deleted")
+	assert.Empty(t, fw.requests("/api/projects/app_111111/stats"))
+}
+
+func TestProjectManage_NamesakeIsStillReachableById(t *testing.T) {
+	fw := manageWorker(t)
+	out, err := call(desktopServer(t, fw), "project_manage", map[string]any{"action": "stats", "project": "app_111111"})
+	require.NoError(t, err)
+	assert.Contains(t, out, "app_111111")
+}
+
+func TestProjectManage_AnAliasIsNeverMatchedByName(t *testing.T) {
+	fw := manageWorker(t)
+	s := desktopServer(t, fw)
+
+	// "frag" names one real project (frag_bbbbbb) and one alias (frag_ffffff); only the real one counts.
+	_, err := call(s, "project_manage", map[string]any{"action": "delete", "project": "frag"})
+	require.NoError(t, err)
+	assert.Len(t, fw.requests("/api/projects/frag_bbbbbb"), 1)
+	assert.Empty(t, fw.requests("/api/projects/frag_ffffff"), "the alias row was not resolved by name")
+
+	// the alias id itself still goes to the worker, which explains why it is refused
+	_, err = call(s, "project_manage", map[string]any{"action": "delete", "project": "frag_ffffff"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "alias, not a project")
+}
+
+func TestProjectManage_MergeResolvesBothSidesAndRefusesAnAmbiguousTarget(t *testing.T) {
+	fw := manageWorker(t)
+	s := desktopServer(t, fw)
+
+	_, err := call(s, "project_manage", map[string]any{"action": "merge", "project": "frag", "into": "repo"})
+	require.NoError(t, err)
+	posts := fw.requests("/api/projects/frag_bbbbbb/merge")
+	require.Len(t, posts, 1)
+	assert.Equal(t, "repo_aaaaaa", posts[0].body["into"], "the target name became its id")
+
+	before := len(fw.requests("/api/projects/frag_bbbbbb/merge"))
+	_, err = call(s, "project_manage", map[string]any{"action": "merge", "project": "frag", "into": "app"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `2 projects are called "app"`)
+	assert.Len(t, fw.requests("/api/projects/frag_bbbbbb/merge"), before, "an ambiguous target never reaches the worker")
+}
+
+func TestProjectManage_UnknownNamesPassThroughForTheWorkerToRefuse(t *testing.T) {
+	fw := manageWorker(t)
+	_, err := call(desktopServer(t, fw), "project_manage", map[string]any{"action": "stats", "project": "no-such-project"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "404", "the worker's own answer, not a guess")
+}
+
+func namesakeWorker(t *testing.T) *fakeWorker {
+	return newFakeWorker(t, map[string]func(http.ResponseWriter, *http.Request){
+		"GET /api/projects/resolve": func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Query().Get("name") == "app" {
+				jsonReply(`{"match":"none","ambiguous":true,"candidates":["app_111111","app_222222"],"candidate_details":[
+					{"project":"app_111111","label":"app (49 observations)","detail":"49 observations, last used 2026-10-01, e.g. \"Naming rules\""},
+					{"project":"app_222222","label":"app (1 observation)","detail":"1 observation, last used 2026-10-02"}]}`)(w, r)
+				return
+			}
+			if r.URL.Query().Get("name") == "mnemo" {
+				jsonReply(`{"match":"none","candidates":["claude-mnemonic_41bfcd"],"candidate_details":[
+					{"project":"claude-mnemonic_41bfcd","label":"claude-mnemonic","detail":"70 observations"}]}`)(w, r)
+				return
+			}
+			jsonReply(`{"match":"none"}`)(w, r)
+		},
+		"POST /api/observations/remember": jsonReply(`{"project":"x","id":1}`),
+		"GET /api/context/inject":         jsonReply(`"ctx"`),
+	})
+}
+
+func TestNamesakes_RememberAndContextAskInsteadOfGuessing(t *testing.T) {
+	fw := namesakeWorker(t)
+	s := desktopServer(t, fw)
+
+	for _, tc := range []struct {
+		args map[string]any
+		tool string
+	}{
+		{map[string]any{"project": "app", "text": "x"}, "remember"},
+		{map[string]any{"project": "app"}, "context"},
+	} {
+		_, err := call(s, tc.tool, tc.args)
+		require.Error(t, err, tc.tool)
+		assert.Contains(t, err.Error(), `2 projects are called "app"`, tc.tool)
+		assert.Contains(t, err.Error(), `(a) app_111111: 49 observations, last used 2026-10-01, e.g. "Naming rules"`, tc.tool)
+		assert.Contains(t, err.Error(), "(b) app_222222: 1 observation", tc.tool)
+		assert.Contains(t, err.Error(), "Ask the user which one they mean", tc.tool)
+	}
+	assert.Empty(t, fw.requests("/api/observations/remember"), "no write happened for an ambiguous name")
+	assert.Empty(t, fw.requests("/api/context/inject"))
+}
+
+func TestNearMissNamesAreSuggestionsNotAmbiguity(t *testing.T) {
+	fw := namesakeWorker(t)
+	_, err := call(desktopServer(t, fw), "context", map[string]any{"project": "mnemo"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `unknown project "mnemo"`)
+	assert.Contains(t, err.Error(), "did you mean one of: (a) claude-mnemonic_41bfcd: 70 observations")
+	assert.NotContains(t, err.Error(), "projects are called")
+}
+
+func TestDescribeCandidatesFallsBackToBareIds(t *testing.T) {
+	assert.Equal(t, "a_1, b_2", describeCandidates(nil, []string{"a_1", "b_2"}))
+	assert.Equal(t, "(a) x_1: d1; (b) y_2: d2",
+		describeCandidates([]candidateDetail{{Project: "x_1", Detail: "d1"}, {Project: "y_2", Detail: "d2"}}, nil))
+}
+
+func TestToolDescriptionsTellTheModelToUseLabelsAndUseValues(t *testing.T) {
+	byName := map[string]string{}
+	for _, tool := range desktopTools() {
+		byName[tool.Name] = tool.Description
+	}
+	assert.Contains(t, byName["project_suggest"], "label")
+	assert.Contains(t, byName["project_suggest"], "use value")
+	assert.Contains(t, byName["project_list"], "label")
+	assert.Contains(t, byName["project_manage"], "use` value")
+	assert.Contains(t, byName["project_manage"], "Aliases and partial names are never accepted")
+	assert.NotContains(t, byName["project_manage"], "names are not accepted here")
 }
