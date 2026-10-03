@@ -160,6 +160,9 @@ func (s *Service) handleSearchByPrompt(w http.ResponseWriter, r *http.Request) {
 	freshObservations := make([]*models.Observation, 0, len(observations))
 
 	for _, obs := range observations {
+		if obs.IsSuperseded {
+			continue // a person superseded it: still in the dashboard, no longer injected
+		}
 		if len(obs.FileMtimes) > 0 && cwd != "" {
 			var paths []string
 			for path := range obs.FileMtimes {
@@ -418,6 +421,7 @@ func (s *Service) handleFileContext(w http.ResponseWriter, r *http.Request) {
 				log.Warn().Err(err).Str("file", file).Msg("Failed to fetch observations for file context")
 				return
 			}
+			observations = withoutSuperseded(observations)
 
 			// Pre-build score map from vector results (O(n) instead of O(n²))
 			scoreMap := make(map[int64]float64, len(vectorResults))
@@ -613,6 +617,9 @@ func (s *Service) handleContextInject(w http.ResponseWriter, r *http.Request) {
 	freshObservations := make([]*models.Observation, 0, len(observations))
 
 	for _, obs := range observations {
+		if obs.IsSuperseded {
+			continue // a person superseded it: still in the dashboard, no longer injected
+		}
 		if len(obs.FileMtimes) > 0 {
 			var paths []string
 			for path := range obs.FileMtimes {
@@ -688,4 +695,16 @@ func (s *Service) handleContextCount(w http.ResponseWriter, r *http.Request) {
 		"project": project,
 		"count":   count,
 	})
+}
+
+// withoutSuperseded drops the observations a person has superseded. They stay in the dashboard, marked, and
+// can be fetched by id, but they are no longer injected into a session or returned by a search.
+func withoutSuperseded(observations []*models.Observation) []*models.Observation {
+	kept := observations[:0:0]
+	for _, o := range observations {
+		if !o.IsSuperseded {
+			kept = append(kept, o)
+		}
+	}
+	return kept
 }

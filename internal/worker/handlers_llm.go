@@ -51,6 +51,7 @@ func (s *Service) handleLLMStatus(w http.ResponseWriter, r *http.Request) {
 			string(sdk.TaskObservation): cfg.LLMBackendObservation,
 			string(sdk.TaskVerify):      cfg.LLMBackendVerify,
 			string(sdk.TaskBrief):       cfg.LLMBackendBrief,
+			string(sdk.TaskConflict):    cfg.LLMBackendConflict,
 		},
 		Fallback: cfg.LLMFallbackToClaude,
 		Ollama: OllamaStatus{

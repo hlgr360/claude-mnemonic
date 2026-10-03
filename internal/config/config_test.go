@@ -558,3 +558,61 @@ func TestLoad_UnusableProjectBriefSettingsKeepTheDefaults(t *testing.T) {
 	assert.Equal(t, 3, cfg.ProjectBriefMaxPerRun)
 	assert.Equal(t, BackendClaude, cfg.LLMBackendBrief)
 }
+
+func TestLoad_ConflictProposalsAreOffByDefaultAndNothingIsDeletedByDefault(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	cfg, err := Load()
+	require.NoError(t, err)
+
+	assert.False(t, cfg.ConflictProposalsEnabled, "proposals spend Claude usage, so they are opt-in")
+	assert.Equal(t, 20, cfg.ConflictProposalsMaxPerRun)
+	assert.Equal(t, 60, cfg.ConflictProposalsIntervalMin)
+	assert.InDelta(t, 0.65, cfg.ConflictProposalsMinSim, 0.0001)
+	assert.Equal(t, 0, cfg.SupersededRetentionDays, "superseded notes are kept unless a retention is set")
+	assert.Equal(t, BackendClaude, cfg.LLMBackendConflict)
+}
+
+func TestLoad_ConflictProposalSettings(t *testing.T) {
+	writeSettings(t, `{
+		"CLAUDE_MNEMONIC_CONFLICT_PROPOSALS_ENABLED": true,
+		"CLAUDE_MNEMONIC_CONFLICT_PROPOSALS_MAX_PER_RUN": 5,
+		"CLAUDE_MNEMONIC_CONFLICT_PROPOSALS_INTERVAL_MINUTES": 15,
+		"CLAUDE_MNEMONIC_CONFLICT_PROPOSALS_MIN_SIMILARITY": 0.8,
+		"CLAUDE_MNEMONIC_SUPERSEDED_RETENTION_DAYS": 30,
+		"CLAUDE_MNEMONIC_LLM_BACKEND_CONFLICT": "ollama"
+	}`)
+	cfg, err := Load()
+	require.NoError(t, err)
+
+	assert.True(t, cfg.ConflictProposalsEnabled)
+	assert.Equal(t, 5, cfg.ConflictProposalsMaxPerRun)
+	assert.Equal(t, 15, cfg.ConflictProposalsIntervalMin)
+	assert.InDelta(t, 0.8, cfg.ConflictProposalsMinSim, 0.0001)
+	assert.Equal(t, 30, cfg.SupersededRetentionDays)
+	assert.Equal(t, BackendOllama, cfg.LLMBackendConflict)
+}
+
+func TestLoad_UnusableConflictSettingsKeepTheDefaults(t *testing.T) {
+	writeSettings(t, `{
+		"CLAUDE_MNEMONIC_CONFLICT_PROPOSALS_ENABLED": "yes",
+		"CLAUDE_MNEMONIC_CONFLICT_PROPOSALS_MAX_PER_RUN": 0,
+		"CLAUDE_MNEMONIC_CONFLICT_PROPOSALS_INTERVAL_MINUTES": -3,
+		"CLAUDE_MNEMONIC_CONFLICT_PROPOSALS_MIN_SIMILARITY": 1.5,
+		"CLAUDE_MNEMONIC_SUPERSEDED_RETENTION_DAYS": -1,
+		"CLAUDE_MNEMONIC_LLM_BACKEND_CONFLICT": "gpt"
+	}`)
+	cfg, err := Load()
+	require.NoError(t, err)
+
+	assert.False(t, cfg.ConflictProposalsEnabled)
+	assert.Equal(t, 20, cfg.ConflictProposalsMaxPerRun)
+	assert.Equal(t, 60, cfg.ConflictProposalsIntervalMin)
+	assert.InDelta(t, 0.65, cfg.ConflictProposalsMinSim, 0.0001, "a similarity above 1 is not one")
+	assert.Equal(t, 0, cfg.SupersededRetentionDays, "a negative retention is not a retention")
+	assert.Equal(t, BackendClaude, cfg.LLMBackendConflict)
+
+	writeSettings(t, `{"CLAUDE_MNEMONIC_SUPERSEDED_RETENTION_DAYS": 0}`)
+	cfg, err = Load()
+	require.NoError(t, err)
+	assert.Equal(t, 0, cfg.SupersededRetentionDays, "an explicit zero is valid: keep for ever")
+}

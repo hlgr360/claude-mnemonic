@@ -52,6 +52,7 @@ type Config struct {
 	LLMBackendObservation        string   `json:"llm_backend_observation"`
 	LLMBackendVerify             string   `json:"llm_backend_verify"`
 	LLMBackendBrief              string   `json:"llm_backend_brief"`
+	LLMBackendConflict           string   `json:"llm_backend_conflict"`
 	ContextObsConcepts           []string `json:"context_obs_concepts"`
 	ContextObsTypes              []string `json:"context_obs_types"`
 	ContextFullCount             int      `json:"context_full_count"`
@@ -62,10 +63,14 @@ type Config struct {
 	WorkerPort                   int      `json:"worker_port"`
 	OllamaNumCtx                 int      `json:"ollama_num_ctx"`
 	OllamaTimeoutSeconds         int      `json:"ollama_timeout_seconds"`
+	ConflictProposalsMinSim      float64  `json:"conflict_proposals_min_similarity"`
 	ProjectBriefMinNewObs        int      `json:"project_brief_min_new_observations"`
 	ProjectBriefMaxAgeDays       int      `json:"project_brief_max_age_days"`
 	ProjectBriefMaxPerRun        int      `json:"project_brief_max_per_run"`
 	ProjectBriefIntervalMinutes  int      `json:"project_brief_interval_minutes"`
+	ConflictProposalsMaxPerRun   int      `json:"conflict_proposals_max_per_run"`
+	ConflictProposalsIntervalMin int      `json:"conflict_proposals_interval_minutes"`
+	SupersededRetentionDays      int      `json:"superseded_retention_days"`
 	DeduplicationThreshold       float64  `json:"deduplication_threshold"`
 	RerankingMinImprovement      float64  `json:"reranking_min_improvement"`
 	ContextObservations          int      `json:"context_observations"`
@@ -94,6 +99,7 @@ type Config struct {
 	CleanupStaleObservations     bool     `json:"cleanup_stale_observations"`
 	LLMFallbackToClaude          bool     `json:"llm_fallback_to_claude"`
 	ProjectBriefEnabled          bool     `json:"project_brief_enabled"`
+	ConflictProposalsEnabled     bool     `json:"conflict_proposals_enabled"`
 }
 
 var (
@@ -185,6 +191,14 @@ func Default() *Config {
 		LLMBackendVerify:      BackendClaude,
 		LLMFallbackToClaude:   true, // an unreachable Ollama falls back to the CLI
 		LLMBackendBrief:       BackendClaude,
+		LLMBackendConflict:    BackendClaude,
+		// Conflict proposals spend Claude usage, so they are opt-in. They only ever propose: nothing is hidden or
+		// deleted without the user's decision. Superseded notes are kept unless a retention is set.
+		ConflictProposalsEnabled:     false,
+		ConflictProposalsMaxPerRun:   20,
+		ConflictProposalsIntervalMin: 60,
+		ConflictProposalsMinSim:      0.65,
+		SupersededRetentionDays:      0,
 		// Project briefs spend Claude usage, so they are opt-in. A brief is refreshed after enough new
 		// observations, or when it is old and something is new.
 		ProjectBriefEnabled:         false,
@@ -282,6 +296,7 @@ func Load() (*Config, error) {
 		"CLAUDE_MNEMONIC_LLM_BACKEND_OBSERVATION": &cfg.LLMBackendObservation,
 		"CLAUDE_MNEMONIC_LLM_BACKEND_VERIFY":      &cfg.LLMBackendVerify,
 		"CLAUDE_MNEMONIC_LLM_BACKEND_BRIEF":       &cfg.LLMBackendBrief,
+		"CLAUDE_MNEMONIC_LLM_BACKEND_CONFLICT":    &cfg.LLMBackendConflict,
 	} {
 		if v, ok := settings[key].(string); ok && ValidBackend(strings.ToLower(strings.TrimSpace(v))) {
 			*target = strings.ToLower(strings.TrimSpace(v))
@@ -303,6 +318,24 @@ func Load() (*Config, error) {
 		if v, ok := settings[key].(float64); ok && v > 0 {
 			*target = int(v)
 		}
+	}
+	// Conflict proposal settings
+	if v, ok := settings["CLAUDE_MNEMONIC_CONFLICT_PROPOSALS_ENABLED"].(bool); ok {
+		cfg.ConflictProposalsEnabled = v
+	}
+	for key, target := range map[string]*int{
+		"CLAUDE_MNEMONIC_CONFLICT_PROPOSALS_MAX_PER_RUN":      &cfg.ConflictProposalsMaxPerRun,
+		"CLAUDE_MNEMONIC_CONFLICT_PROPOSALS_INTERVAL_MINUTES": &cfg.ConflictProposalsIntervalMin,
+	} {
+		if v, ok := settings[key].(float64); ok && v > 0 {
+			*target = int(v)
+		}
+	}
+	if v, ok := settings["CLAUDE_MNEMONIC_CONFLICT_PROPOSALS_MIN_SIMILARITY"].(float64); ok && v > 0 && v <= 1 {
+		cfg.ConflictProposalsMinSim = v
+	}
+	if v, ok := settings["CLAUDE_MNEMONIC_SUPERSEDED_RETENTION_DAYS"].(float64); ok && v >= 0 {
+		cfg.SupersededRetentionDays = int(v)
 	}
 	// Reranking settings
 	if v, ok := settings["CLAUDE_MNEMONIC_RERANKING_ENABLED"].(bool); ok {

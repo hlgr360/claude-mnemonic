@@ -192,6 +192,7 @@ func (s *Service) handleCrossProjectSearch(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "failed to load observations", http.StatusInternalServerError)
 		return
 	}
+	observations = withoutSuperseded(observations)
 	aliases, err := gorm.NewProjectAliasStore(s.store).AliasMap(ctx)
 	if err != nil {
 		http.Error(w, "failed to load aliases", http.StatusInternalServerError)

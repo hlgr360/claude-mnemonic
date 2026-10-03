@@ -25,7 +25,7 @@ import urllib.error
 import urllib.request
 
 DEFAULT_URL = "http://localhost:11434"
-TASKS = ("summary", "observation", "verify", "brief")
+TASKS = ("summary", "observation", "verify", "brief", "conflict")
 PREFIX = "CLAUDE_MNEMONIC_"
 MODELS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ollama-models.json")
 SMALL_MODEL_WARNING = ("Local models are clearly worse than Haiku here: their summaries invent details, and in our test none was good "
