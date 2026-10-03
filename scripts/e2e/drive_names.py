@@ -33,6 +33,14 @@ def tool(tool_name, **a):
     return r.get("isError", False), r["content"][0]["text"]
 
 
+def must(tool_name, **a):
+    """A setup step: stop at once, naming the step and the worker's answer, instead of failing a check later."""
+    err, text = tool(tool_name, **a)
+    if err:
+        raise SystemExit(f"setup step failed: {tool_name} {a} -> {text[:300]}")
+    return text
+
+
 rpc("initialize", {"protocolVersion": "2025-11-25", "clientInfo": {"name": "claude-ai"}})
 
 base = tempfile.mkdtemp(prefix="e2e-names-")
@@ -41,14 +49,14 @@ for d in dirs.values():
     os.makedirs(d)
 notes = {"app_a": ("Release checklist", "The release checklist requires a signed tag and a changelog entry."),
          "app_b": ("Customer onboarding", "Onboarding a customer needs an API key and a welcome email.")}
-ids = {k: json.loads(tool("project_resolve", path=d)[1])["id"] for k, d in dirs.items()}
+ids = {k: json.loads(must("project_resolve", path=d))["id"] for k, d in dirs.items()}
 
 print("== two folders both called app, one called solo")
 check("the two app folders get different ids", ids["app_a"] != ids["app_b"] and ids["app_a"].startswith("app_") and ids["app_b"].startswith("app_"), ids)
 for k, (title, text) in notes.items():
-    tool("remember", path=dirs[k], title=title, text=text)
-    tool("remember", path=dirs[k], title=title + " (2)", text=text + " Second note.")
-tool("remember", path=dirs["solo"], title="Solo note", text="A note in the only project with this name.")
+    must("remember", path=dirs[k], title=title, text=text)
+    must("remember", path=dirs[k], title=title + " (2)", text=text + " Second note.")
+must("remember", path=dirs["solo"], title="Solo note", text="A note in the only project with this name.")
 time.sleep(4)
 
 print("== project_list shows names, and tells namesakes apart")
@@ -102,7 +110,7 @@ err, text = tool("context", project=ids["app_b"])
 check("context by id works", not err and "onboard" in text.lower(), text[:200])
 
 print("== aliases are not namesakes")
-tool("project_manage", action="alias", alias="app_fffffe", project=ids["app_a"])
+must("project_manage", action="alias", alias="app_fffffe", project=ids["app_a"])
 rows = {r["project"]: r for r in json.loads(tool("project_list")[1])}
 check("an alias of an app does not change the labels", rows[ids["app_a"]]["use"] == ids["app_a"] and rows[ids["app_b"]]["use"] == ids["app_b"])
 err, text = tool("project_manage", action="delete", project="app_fffffe")
