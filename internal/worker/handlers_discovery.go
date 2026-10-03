@@ -99,21 +99,17 @@ func (s *Service) handleSuggestProjects(w http.ResponseWriter, r *http.Request) 
 	query := strings.TrimSpace(r.URL.Query().Get("query"))
 	limit := gorm.ParseLimitParamWithMax(r, suggestDefaultLimit, suggestMaxLimit)
 
-	rows, err := s.sessionStore.ProjectSummaries(ctx)
+	view, err := s.loadProjectView(ctx)
 	if err != nil {
 		http.Error(w, "failed to list projects", http.StatusInternalServerError)
 		return
 	}
-	activity := make([]projects.Activity, 0, len(rows))
-	for _, row := range rows {
+	aliases := view.aliases
+	activity := make([]projects.Activity, 0, len(view.rows))
+	for _, row := range view.rows {
 		activity = append(activity, projects.Activity{
 			Project: row.Project, Sessions: row.Sessions, Observations: row.Observations, LastActiveEpoch: row.LastActiveEpoch,
 		})
-	}
-	aliases, err := gorm.NewProjectAliasStore(s.store).AliasMap(ctx)
-	if err != nil {
-		http.Error(w, "failed to load aliases", http.StatusInternalServerError)
-		return
 	}
 
 	var hits []projects.Hit
@@ -129,6 +125,10 @@ func (s *Service) handleSuggestProjects(w http.ResponseWriter, r *http.Request) 
 	}
 
 	out := projects.Suggest(query, hits, activity, aliases, time.Now().UnixMilli(), limit)
+	for i := range out.Suggestions {
+		l := view.labels[out.Suggestions[i].Project]
+		out.Suggestions[i].Label, out.Suggestions[i].Use = l.Label, l.Use
+	}
 	noStore(w)
 	writeJSON(w, map[string]any{
 		"query":       query,

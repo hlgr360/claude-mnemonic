@@ -130,12 +130,12 @@ func TestResolve_ByName(t *testing.T) {
 	})
 	t.Run("ambiguous names return candidates and no ID", func(t *testing.T) {
 		two := []string{"repo_aaaaaa", "repo_bbbbbb"}
-		assert.Equal(t, Resolution{Match: MatchNone, Candidates: []string{"repo_aaaaaa", "repo_bbbbbb"}},
+		assert.Equal(t, Resolution{Match: MatchNone, Candidates: []string{"repo_aaaaaa", "repo_bbbbbb"}, Ambiguous: true},
 			Resolve(Ref{Name: "repo"}, two, nil))
 	})
 	t.Run("no exact match offers substring candidates", func(t *testing.T) {
 		assert.Equal(t, Resolution{Match: MatchNone, Candidates: []string{"claude-mnemonic_aaaaaa"}},
-			Resolve(Ref{Name: "mnemonic"}, known, nil))
+			Resolve(Ref{Name: "mnemonic"}, known, nil), "near misses are not flagged as ambiguous")
 	})
 	t.Run("nothing matches", func(t *testing.T) {
 		assert.Equal(t, Resolution{Match: MatchNone}, Resolve(Ref{Name: "zzz"}, known, nil))

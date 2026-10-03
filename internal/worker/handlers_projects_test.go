@@ -205,3 +205,148 @@ func TestHandleListProjectSummaries_Empty(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.JSONEq(t, "[]", rec.Body.String(), "an empty store is an empty list, not null")
 }
+
+type labelledRow struct {
+	Project      string   `json:"project"`
+	Label        string   `json:"label"`
+	Use          string   `json:"use"`
+	SampleTitles []string `json:"sample_titles"`
+}
+
+func getSummaryRows(t *testing.T, svc *Service) map[string]labelledRow {
+	t.Helper()
+	rec := doRequest(t, svc, http.MethodGet, "/api/projects/summary", nil)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var rows []labelledRow
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &rows))
+	out := map[string]labelledRow{}
+	for _, r := range rows {
+		out[r.Project] = r
+	}
+	return out
+}
+
+func TestHandleListProjectSummaries_UniqueNamesAreLabelledByName(t *testing.T) {
+	svc, cleanup := testService(t)
+	defer cleanup()
+	createTestObservation(t, svc.observationStore, "claude-mnemonic_41bfcd", "Vector search", "n", nil)
+	createTestObservation(t, svc.observationStore, "oci_awx_b6d754", "Key rotation", "n", nil)
+
+	rows := getSummaryRows(t, svc)
+	assert.Equal(t, "claude-mnemonic", rows["claude-mnemonic_41bfcd"].Label)
+	assert.Equal(t, "claude-mnemonic", rows["claude-mnemonic_41bfcd"].Use, "a unique name is what to pass back")
+	assert.Equal(t, "oci_awx", rows["oci_awx_b6d754"].Use)
+	assert.Equal(t, []string{"Vector search"}, rows["claude-mnemonic_41bfcd"].SampleTitles)
+}
+
+func TestHandleListProjectSummaries_NamesakesAreToldApartAndUsedById(t *testing.T) {
+	svc, cleanup := testService(t)
+	defer cleanup()
+	createTestObservation(t, svc.observationStore, "app_40d35c", "Naming rules", "n", nil)
+	createTestObservation(t, svc.observationStore, "app_40d35c", "Another", "n", nil)
+	createTestObservation(t, svc.observationStore, "app_4a4494", "Release notes", "n", nil)
+
+	rows := getSummaryRows(t, svc)
+	big, small := rows["app_40d35c"], rows["app_4a4494"]
+	assert.Equal(t, "app_40d35c", big.Use, "two projects called app must be referred to by id")
+	assert.Equal(t, "app_4a4494", small.Use)
+	assert.Contains(t, big.Label, "app (2 observations")
+	assert.Contains(t, big.Label, "last used")
+	assert.Contains(t, small.Label, "app (1 observation")
+	assert.Contains(t, small.Label, `e.g. "Release notes"`, "the label says what the project holds")
+	assert.NotEqual(t, big.Label, small.Label)
+}
+
+func TestHandleListProjectSummaries_AnAliasSharesItsProjectsLabel(t *testing.T) {
+	svc, cleanup := testService(t)
+	defer cleanup()
+	createTestObservation(t, svc.observationStore, "app_aaaaaa", "Main", "n", nil)
+	createTestObservation(t, svc.observationStore, "app_ffffff", "Fragment", "n", nil)
+	require.Equal(t, http.StatusOK, doRequest(t, svc, http.MethodPost, "/api/projects/aliases",
+		setAliasRequest{Alias: "app_ffffff", Canonical: "app_aaaaaa"}).Code)
+
+	rows := getSummaryRows(t, svc)
+	assert.Equal(t, "app", rows["app_aaaaaa"].Use, "a fragment aliased to the project is not a namesake")
+	assert.Equal(t, "app", rows["app_ffffff"].Use)
+}
+
+func TestHandleSuggestProjects_SuggestionsCarryLabelAndUse(t *testing.T) {
+	svc, cleanup := testService(t)
+	defer cleanup()
+	createTestObservation(t, svc.observationStore, "solo_111111", "Only one", "n", nil)
+	createTestObservation(t, svc.observationStore, "app_40d35c", "First", "n", nil)
+	createTestObservation(t, svc.observationStore, "app_4a4494", "Second", "n", nil)
+
+	rec := doRequest(t, svc, http.MethodGet, "/api/projects/suggest?limit=10", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var got struct {
+		Suggestions []labelledRow `json:"suggestions"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	byID := map[string]labelledRow{}
+	for _, s := range got.Suggestions {
+		byID[s.Project] = s
+	}
+	assert.Equal(t, labelledRow{Project: "solo_111111", Label: "solo", Use: "solo"}, byID["solo_111111"])
+	assert.Equal(t, "app_40d35c", byID["app_40d35c"].Use)
+	assert.Contains(t, byID["app_4a4494"].Label, "app (1 observation")
+}
+
+type resolveWithDetails struct {
+	Match            string   `json:"match"`
+	ID               string   `json:"id"`
+	Candidates       []string `json:"candidates"`
+	CandidateDetails []struct {
+		Project      string   `json:"project"`
+		Label        string   `json:"label"`
+		Detail       string   `json:"detail"`
+		SampleTitles []string `json:"sample_titles"`
+		Observations int64    `json:"observations"`
+	} `json:"candidate_details"`
+	Ambiguous bool `json:"ambiguous"`
+}
+
+func resolveName(t *testing.T, svc *Service, name string) resolveWithDetails {
+	t.Helper()
+	rec := doRequest(t, svc, http.MethodGet, "/api/projects/resolve?name="+url.QueryEscape(name), nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var got resolveWithDetails
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	return got
+}
+
+func TestHandleResolveProject_AmbiguousNameReturnsWhatTellsTheCandidatesApart(t *testing.T) {
+	svc, cleanup := testService(t)
+	defer cleanup()
+	createTestObservation(t, svc.observationStore, "app_40d35c", "Naming rules", "n", nil)
+	createTestObservation(t, svc.observationStore, "app_40d35c", "More", "n", nil)
+	createTestObservation(t, svc.observationStore, "app_4a4494", "Release notes", "n", nil)
+
+	got := resolveName(t, svc, "app")
+	assert.Equal(t, "none", got.Match, "a namesake is never chosen silently")
+	assert.Empty(t, got.ID)
+	assert.True(t, got.Ambiguous)
+	assert.Equal(t, []string{"app_40d35c", "app_4a4494"}, got.Candidates)
+	require.Len(t, got.CandidateDetails, 2)
+	assert.Equal(t, int64(2), got.CandidateDetails[0].Observations)
+	assert.Contains(t, got.CandidateDetails[0].Detail, "2 observations")
+	assert.Contains(t, got.CandidateDetails[1].Detail, `e.g. "Release notes"`)
+	assert.Equal(t, []string{"Release notes"}, got.CandidateDetails[1].SampleTitles)
+}
+
+func TestHandleResolveProject_UniqueAndNearMissNames(t *testing.T) {
+	svc, cleanup := testService(t)
+	defer cleanup()
+	createTestObservation(t, svc.observationStore, "claude-mnemonic_41bfcd", "T", "n", nil)
+
+	unique := resolveName(t, svc, "claude-mnemonic")
+	assert.Equal(t, "name", unique.Match)
+	assert.Equal(t, "claude-mnemonic_41bfcd", unique.ID)
+	assert.Empty(t, unique.CandidateDetails, "nothing to choose between")
+
+	near := resolveName(t, svc, "mnemonic")
+	assert.Equal(t, "none", near.Match)
+	assert.False(t, near.Ambiguous, "a partial match is a suggestion, not a tie")
+	require.Len(t, near.CandidateDetails, 1)
+	assert.Equal(t, "claude-mnemonic_41bfcd", near.CandidateDetails[0].Project)
+}

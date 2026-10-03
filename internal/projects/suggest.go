@@ -26,6 +26,8 @@ type Activity struct {
 type Suggestion struct {
 	Project         string   `json:"project"`
 	DisplayName     string   `json:"display_name"`
+	Label           string   `json:"label,omitempty"`
+	Use             string   `json:"use,omitempty"`
 	Reason          string   `json:"reason"`
 	TopTitles       []string `json:"top_titles,omitempty"`
 	Score           float64  `json:"score"`
