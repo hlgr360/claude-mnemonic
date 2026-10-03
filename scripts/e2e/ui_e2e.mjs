@@ -6,6 +6,9 @@ import { join } from 'node:path'
 
 const [, , uiUrl, workerUrl, idsJson] = process.argv
 const ids = JSON.parse(idsJson)
+// The dropdown shows names, not hashes: the display name is the id without its trailing hash.
+const nameOf = (id) => id.replace(/_[0-9a-f]{6}$/, '')
+const hashOf = (id) => id.split('_').pop()
 const CHROME = process.env.CHROME || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
 const PORT = 9333
 let ok = 0, fail = 0
@@ -55,8 +58,35 @@ try {
   await send('Page.navigate', { url: uiUrl })
   await waitFor(`!!document.querySelector('.project-filter button')`, 'project filter')
 
-  console.log('== open the manager from the project dropdown')
+  console.log('== the dropdown lists every project that has data, by name')
   await evaluate(`document.querySelector('.project-filter button').click()`)
+  await waitFor(`document.body.innerText.includes('Manage projects…') && document.querySelectorAll('.project-filter button[title]').length >= ${Object.keys(ids).length}`, 'dropdown items')
+  const dropdownIds = await evaluate(`[...document.querySelectorAll('.project-filter button[title]')].map(b => b.title).sort()`)
+  check('it lists exactly the seeded projects, including the one without a session and the one with only summaries',
+    JSON.stringify(dropdownIds) === JSON.stringify(Object.values(ids).sort()), JSON.stringify(dropdownIds))
+  const dropdownText = await evaluate(`document.querySelector('.project-filter .max-h-64').innerText`)
+  check('unique names are shown without their hash', Object.values(ids).every(id => dropdownText.includes(nameOf(id)) && !dropdownText.includes(hashOf(id))),
+    dropdownText.replace(/\n/g, ' | '))
+  check('the project that only has summaries says so', /summ-only\s*\n?\s*summaries only/.test(dropdownText) || dropdownText.includes('summaries only'))
+  check('every entry carries its id as a tooltip', await evaluate(`[...document.querySelectorAll('.project-filter button[title]')].every(b => /_[0-9a-f]{6}$/.test(b.title))`))
+  await evaluate(`(() => { const i = document.querySelector('.project-filter input[type=text]'); i.value = ${JSON.stringify(hashOf(ids.main_proj))}; i.dispatchEvent(new Event('input', { bubbles: true })) })()`)
+  await waitFor(`document.querySelectorAll('.project-filter button[title]').length === 1`, 'search by hash')
+  check('a pasted hash still finds its project', (await evaluate(`document.querySelector('.project-filter button[title]').title`)) === ids.main_proj)
+  await evaluate(`(() => { const i = document.querySelector('.project-filter input[type=text]'); i.value = ''; i.dispatchEvent(new Event('input', { bubbles: true })) })()`)
+  await waitFor(`document.querySelectorAll('.project-filter button[title]').length >= ${Object.keys(ids).length}`, 'search cleared')
+
+  console.log('== a project with only summaries can be selected')
+  await clickByText('.project-filter button', nameOf(ids.summ_only))
+  await waitFor(`document.querySelector('.project-filter > button').innerText.includes(${JSON.stringify(nameOf(ids.summ_only))})`, 'filter on the summary-only project')
+  check('the filter shows its name', true)
+  check('and does not break the page', !(await text()).includes('Failed to load'))
+  await evaluate(`document.querySelector('.project-filter > button').click()`)
+  await waitFor(`document.body.innerText.includes('All Projects') && !!document.querySelector('.project-filter button[title]')`, 'dropdown reopened')
+  await clickByText('.project-filter button', 'All Projects')
+  await waitFor(`document.querySelector('.project-filter > button').innerText.includes('All Projects')`, 'back to all projects')
+
+  console.log('== open the manager from the project dropdown')
+  await evaluate(`document.querySelector('.project-filter > button').click()`)
   await waitFor(`document.body.innerText.includes('Manage projects…')`, 'footer button')
   check('dropdown has a "Manage projects…" entry', true)
   await clickByText('.project-filter button', 'Manage projects')
@@ -65,6 +95,7 @@ try {
   await waitFor(`!!document.querySelector('[aria-label="Delete ${ids.doomed}"]') && document.body.innerText.includes('also old-fragment_abcdef')`, 'manager rows and aliases loaded')
   const rowIds = await evaluate(`[...document.querySelectorAll('[aria-label^="Delete "]')].map(b => b.getAttribute('aria-label').slice(7))`)
   check('every seeded project has a row in the manager', Object.values(ids).every(id => rowIds.includes(id)), JSON.stringify(rowIds))
+  check('the manager lists exactly the projects the dropdown listed', JSON.stringify([...rowIds].sort()) === JSON.stringify(dropdownIds), JSON.stringify(rowIds))
   let t = await text()
   check('observation counts are shown in the rows', (t.match(/1 observations/g) ?? []).length >= 4)
   check('the alias is listed under Aliases and as a chip on its project', t.includes('old-fragment_abcdef') && t.includes('also old-fragment_abcdef'))
@@ -136,9 +167,9 @@ try {
   const triggerText = () => evaluate(`document.querySelector('.project-filter > button').innerText`)
   check('filter starts on all projects', (await triggerText()).includes('All Projects'))
   await evaluate(`document.querySelector('.project-filter > button').click()`)
-  await waitFor(`[...document.querySelectorAll('.project-filter button')].some(b => b.innerText.includes(${JSON.stringify(ids.spare)}))`, 'spare in dropdown')
-  await clickByText('.project-filter button', ids.spare)
-  await waitFor(`document.querySelector('.project-filter > button').innerText.includes(${JSON.stringify(ids.spare)})`, 'filter on spare')
+  await waitFor(`[...document.querySelectorAll('.project-filter button[title]')].some(b => b.title === ${JSON.stringify(ids.spare)})`, 'spare in dropdown')
+  await clickByText('.project-filter button', nameOf(ids.spare))
+  await waitFor(`document.querySelector('.project-filter > button').innerText.includes(${JSON.stringify(nameOf(ids.spare))})`, 'filter on spare')
   check('filter now shows the spare project', true)
   await evaluate(`document.querySelector('.project-filter > button').click()`)
   await waitFor(`document.body.innerText.includes('Manage projects…')`, 'footer')
@@ -151,7 +182,7 @@ try {
   await evaluate(`document.querySelector('[aria-label="Close"]').click()`)
   await waitFor(`document.querySelector('.project-filter > button').innerText.includes('All Projects')`, 'filter reset')
   check('the filter fell back to All Projects instead of pointing at a deleted project', true)
-  const dropdownGone = await evaluate(`(async () => { document.querySelector('.project-filter > button').click(); await new Promise(r => setTimeout(r, 800)); return !document.body.innerText.includes(${JSON.stringify(ids.spare)}) })()`)
+  const dropdownGone = await evaluate(`(async () => { document.querySelector('.project-filter > button').click(); await new Promise(r => setTimeout(r, 800)); return ![...document.querySelectorAll('.project-filter button[title]')].some(b => b.title === ${JSON.stringify(ids.spare)}) })()`)
   check('and the dropdown list was re-read (no stale cached entry)', dropdownGone)
 } catch (e) {
   fail++; console.log('  FAIL  ' + e.message)

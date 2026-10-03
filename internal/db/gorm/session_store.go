@@ -187,15 +187,21 @@ func (s *SessionStore) GetSessionsToday(ctx context.Context) (int, error) {
 	return int(count), err
 }
 
-// GetAllProjects returns all unique project names.
+// GetAllProjects returns every unique project id that has any data: a session,
+// an active observation or a session summary. It is the same set as
+// ProjectSummaries, so the dashboard filter and the management panel agree.
 func (s *SessionStore) GetAllProjects(ctx context.Context) ([]string, error) {
 	var projects []string
-	err := s.db.WithContext(ctx).
-		Model(&SDKSession{}).
-		Distinct("project").
-		Where("project IS NOT NULL AND project != ''").
-		Order("project ASC").
-		Pluck("project", &projects).Error
+	err := s.db.WithContext(ctx).Raw(`
+		SELECT project FROM (
+			SELECT project FROM sdk_sessions
+			UNION
+			SELECT project FROM observations WHERE is_archived = 0 OR is_archived IS NULL
+			UNION
+			SELECT project FROM session_summaries
+		)
+		WHERE project IS NOT NULL AND project != ''
+		ORDER BY project ASC`).Scan(&projects).Error
 
 	return projects, err
 }

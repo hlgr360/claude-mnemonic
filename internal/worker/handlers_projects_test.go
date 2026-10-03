@@ -16,6 +16,7 @@ import (
 
 	"github.com/lukaszraczylo/claude-mnemonic/internal/projects"
 	"github.com/lukaszraczylo/claude-mnemonic/pkg/hooks"
+	"github.com/lukaszraczylo/claude-mnemonic/pkg/models"
 )
 
 func doRequest(t *testing.T, svc *Service, method, target string, body any) *httptest.ResponseRecorder {
@@ -349,4 +350,74 @@ func TestHandleResolveProject_UniqueAndNearMissNames(t *testing.T) {
 	assert.False(t, near.Ambiguous, "a partial match is a suggestion, not a tie")
 	require.Len(t, near.CandidateDetails, 1)
 	assert.Equal(t, "claude-mnemonic_41bfcd", near.CandidateDetails[0].Project)
+}
+
+func TestProjectLists_AgreeAndIncludeProjectsWithOnlySummaries(t *testing.T) {
+	svc, cleanup := testService(t)
+	defer cleanup()
+	ctx := context.Background()
+	seedProjects(t, svc, "repo_aaaaaa")
+
+	// A project that only has summaries: its session row is gone and it never had observations.
+	for i, req := range []string{"first note", "second note"} {
+		_, _, err := svc.summaryStore.StoreSummary(ctx, "sdk-only-"+string(rune('a'+i)), "notes_bbbbbb", &models.ParsedSummary{Request: req}, i+1, 0)
+		require.NoError(t, err)
+	}
+	require.NoError(t, svc.store.DB.Exec(`DELETE FROM sdk_sessions WHERE project = ?`, "notes_bbbbbb").Error)
+
+	// A project that only has an observation.
+	_, _, err := svc.observationStore.StoreObservation(ctx, "sdk-obs", "obsonly_cccccc",
+		&models.ParsedObservation{Type: models.ObsTypeDiscovery, Title: "t", Narrative: "n"}, 1, 1)
+	require.NoError(t, err)
+	require.NoError(t, svc.store.DB.Exec(`DELETE FROM sdk_sessions WHERE project = ?`, "obsonly_cccccc").Error)
+
+	rec := doRequest(t, svc, http.MethodGet, "/api/projects", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var dropdown []string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &dropdown))
+
+	rec = doRequest(t, svc, http.MethodGet, "/api/projects/summary", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var panel []struct {
+		Project     string `json:"project"`
+		DisplayName string `json:"display_name"`
+		Label       string `json:"label"`
+		Summaries   int64  `json:"summaries"`
+		Sessions    int64  `json:"sessions"`
+		Obs         int64  `json:"observations"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &panel))
+	var panelIDs []string
+	byID := map[string]int{}
+	for i, p := range panel {
+		panelIDs = append(panelIDs, p.Project)
+		byID[p.Project] = i
+	}
+
+	assert.ElementsMatch(t, []string{"notes_bbbbbb", "obsonly_cccccc", "repo_aaaaaa"}, dropdown)
+	assert.ElementsMatch(t, dropdown, panelIDs, "the dashboard dropdown and the management panel list exactly the same projects")
+
+	only := panel[byID["notes_bbbbbb"]]
+	assert.Equal(t, int64(2), only.Summaries)
+	assert.Zero(t, only.Sessions)
+	assert.Zero(t, only.Obs)
+	assert.Equal(t, "notes", only.DisplayName)
+	assert.Equal(t, "notes", only.Label, "a unique name is shown without its hash")
+	assert.Equal(t, int64(1), panel[byID["obsonly_cccccc"]].Obs)
+}
+
+func TestProjectsWithOnlySummariesCanBeWrittenTo(t *testing.T) {
+	svc, cleanup := testService(t)
+	defer cleanup()
+	ctx := context.Background()
+	_, _, err := svc.summaryStore.StoreSummary(ctx, "sdk-only", "notes_bbbbbb", &models.ParsedSummary{Request: "a note"}, 1, 0)
+	require.NoError(t, err)
+	require.NoError(t, svc.store.DB.Exec(`DELETE FROM sdk_sessions WHERE project = ?`, "notes_bbbbbb").Error)
+
+	rec, resp := remember(t, svc, RememberRequest{Project: "notes_bbbbbb", Text: "a first observation"})
+	assert.Equal(t, http.StatusOK, rec.Code, "the project has data, so it is known: "+rec.Body.String())
+	assert.Equal(t, "notes_bbbbbb", resp.Project)
+
+	rec, _ = checkpoint(t, svc, CheckpointRequest{Project: "notes_bbbbbb", Thread: "T", Goal: "g"})
+	assert.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 }

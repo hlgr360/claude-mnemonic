@@ -123,12 +123,6 @@ export async function fetchStats(project?: string | null): Promise<Stats> {
   return fetchWithRetry<Stats>(`${API_BASE}/stats${query ? '?' + query : ''}`)
 }
 
-export async function fetchProjects(fresh = false): Promise<string[]> {
-  // /api/projects is cacheable for 5 minutes; after a merge or delete the list must be re-read.
-  const bust = fresh ? `?_=${Date.now()}` : ''
-  return fetchWithRetry<string[]>(`${API_BASE}/projects${bust}`)
-}
-
 /**
  * Combine and sort all feed items by timestamp
  */

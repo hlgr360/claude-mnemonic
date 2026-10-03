@@ -3,8 +3,12 @@
 export interface ProjectSummary {
   project: string
   display_name: string
+  /** How to show the project to a person: the name when it is unique, otherwise the name with what tells namesakes apart. */
+  label?: string
   sessions: number
   observations: number
+  /** Session summaries; a project can hold only these. */
+  summaries?: number
   last_active_epoch: number
   /** Set when this id has been declared an alias of another project. */
   alias_of?: string
