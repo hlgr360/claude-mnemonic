@@ -1,12 +1,12 @@
 {
-  "note": "Models the setup script offers for claude-mnemonic's optional local LLM backend. 'status' is what we know from comparing them on real turns (see issue #26); nothing is recommended until a model passes that comparison. Sizes are approximate downloads.",
+  "note": "Models the setup script offers for claude-mnemonic's optional local LLM backend. 'status' is what we know from comparing them on real turns against Haiku (scripts/llm-eval, issue #26): no model is recommended for summaries or observations. Sizes are approximate downloads.",
   "models": [
     {
       "name": "gemma3:12b",
       "size_gb": 8.1,
       "license": "Gemma terms of use",
-      "status": "candidate",
-      "notes": "Likely the best of the shortlist at faithful summaries of long input; the largest."
+      "status": "best-so-far",
+      "notes": "Best local model on summaries, but not good enough to replace Haiku: judged faithful 3.9 against 4.9, about 6 in 10 summaries had an unsupported claim, and long conversations (the PreCompact case) fall to about 3.3."
     },
     {
       "name": "granite3.3:8b",
@@ -16,8 +16,8 @@
       ],
       "size_gb": 4.9,
       "license": "Apache-2.0",
-      "status": "candidate",
-      "notes": "Built for extraction and summarisation; permissive licence."
+      "status": "close",
+      "notes": "About as good as gemma3:12b at half the size, faster, and Apache-2.0. Same limits: not good enough to replace Haiku for summaries."
     },
     {
       "name": "llama3.1:8b",
@@ -27,8 +27,8 @@
       ],
       "size_gb": 4.9,
       "license": "Llama community licence",
-      "status": "candidate",
-      "notes": "Same family as llama3.2, so it shows how much of the failure was model size."
+      "status": "weak",
+      "notes": "Generic and often unfaithful even with a prompt written for small models. Not recommended."
     },
     {
       "name": "llama3.2:3b",
@@ -39,7 +39,7 @@
       "size_gb": 2.0,
       "license": "Llama community licence",
       "status": "poor",
-      "notes": "Tested as a summarizer on real turns with the current prompt: generic and sometimes wrong. Fine for nothing that needs facts."
+      "notes": "Generic and sometimes wrong on real turns, and it can copy an example from the prompt on long input. Not recommended."
     }
   ]
 }

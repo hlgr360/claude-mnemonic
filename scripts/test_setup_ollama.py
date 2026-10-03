@@ -306,6 +306,12 @@ class Setup(Base):
         self.assertNotIn("/api/pull", self.fake.paths("POST"), "an installed model is not downloaded")
         self.assertIn("/api/chat", self.fake.paths("POST"), "it was tested")
 
+    def test_the_warning_does_not_call_any_task_safe_and_names_the_deleting_one(self):
+        self.assertEqual(self.run_cli("--model", "llama3.2:latest", "--task", "verify", "--skip-test"), 0)
+        text = self.text()
+        self.assertIn("permanently deletes", text)
+        self.assertNotIn("safest", text)
+
     def test_no_task_switches_nothing_and_says_so(self):
         self.assertEqual(self.run_cli("--model", "llama3.2:latest"), 0)
         s = self.saved()
@@ -337,7 +343,7 @@ class Setup(Base):
         self.assertIn("/api/pull", self.fake.paths("POST"))
         self.assertLess(self.fake.paths("POST").index("/api/pull"), self.fake.paths("POST").index("/api/chat"), "download first, then the test")
         self.assertEqual(self.saved()[P + "LLM_BACKEND_SUMMARY"], "ollama")
-        self.assertIn("worse summaries than Haiku", self.text(), "moving the summary task comes with the quality warning")
+        self.assertIn("clearly worse than Haiku", self.text(), "moving a task comes with the quality warning")
 
     def test_no_pull_never_downloads(self):
         self.assertEqual(self.run_cli("--model", "gemma3:12b", "--no-pull", "--yes"), 2)
@@ -382,6 +388,14 @@ class Setup(Base):
         self.lines.clear()
         self.assertEqual(self.run_cli("--model", "llama3.2:latest", "--skip-test"), 0)
         self.assertIn("Warning", self.text(), "llama3.2 is known to be poor at summaries")
+        self.lines.clear()
+        self.fake.installed.append({"name": "llama3.1:8b"})
+        self.assertEqual(self.run_cli("--model", "llama3.1:8b", "--skip-test"), 0)
+        self.assertIn("Warning", self.text(), "a weak model is warned about too")
+        self.lines.clear()
+        self.fake.installed.append({"name": "gemma3:12b"})
+        self.assertEqual(self.run_cli("--model", "gemma3:12b", "--skip-test"), 0)
+        self.assertNotIn("Warning", self.text(), "a model that is merely not good enough yet gets the task warning, not this one")
 
     def test_corrupt_settings_are_never_overwritten(self):
         os.makedirs(os.path.dirname(self.settings))
