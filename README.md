@@ -157,6 +157,27 @@ Config file: `~/.claude-mnemonic/settings.json`
 |----------|---------|--------------|
 | `EMBEDDING_MODEL` | `bge-v1.5` | Embedding model for semantic search |
 
+### Local LLM Settings (Ollama, optional)
+
+Summaries, observation extraction and the stale-observation check run on the Claude CLI by default. Each of
+these tasks can instead run on a local [Ollama](https://ollama.com) model, so nothing from a session leaves the
+machine. Nothing changes unless you switch a task; `GET /api/llm/status` shows what the worker sees.
+
+| Variable | Default | What it does |
+|----------|---------|--------------|
+| `LLM_BACKEND_SUMMARY` | `claude` | `claude` or `ollama`, for session summaries |
+| `LLM_BACKEND_OBSERVATION` | `claude` | `claude` or `ollama`, for observation extraction |
+| `LLM_BACKEND_VERIFY` | `claude` | `claude` or `ollama`, for the stale-observation check |
+| `LLM_FALLBACK_TO_CLAUDE` | `true` | Use the Claude CLI when Ollama is unreachable or fails |
+| `OLLAMA_MODEL` | *(none)* | Model to use, for example `gemma3:12b`. A task on `ollama` without a model stays on Claude |
+| `OLLAMA_URL` | `OLLAMA_HOST`, else `http://localhost:11434` | Where Ollama listens |
+| `OLLAMA_NUM_CTX` | `16384` | Context window sent to Ollama (its own default is far too small for long inputs) |
+| `OLLAMA_KEEP_ALIVE` | `10m` | How long Ollama keeps the model in memory |
+| `OLLAMA_TIMEOUT_SECONDS` | `120` | Per-request timeout |
+
+Small models write noticeably worse summaries than Haiku. In a test with `llama3.2:3b` on real turns the
+summaries were generic and sometimes wrong, so pick a model by comparing it on your own sessions first.
+
 All variables are prefixed with `CLAUDE_MNEMONIC_` in the config file.
 
 ## Project vs Global scope
