@@ -20,11 +20,14 @@ type HookResponse struct {
 
 // ProjectIDWithName returns both the hash ID and the directory name for display.
 // Format: "dirname_abc123" (name + truncated hash for human-readability)
+// Directories inside a linked git worktree resolve to the main checkout (see
+// CanonicalProjectPath); all other paths keep their historical ID.
 func ProjectIDWithName(cwd string) string {
 	absPath, err := filepath.Abs(cwd)
 	if err != nil {
 		absPath = cwd
 	}
+	absPath = CanonicalProjectPath(absPath)
 
 	dirName := filepath.Base(absPath)
 	hash := sha256.Sum256([]byte(absPath))
