@@ -52,20 +52,76 @@ Desktop mode adds these tools (Claude Code's tool list is unchanged):
 `search` and the other existing tools keep working; with no project chosen, `search` covers
 every project.
 
-## Making chat use it (and checking that it does)
+## Making chat use it
 
-Desktop chat has its own built-in memory, so "search my memory" can be answered without ever calling
-claude-mnemonic. Chat shows only tool descriptions, so in Desktop mode the descriptions lead with what
-claude-mnemonic is: the user's persistent project memory, shared with Claude Code, to be used in addition to any
-built-in memory for questions about past work, earlier decisions or project history. A model cannot be forced to
-call a tool, so measure it. In real Desktop, open a **new chat** for each prompt:
+Desktop chat has its own built-in memory. Without help it answers "search my memory" from that and never
+calls claude-mnemonic. **Add the instruction below to Claude Desktop once**; without it, expect chat to ignore
+claude-mnemonic for ordinary "memory" wording.
+
+```text
+I keep a persistent memory of my project work in the claude-mnemonic connector. It is shared with Claude Code and holds decisions, findings and fixes from earlier sessions.
+
+Use it, in addition to any built-in memory, whenever I ask about my past work, earlier decisions or project history, or when I say "memory" or "remember" about my projects. Tell me which source an answer came from.
+
+How to use it:
+1. Call the project_suggest tool of the claude-mnemonic connector with my message and show me the projects it returns by name. Ask me which one I mean, or whether to continue without one. Never pick a project for me.
+2. If I choose one, load its context before answering, and save to it only when I ask you to remember something.
+3. If I decline, search read-only and do not save anything.
+4. If two projects share a name, ask me which one.
+
+Do not use it for general questions that do not refer to my own earlier work.
+```
+
+Get it with the connector's name filled in, and copied to the clipboard:
+
+```sh
+python3 scripts/install-desktop.py instructions --copy
+```
+
+Paste it into Claude Desktop (Settings, in the field for personal preferences or custom instructions), or into
+the instructions of one Desktop project if you only want it there.
+
+**It cannot be added automatically.** The instruction is stored in your claude.ai account, not in a local file,
+and `claude_desktop_config.json` has no field for it. The installer can only hand it over, and reminds you at the
+end of `install-desktop`. Server instructions are ignored by chat (measured), and MCP prompts or resources need
+an action in every chat, so none of them replaces it.
+
+### What we measured
+
+Five memory prompts that should use claude-mnemonic and three plain prompts that should not, each in a new chat
+(the prompts and the script are below):
+
+| Configuration | Memory prompts that used it | Plain prompts that stayed out |
+|---|---|---|
+| Baseline | 0 of 5 | 3 of 3 |
+| Tool descriptions reworded to say "persistent project memory" (server verified to advertise them) | 0 of 5 | not run |
+| Connector renamed to `memory` and the instruction added | works; one prompt measured so far (1 of 1) | not run |
+
+What this tells us, and what it does not:
+
+- In chat, a tool's description appears to be read only after the model decides to look for tools. For a memory
+  question it never looks, because it already has a memory of its own, so better descriptions alone changed
+  nothing. The instruction acts before that decision.
+- Naming the tools in the prompt always worked, so the tools themselves are fine.
+- The last row changed two things at once (the connector name and the instruction), so the effect of each is not
+  separated. The full set with the default connector name and the instruction is the number that matters; it is
+  recorded in issue #16 when measured.
+- Chat is a model: no wording can force it to call a tool. The server enforces the rules that matter regardless
+  (no project, no write; a shared name is never guessed).
+
+### Checking that it works
+
+In real Desktop, open a **new chat** for each prompt. Mark each one just before sending it:
 
 ```sh
 python3 scripts/desktop-calls.py clear
-python3 scripts/desktop-calls.py mark "P1 search my memory" --expect call     # then send the prompt in a new chat
-python3 scripts/desktop-calls.py mark "N1 explain worktrees" --expect none    # next prompt, next new chat
-python3 scripts/desktop-calls.py report                                       # after the last one
+python3 scripts/desktop-calls.py mark "P1 search my memory" --expect call
+python3 scripts/desktop-calls.py mark "N1 explain worktrees" --expect none
+python3 scripts/desktop-calls.py report
 ```
+
+If the connector has a different name, Desktop logs it under that name, so add
+`--desktop-log ~/Library/Logs/Claude/mcp-server-<name>.log` to `report`.
 
 | Prompt | Expect |
 |---|---|
@@ -78,16 +134,8 @@ python3 scripts/desktop-calls.py report                                       # 
 | N2 "Write a haiku about autumn." | none |
 | N3 "What is 17 times 23?" | none |
 
-The verdict per prompt comes from Desktop's own count of tool calls between your marks. The tool names are
-inferred from the worker's log, which `make start-worker` truncates, so they are only available for the current
-worker run. Run the set before and after a change to the descriptions and compare.
-
-If chat still prefers its built-in memory, add this to the instructions of the Desktop project you use (or your
-custom instructions):
-
-> For questions about my past work, earlier decisions or project history, and when I say "memory" or "remember",
-> also use the claude-mnemonic tools: call project_suggest with my message, offer me the projects it returns,
-> and wait for my choice. If I decline, search read-only and do not save anything.
+The verdict per prompt comes from Desktop's own count of tool calls between your marks. Tool names are inferred
+from the worker's log, which `make start-worker` truncates, so they are only available for the current worker run.
 
 ## Project names
 

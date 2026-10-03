@@ -10,6 +10,7 @@ written, a timestamped backup is taken first, and --dry-run shows the change wit
     install-desktop.py uninstall       remove it
     install-desktop.py status          show what is configured
     install-desktop.py --dry-run       show the diff only
+    install-desktop.py instructions    print the instruction to paste into Claude Desktop (--copy: to the clipboard)
 
 Standard library only (Python 3.8+).
 """
@@ -19,11 +20,13 @@ import difflib
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import time
 
 DEFAULT_NAME = "claude-mnemonic"
+INSTRUCTIONS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "desktop-instructions.txt")
 
 
 # --------------------------------------------------------------------------- locations
@@ -245,6 +248,50 @@ def verify(original, edited, name, entry):
         raise ConfigError("internal error: the edit would change more than the claude-mnemonic entry; nothing was written")
 
 
+# --------------------------------------------------------------------------- the instruction for Claude Desktop
+
+def render_instructions(name=DEFAULT_NAME, template=None):
+    """The instruction to paste into Claude Desktop, with the connector's name filled in.
+
+    It lives in the person's claude.ai account, not in any local file, so it cannot be written
+    by this installer; it can only be handed over (printed, or copied to the clipboard).
+    """
+    if template is None:
+        with open(INSTRUCTIONS_FILE, encoding="utf-8") as f:
+            template = f.read()
+    connector = name if name == DEFAULT_NAME else f'"{name}" (claude-mnemonic)'
+    return template.replace("{connector}", connector).replace("{name}", name)
+
+
+def clipboard_command():
+    """The first clipboard tool this machine has, as an argv list, or None."""
+    candidates = [["pbcopy"], ["clip"], ["wl-copy"], ["xclip", "-selection", "clipboard"], ["xsel", "--clipboard", "--input"]]
+    for argv in candidates:
+        if shutil.which(argv[0]):
+            return argv
+    return None
+
+
+def copy_to_clipboard(text):
+    """Put text on the clipboard. Returns the tool used, or None if there is none or it failed."""
+    argv = clipboard_command()
+    if argv is None:
+        return None
+    try:
+        subprocess.run(argv, input=text.encode("utf-8"), check=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return argv[0]
+
+
+INSTRUCTION_REMINDER = (
+    "\nOne more step, once: Claude Desktop chat has its own built-in memory and ignores claude-mnemonic for ordinary\n"
+    "\"memory\" wording unless it is told to use it. Add this instruction to Claude Desktop (Settings, in the field for\n"
+    "personal preferences or custom instructions; it lives in your account, so it cannot be added automatically):\n"
+    "    python3 scripts/install-desktop.py instructions --copy      # prints it and copies it to the clipboard\n"
+)
+
+
 # --------------------------------------------------------------------------- actions
 
 def build_entry(binary, args):
@@ -296,6 +343,13 @@ def read_text(path):
 
 def run(opts, out=None):
     out = out or sys.stdout  # looked up per call so callers can redirect it
+    if opts.action == "instructions":
+        text = render_instructions(opts.name)
+        print(text, end="", file=out)
+        if opts.copy:
+            tool = copy_to_clipboard(text)
+            print(f"\n(copied to the clipboard with {tool})" if tool else "\n(could not copy: no clipboard tool found; select and copy the text above)", file=out)
+        return 0
     path = opts.config or default_config_path()
     name = opts.name
     original = read_text(path)
@@ -362,12 +416,14 @@ def run(opts, out=None):
     if not uninstall:
         print(f"Command: {binary} {' '.join(args)}".rstrip(), file=out)
     print("\nQuit Claude Desktop completely (Cmd-Q / File > Exit) and reopen it; it reads this file only at startup.", file=out)
+    if not uninstall:
+        print(INSTRUCTION_REMINDER, end="", file=out)
     return 0
 
 
 def parse(argv):
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0], formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("action", nargs="?", default="install", choices=["install", "uninstall", "status"])
+    p.add_argument("action", nargs="?", default="install", choices=["install", "uninstall", "status", "instructions"])
     p.add_argument("--config", help="path to claude_desktop_config.json (default: the standard location for this OS)")
     p.add_argument("--binary", help="path to the mcp-server binary (default: ~/.claude-mnemonic/bin/mcp-server)")
     p.add_argument("--name", default=DEFAULT_NAME, help=f"server name in the configuration (default: {DEFAULT_NAME})")
@@ -375,6 +431,7 @@ def parse(argv):
     p.add_argument("--mode", choices=["auto", "code", "desktop"], default="auto", help="project mode (default: auto, detected from the client)")
     p.add_argument("--dry-run", action="store_true", help="show the change without making it")
     p.add_argument("--force", action="store_true", help="write the entry even if the binary does not exist")
+    p.add_argument("--copy", action="store_true", help="with 'instructions': also copy the text to the clipboard")
     return p.parse_args(argv)
 
 
