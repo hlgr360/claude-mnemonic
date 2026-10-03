@@ -108,14 +108,14 @@ func TestResolve_PathInsideLinkedWorktreeMapsToMain(t *testing.T) {
 }
 
 func TestResolve_ByName(t *testing.T) {
-	known := []string{"claude-mnemonic_aaaaaa", "oci_awx_bbbbbb", "knowledge_base_cccccc", "base_dddddd"}
+	known := []string{"claude-mnemonic_aaaaaa", "billing_api_bbbbbb", "knowledge_base_cccccc", "base_dddddd"}
 
 	t.Run("unique directory name", func(t *testing.T) {
 		assert.Equal(t, Resolution{ID: "claude-mnemonic_aaaaaa", Match: MatchName, Known: true},
 			Resolve(Ref{Name: "claude-mnemonic"}, known, nil))
 	})
 	t.Run("case insensitive and trimmed", func(t *testing.T) {
-		assert.Equal(t, "oci_awx_bbbbbb", Resolve(Ref{Name: "  OCI_AWX "}, known, nil).ID)
+		assert.Equal(t, "billing_api_bbbbbb", Resolve(Ref{Name: "  BILLING_API "}, known, nil).ID)
 	})
 	t.Run("name containing an underscore keeps its own underscores", func(t *testing.T) {
 		assert.Equal(t, "knowledge_base_cccccc", Resolve(Ref{Name: "knowledge_base"}, known, nil).ID)
@@ -125,17 +125,17 @@ func TestResolve_ByName(t *testing.T) {
 		assert.Equal(t, "base_dddddd", Resolve(Ref{Name: "base"}, known, nil).ID)
 	})
 	t.Run("full ID typed as a name", func(t *testing.T) {
-		assert.Equal(t, Resolution{ID: "oci_awx_bbbbbb", Match: MatchExact, Known: true},
-			Resolve(Ref{Name: "oci_awx_bbbbbb"}, known, nil))
+		assert.Equal(t, Resolution{ID: "billing_api_bbbbbb", Match: MatchExact, Known: true},
+			Resolve(Ref{Name: "billing_api_bbbbbb"}, known, nil))
 	})
 	t.Run("ambiguous names return candidates and no ID", func(t *testing.T) {
 		two := []string{"repo_aaaaaa", "repo_bbbbbb"}
-		assert.Equal(t, Resolution{Match: MatchNone, Candidates: []string{"repo_aaaaaa", "repo_bbbbbb"}},
+		assert.Equal(t, Resolution{Match: MatchNone, Candidates: []string{"repo_aaaaaa", "repo_bbbbbb"}, Ambiguous: true},
 			Resolve(Ref{Name: "repo"}, two, nil))
 	})
 	t.Run("no exact match offers substring candidates", func(t *testing.T) {
 		assert.Equal(t, Resolution{Match: MatchNone, Candidates: []string{"claude-mnemonic_aaaaaa"}},
-			Resolve(Ref{Name: "mnemonic"}, known, nil))
+			Resolve(Ref{Name: "mnemonic"}, known, nil), "near misses are not flagged as ambiguous")
 	})
 	t.Run("nothing matches", func(t *testing.T) {
 		assert.Equal(t, Resolution{Match: MatchNone}, Resolve(Ref{Name: "zzz"}, known, nil))

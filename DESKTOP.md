@@ -52,6 +52,20 @@ Desktop mode adds these tools (Claude Code's tool list is unchanged):
 `search` and the other existing tools keep working; with no project chosen, `search` covers
 every project.
 
+## Project names
+
+The model shows and uses project **names** (`claude-mnemonic`), not ids. Behind each name is an id
+(the folder name plus a hash of its full path), which stays the stable key.
+
+Two different folders can have the same name, for example `~/work/app` and `~/work/clients/app`. When that
+happens the projects are listed with what tells them apart (how much each holds, when it was last used, a
+sample of its content), and the model asks you which one you mean. It never picks one silently: `remember`,
+`context` and `project_manage` all refuse a shared name and say so. A namesake can always be reached by its id.
+
+`project_manage` accepts a name too, strictly: an exact name (any capitalisation) that identifies exactly one
+real project. Aliases and partial names are never accepted for delete or merge, and a name does not skip the
+preview.
+
 ## Privacy
 
 - Text inside `<private>...</private>` is never stored, and text that is entirely private is refused.

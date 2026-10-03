@@ -145,6 +145,7 @@ func desktopTools() []Tool {
 			Name: "project_suggest",
 			Description: "START HERE in a conversation that has no project folder. Pass the user's first message; returns candidate projects ranked by content, name and recency. " +
 				"Then ASK the user which project to use or whether to continue WITHOUT one (read-only). Do not pick for them; if confident is true you may propose the top one for confirmation. " +
+				"Show projects to the user by their label and pass the matching use value in later calls (the project's name, or its id when two projects share a name). " +
 				"If they decline, never call remember.",
 			InputSchema: map[string]any{
 				"type":     "object",
@@ -170,7 +171,7 @@ func desktopTools() []Tool {
 		},
 		{
 			Name:        "project_list",
-			Description: "List all projects with session and observation counts and last activity, most recent first.",
+			Description: "List all projects with session and observation counts and last activity, most recent first. Show each project by its label; pass its use value (name, or id when two projects share a name) to other tools.",
 			InputSchema: map[string]any{"type": "object", "properties": map[string]any{}},
 		},
 		{
@@ -180,7 +181,7 @@ func desktopTools() []Tool {
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"project": map[string]any{"type": "string", "description": "Project id from project_suggest, project_list or project_resolve"},
+					"project": map[string]any{"type": "string", "description": "The project's use value from project_suggest or project_list: its name, or its id when two projects share a name"},
 					"path":    map[string]any{"type": "string", "description": "Alternatively the absolute folder path"},
 				},
 			},
@@ -190,7 +191,8 @@ func desktopTools() []Tool {
 			Description: "Inspect, alias, merge or delete projects. stats is read-only. delete and merge are DESTRUCTIVE: first call WITHOUT confirm to get a preview (nothing changes), " +
 				"show the user exactly what would be removed or moved and get their explicit approval, then repeat the same call with the confirm token from the preview. " +
 				"Never invent or reuse a token, and never confirm without asking the user. A backup of the database is taken automatically before any change. " +
-				"Use exact project ids from project_list; names are not accepted here.",
+				"Pass a project's `use` value from project_list: its name when that is unique, its id when two projects share a name. Names must match exactly; a name shared by several projects is refused, " +
+				"so ask the user which one they mean. Aliases and partial names are never accepted for these actions.",
 			InputSchema: map[string]any{
 				"type":     "object",
 				"required": []string{"action"},
@@ -213,7 +215,7 @@ func desktopTools() []Tool {
 				"properties": map[string]any{
 					"text":     map[string]any{"type": "string", "description": "What to remember, self-contained"},
 					"title":    map[string]any{"type": "string", "description": "Short title (derived from the text if omitted)"},
-					"project":  map[string]any{"type": "string", "description": "Project id or unique name, from project_suggest, project_list or project_resolve"},
+					"project":  map[string]any{"type": "string", "description": "The project's use value from project_suggest or project_list: its name, or its id when two projects share a name"},
 					"path":     map[string]any{"type": "string", "description": "Absolute folder path; use instead of project to write to (or start) the project for that folder"},
 					"type":     map[string]any{"type": "string", "enum": []string{"decision", "bugfix", "feature", "refactor", "discovery", "change"}, "default": "discovery"},
 					"concepts": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Short topic tags"},
@@ -254,10 +256,46 @@ func (s *Server) callDesktopTool(ctx context.Context, name string, args json.Raw
 
 // resolution mirrors the worker's /api/projects/resolve answer.
 type resolution struct {
-	ID         string   `json:"id"`
-	Match      string   `json:"match"`
-	Candidates []string `json:"candidates"`
-	Known      bool     `json:"known"`
+	ID               string            `json:"id"`
+	Match            string            `json:"match"`
+	Candidates       []string          `json:"candidates"`
+	CandidateDetails []candidateDetail `json:"candidate_details"`
+	Known            bool              `json:"known"`
+	Ambiguous        bool              `json:"ambiguous"`
+}
+
+// candidateDetail is one project among several that share a name, with what tells them apart.
+type candidateDetail struct {
+	Project string `json:"project"`
+	Label   string `json:"label"`
+	Detail  string `json:"detail"`
+}
+
+// describeCandidates lists projects with their ids and what distinguishes them.
+func describeCandidates(details []candidateDetail, fallbackIDs []string) string {
+	if len(details) == 0 {
+		return strings.Join(fallbackIDs, ", ")
+	}
+	parts := make([]string, 0, len(details))
+	for i, d := range details {
+		parts = append(parts, fmt.Sprintf("(%c) %s: %s", 'a'+i, d.Project, d.Detail))
+	}
+	return strings.Join(parts, "; ")
+}
+
+// unresolvedMessage explains why a project reference matched nothing usable. Several projects
+// with exactly the requested name are namesakes the person must choose between; anything else
+// is a near miss or an unknown name.
+func unresolvedMessage(tool, ref string, r resolution) string {
+	if r.Ambiguous {
+		return fmt.Sprintf("%s: %d projects are called %q: %s. Ask the user which one they mean, then pass that project's id.",
+			tool, len(r.Candidates), ref, describeCandidates(r.CandidateDetails, r.Candidates))
+	}
+	msg := fmt.Sprintf("%s: unknown project %q", tool, ref)
+	if len(r.Candidates) > 0 {
+		msg += "; did you mean one of: " + describeCandidates(r.CandidateDetails, r.Candidates)
+	}
+	return msg + "; use project_list or project_suggest to see the projects"
 }
 
 func (s *Server) resolveRef(ctx context.Context, key, value string) (resolution, error) {
@@ -302,7 +340,8 @@ func (s *Server) toolProjectSuggest(ctx context.Context, args json.RawMessage) (
 		return "", err
 	}
 	return strings.TrimSpace(out) + "\n\nNext: ask the user which project to use, or whether to continue without one (read-only). " +
-		"Then call context with the chosen project id. If they decline, do not call remember.", nil
+		"Refer to each project by its label, and pass its use value in later calls. " +
+		"Then call context with the chosen project. If they decline, do not call remember.", nil
 }
 
 // projectFromArgs resolves the project a Desktop tool should act on. A path
@@ -332,11 +371,7 @@ func (s *Server) projectFromArgs(ctx context.Context, tool, project, path string
 			}
 		}
 		if r.ID == "" {
-			msg := fmt.Sprintf("%s: unknown project %q", tool, project)
-			if len(r.Candidates) > 0 {
-				msg += "; did you mean one of: " + strings.Join(r.Candidates, ", ")
-			}
-			return "", false, fmt.Errorf("%s; use project_list or project_suggest to find the right id", msg)
+			return "", false, fmt.Errorf("%s", unresolvedMessage(tool, project, r))
 		}
 		return r.ID, false, nil
 
@@ -484,18 +519,27 @@ func (s *Server) toolProjectManage(ctx context.Context, args json.RawMessage) (s
 		return nil
 	}
 
+	var err error
 	switch a.Action {
 	case "stats":
 		if err := need("project", a.Project); err != nil {
 			return "", err
 		}
-		return s.proxyGetRaw(ctx, "/api/projects/"+url.PathEscape(a.Project)+"/stats", nil)
+		project, err := s.manageRef(ctx, "stats", a.Project)
+		if err != nil {
+			return "", err
+		}
+		return s.proxyGetRaw(ctx, "/api/projects/"+url.PathEscape(project)+"/stats", nil)
 
 	case "delete":
 		if err := need("project", a.Project); err != nil {
 			return "", err
 		}
-		raw, err := s.proxyDeleteRaw(ctx, "/api/projects/"+url.PathEscape(a.Project), map[string]string{"confirm": a.Confirm})
+		project, err := s.manageRef(ctx, "delete", a.Project)
+		if err != nil {
+			return "", err
+		}
+		raw, err := s.proxyDeleteRaw(ctx, "/api/projects/"+url.PathEscape(project), map[string]string{"confirm": a.Confirm})
 		if err != nil {
 			return "", err
 		}
@@ -508,7 +552,15 @@ func (s *Server) toolProjectManage(ctx context.Context, args json.RawMessage) (s
 		if err := need("into", a.Into); err != nil {
 			return "", err
 		}
-		raw, err := s.proxyPostRaw(ctx, "/api/projects/"+url.PathEscape(a.Project)+"/merge", map[string]string{"into": a.Into, "confirm": a.Confirm})
+		project, err := s.manageRef(ctx, "merge", a.Project)
+		if err != nil {
+			return "", err
+		}
+		into, err := s.manageRef(ctx, "merge", a.Into)
+		if err != nil {
+			return "", err
+		}
+		raw, err := s.proxyPostRaw(ctx, "/api/projects/"+url.PathEscape(project)+"/merge", map[string]string{"into": into, "confirm": a.Confirm})
 		if err != nil {
 			return "", err
 		}
@@ -519,6 +571,10 @@ func (s *Server) toolProjectManage(ctx context.Context, args json.RawMessage) (s
 			return "", err
 		}
 		if err := need("project", a.Project); err != nil {
+			return "", err
+		}
+		a.Project, err = s.manageRef(ctx, "alias", a.Project)
+		if err != nil {
 			return "", err
 		}
 		return s.proxyPostRaw(ctx, "/api/projects/aliases", map[string]string{"alias": a.Alias, "canonical": a.Project, "source": "mcp"})
@@ -550,4 +606,53 @@ func describeAdminResult(raw string) (string, error) {
 		return r.Message + previewNote + "\nconfirm: " + r.Confirm, nil
 	}
 	return r.Message, nil
+}
+
+// manageRef turns what the model passed for a project into the id to act on.
+//
+// Destructive actions must be unambiguous, so this is strict: an exact id of a real project is used
+// as is; an exact name (case-insensitive) is accepted only if it identifies exactly one real project;
+// a name shared by several is refused with what tells them apart. Aliases and partial names are never
+// resolved. Anything else is passed through untouched, so the worker's own refusals (an alias, a
+// missing project) still apply.
+func (s *Server) manageRef(ctx context.Context, action, ref string) (string, error) {
+	ref = strings.TrimSpace(ref)
+	raw, err := s.proxyGetRaw(ctx, "/api/projects/summary", nil)
+	if err != nil {
+		return "", err
+	}
+	var rows []struct {
+		Project     string `json:"project"`
+		DisplayName string `json:"display_name"`
+		AliasOf     string `json:"alias_of"`
+		Label       string `json:"label"`
+	}
+	if err := json.Unmarshal([]byte(raw), &rows); err != nil {
+		return "", fmt.Errorf("decode project list: %w", err)
+	}
+
+	var named []candidateDetail
+	for _, r := range rows {
+		if r.AliasOf != "" {
+			continue // an alias is not a project: never matched by name here
+		}
+		if r.Project == ref {
+			return ref, nil
+		}
+		if strings.EqualFold(r.DisplayName, ref) {
+			named = append(named, candidateDetail{Project: r.Project, Label: r.Label, Detail: strings.TrimSuffix(strings.TrimPrefix(r.Label, r.DisplayName+" ("), ")")})
+		}
+	}
+	switch len(named) {
+	case 0:
+		return ref, nil
+	case 1:
+		return named[0].Project, nil
+	}
+	ids := make([]string, len(named))
+	for i, n := range named {
+		ids[i] = n.Project
+	}
+	return "", fmt.Errorf("%s", unresolvedMessage("project_manage "+action, ref,
+		resolution{Ambiguous: true, Candidates: ids, CandidateDetails: named}))
 }

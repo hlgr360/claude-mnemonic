@@ -81,3 +81,39 @@ func TestSessionStore_ProjectSummaries_EmptyStore(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, got)
 }
+
+func TestSessionStore_ProjectSampleTitles(t *testing.T) {
+	obsStore, store, cleanup := testObservationStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	sessions := NewSessionStore(store)
+
+	add := func(project, title string, importance float64, archived bool) int64 {
+		obs := &models.ParsedObservation{Type: models.ObsTypeDiscovery, Title: title, Narrative: "n"}
+		id, _, err := obsStore.StoreObservation(ctx, "sdk-"+project, project, obs, 1, 1)
+		require.NoError(t, err)
+		require.NoError(t, store.DB.Exec(`UPDATE observations SET importance_score = ?, is_archived = ? WHERE id = ?`, importance, archived, id).Error)
+		return id
+	}
+	add("a_111111", "least important", 0.5, false)
+	add("a_111111", "most important", 3.0, false)
+	add("a_111111", "middle", 1.5, false)
+	add("a_111111", "archived but important", 9.0, true)
+	add("b_222222", "only one", 1.0, false)
+	add("c_333333", "not asked for", 1.0, false)
+
+	got, err := sessions.ProjectSampleTitles(ctx, []string{"a_111111", "b_222222", "nothing_000000"}, 2)
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"most important", "middle"}, got["a_111111"], "top two by importance, archived ones skipped")
+	assert.Equal(t, []string{"only one"}, got["b_222222"])
+	assert.NotContains(t, got, "c_333333", "only the requested projects")
+	assert.NotContains(t, got, "nothing_000000")
+
+	empty, err := sessions.ProjectSampleTitles(ctx, nil, 2)
+	require.NoError(t, err)
+	assert.Empty(t, empty)
+	zero, err := sessions.ProjectSampleTitles(ctx, []string{"a_111111"}, 0)
+	require.NoError(t, err)
+	assert.Empty(t, zero)
+}

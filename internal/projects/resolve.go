@@ -48,6 +48,9 @@ type Resolution struct {
 	// Known reports whether ID is already a project in the store. A path that
 	// resolves to an unknown ID is valid: it is a project with no history yet.
 	Known bool `json:"known"`
+	// Ambiguous is true when several projects have exactly the requested name,
+	// so Candidates are namesakes to choose between, not near misses.
+	Ambiguous bool `json:"ambiguous,omitempty"`
 }
 
 // DisplayName returns the directory-name part of a project ID ("repo_ab12cd" -> "repo").
@@ -152,7 +155,7 @@ func resolveName(name string, known []string, isKnown func(string) bool, aliases
 	case 0:
 		return Resolution{Match: MatchNone, Candidates: sorted(partial)}
 	default:
-		return Resolution{Match: MatchNone, Candidates: sorted(exact)}
+		return Resolution{Match: MatchNone, Candidates: sorted(exact), Ambiguous: true}
 	}
 }
 
