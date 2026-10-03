@@ -15,7 +15,7 @@ GOARCH ?= $(shell go env GOARCH)
 export CGO_ENABLED=1
 BUILD_TAGS := -tags "fts5"
 
-.PHONY: all build clean test install lint hooks worker mcp stop-worker start-worker restart-worker dashboard website dev-website setup-libs update-version mark-clean restore-stamped install-desktop uninstall-desktop test-scripts
+.PHONY: all build clean test install lint hooks worker mcp stop-worker start-worker restart-worker dashboard website dev-website setup-libs update-version mark-clean restore-stamped install-desktop uninstall-desktop install-ollama uninstall-ollama test-scripts
 
 all: build
 
@@ -209,8 +209,17 @@ uninstall-desktop:
 	@python3 scripts/install-desktop.py uninstall
 
 # Tests for the helper scripts
+# Optional local LLM backend: choose an Ollama model, download it if you agree, test it and save the choice
+# (preview first: python3 scripts/setup-ollama.py --dry-run --model NAME; see README, "Local LLM Settings")
+install-ollama:
+	@python3 scripts/setup-ollama.py
+
+# Put every task back on the Claude CLI (keeps the chosen model)
+uninstall-ollama:
+	@python3 scripts/setup-ollama.py disable
+
 test-scripts:
-	@python3 -m unittest scripts/test_install_desktop.py scripts/test_desktop_calls.py
+	@python3 -m unittest scripts/test_install_desktop.py scripts/test_desktop_calls.py scripts/test_setup_ollama.py
 
 # Uninstall
 uninstall: stop-worker
