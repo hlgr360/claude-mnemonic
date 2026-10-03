@@ -52,6 +52,43 @@ Desktop mode adds these tools (Claude Code's tool list is unchanged):
 `search` and the other existing tools keep working; with no project chosen, `search` covers
 every project.
 
+## Making chat use it (and checking that it does)
+
+Desktop chat has its own built-in memory, so "search my memory" can be answered without ever calling
+claude-mnemonic. Chat shows only tool descriptions, so in Desktop mode the descriptions lead with what
+claude-mnemonic is: the user's persistent project memory, shared with Claude Code, to be used in addition to any
+built-in memory for questions about past work, earlier decisions or project history. A model cannot be forced to
+call a tool, so measure it. In real Desktop, open a **new chat** for each prompt:
+
+```sh
+python3 scripts/desktop-calls.py clear
+python3 scripts/desktop-calls.py mark "P1 search my memory" --expect call     # then send the prompt in a new chat
+python3 scripts/desktop-calls.py mark "N1 explain worktrees" --expect none    # next prompt, next new chat
+python3 scripts/desktop-calls.py report                                       # after the last one
+```
+
+| Prompt | Expect |
+|---|---|
+| P1 "Search my memory for what we decided about project identity." | call |
+| P2 "What did we decide earlier about git worktrees?" | call |
+| P3 "Remember that we merged the project-names change today." | call (it should ask which project, not save) |
+| P4 "Do you remember what I was working on in claude-mnemonic last week?" | call |
+| P5 "Pick up where we left off on the Desktop overlay." | call |
+| N1 "Explain how git worktrees work." | none |
+| N2 "Write a haiku about autumn." | none |
+| N3 "What is 17 times 23?" | none |
+
+The verdict per prompt comes from Desktop's own count of tool calls between your marks. The tool names are
+inferred from the worker's log, which `make start-worker` truncates, so they are only available for the current
+worker run. Run the set before and after a change to the descriptions and compare.
+
+If chat still prefers its built-in memory, add this to the instructions of the Desktop project you use (or your
+custom instructions):
+
+> For questions about my past work, earlier decisions or project history, and when I say "memory" or "remember",
+> also use the claude-mnemonic tools: call project_suggest with my message, offer me the projects it returns,
+> and wait for my choice. If I decline, search read-only and do not save anything.
+
 ## Project names
 
 The model shows and uses project **names** (`claude-mnemonic`), not ids. Behind each name is an id

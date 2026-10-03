@@ -193,7 +193,7 @@ uninstall-desktop:
 
 # Tests for the helper scripts
 test-scripts:
-	@python3 -m unittest scripts/test_install_desktop.py
+	@python3 -m unittest scripts/test_install_desktop.py scripts/test_desktop_calls.py
 
 # Uninstall
 uninstall: stop-worker

@@ -977,3 +977,101 @@ func TestToolDescriptionsTellTheModelToUseLabelsAndUseValues(t *testing.T) {
 	assert.Contains(t, byName["project_manage"], "Aliases and partial names are never accepted")
 	assert.NotContains(t, byName["project_manage"], "names are not accepted here")
 }
+
+func toolDescriptions(t *testing.T, s *Server) map[string]string {
+	t.Helper()
+	resp := s.handleToolsList(&Request{JSONRPC: "2.0", ID: 2})
+	out := map[string]string{}
+	for _, tool := range resp.Result.(map[string]any)["tools"].([]Tool) {
+		out[tool.Name] = tool.Description
+	}
+	return out
+}
+
+func TestMemoryWording_ClaudeCodeToolListIsUnchanged(t *testing.T) {
+	code := NewServer(nil, "", "p_aaaaaa", "v")
+	initialize(t, code, "claude-code")
+	desktop := NewServer(nil, "", "p_aaaaaa", "v")
+	initialize(t, desktop, "claude-ai")
+
+	codeDesc, desktopDesc := toolDescriptions(t, code), toolDescriptions(t, desktop)
+	for name, desc := range codeDesc {
+		assert.NotContains(t, desc, "claude-mnemonic memory", "Code's %s description must not mention the Desktop wording", name)
+		assert.NotContains(t, desc, "built-in memory", name)
+		if name != "search" && name != "timeline" {
+			assert.Equal(t, desc, desktopDesc[name], "%s is the same in both modes", name)
+		}
+	}
+	assert.Equal(t, 4, len(codeDesc), "Code lists only the original tools")
+}
+
+func TestMemoryWording_DesktopSearchAndTimelineAreLedByWhatThisIs(t *testing.T) {
+	code := NewServer(nil, "", "p_aaaaaa", "v")
+	initialize(t, code, "claude-code")
+	desktop := NewServer(nil, "", "p_aaaaaa", "v")
+	initialize(t, desktop, "claude-ai")
+	codeDesc, desktopDesc := toolDescriptions(t, code), toolDescriptions(t, desktop)
+
+	for _, name := range []string{"search", "timeline"} {
+		d := desktopDesc[name]
+		assert.True(t, strings.HasPrefix(d, memoryPrefix), "%s starts with what claude-mnemonic is: %q", name, d[:60])
+		assert.True(t, strings.HasSuffix(d, codeDesc[name]), "%s keeps its original description after the prefix", name)
+	}
+	assert.Contains(t, desktopDesc["search"], "earlier decisions, findings, fixes and project history")
+	assert.Contains(t, desktopDesc["search"], "searches every project")
+}
+
+func TestMemoryWording_EntryPointNamesTheSituationsAndKeepsBothMemories(t *testing.T) {
+	var d string
+	for _, tool := range desktopTools() {
+		if tool.Name == "project_suggest" {
+			d = tool.Description
+		}
+	}
+	for _, want := range []string{
+		"persistent project memory, shared with Claude Code",
+		"in addition to any built-in memory",
+		"past work, earlier decisions or project history",
+		"talks about memory or remembering",
+		"say which source an answer came from",
+		"not needed for general questions",
+		"START HERE for any such memory question",
+		"ASK the user",
+		"never call remember",
+	} {
+		assert.Contains(t, d, want)
+	}
+}
+
+func TestMemoryWording_OtherToolsSayWhatTheyBelongTo(t *testing.T) {
+	for _, tool := range desktopTools() {
+		switch tool.Name {
+		case "project_resolve", "project_list", "context", "remember":
+			assert.True(t, strings.HasPrefix(tool.Description, memoryPrefix), "%s: %q", tool.Name, tool.Description[:40])
+		}
+	}
+}
+
+func TestMemoryWording_InstructionsLeadWithItToo(t *testing.T) {
+	// Claude Code's Desktop tab and Cowork show server instructions even though chat does not.
+	assert.True(t, strings.HasPrefix(desktopInstructions, memoryBlurb))
+	s := NewServer(nil, "", "p_aaaaaa", "v")
+	result := initialize(t, s, "local-agent-mode-claude-mnemonic")
+	assert.Contains(t, result["instructions"], "in addition to any built-in memory")
+	assert.Contains(t, result["instructions"], "never call remember", "the protocol is still there")
+}
+
+func TestMemoryWording_DoesNotChangeWhatIsEnforced(t *testing.T) {
+	fw := rememberWorker(t, `{"project":"repo_aaaaaa","id":1}`)
+	s := desktopServer(t, fw)
+	_, err := call(s, "remember", map[string]any{"text": "memory wording does not relax the rules"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "a project is required")
+	assert.Empty(t, fw.requests("/api/observations/remember"))
+}
+
+func TestMemoryWording_StaysReasonablyShort(t *testing.T) {
+	// Descriptions sit in the model's context on every turn; keep the wording lean.
+	assert.Less(t, len(memoryBlurb), 600)
+	assert.Less(t, len(memoryPrefix), 120)
+}

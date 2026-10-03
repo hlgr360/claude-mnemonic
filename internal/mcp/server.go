@@ -375,7 +375,7 @@ func (s *Server) handleToolsList(req *Request) *Response {
 	}
 
 	if s.desktop() {
-		tools = append(tools, desktopTools()...)
+		tools = append(withMemoryDescriptions(tools), desktopTools()...)
 	}
 
 	return &Response{
