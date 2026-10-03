@@ -725,3 +725,109 @@ func TestRunNow_CleanupStale_BatchDeletion_MoreThan100Rows(t *testing.T) {
 	store.GetDB().WithContext(ctx).Model(&gormdb.Observation{}).Where("is_superseded = ?", 1).Count(&remaining)
 	assert.Equal(t, int64(0), remaining, "all 120 stale observations should be deleted in batches")
 }
+
+// ---- superseded notes and their retention ----
+
+// supersededByPerson stores two observations of a project, has a person supersede the older one through the
+// conflict review and returns both ids and the conflict store.
+func supersededByPerson(t *testing.T, store *gormdb.Store, obsStore *gormdb.ObservationStore, project string) (older, newer int64, conflicts *gormdb.ConflictStore) {
+	t.Helper()
+	ctx := context.Background()
+	older = insertObservation(t, obsStore, "session-"+project, project, 1)
+	time.Sleep(3 * time.Millisecond)
+	newer = insertObservation(t, obsStore, "session-"+project, project, 2)
+	conflicts = gormdb.NewConflictStore(store)
+	id, _, err := conflicts.Propose(ctx, gormdb.Proposal{NewerID: newer, OlderID: older, Proposer: "test"})
+	require.NoError(t, err)
+	_, err = conflicts.ResolveProposal(ctx, id, gormdb.DecisionSupersedeOlder)
+	require.NoError(t, err)
+	return older, newer, conflicts
+}
+
+func decidedDaysAgo(t *testing.T, store *gormdb.Store, days int) {
+	t.Helper()
+	require.NoError(t, store.GetDB().Exec(`UPDATE observation_conflicts SET resolved_at_epoch = ?`,
+		time.Now().AddDate(0, 0, -days).UnixMilli()).Error)
+}
+
+func observationCount(t *testing.T, store *gormdb.Store, id int64) int64 {
+	t.Helper()
+	var n int64
+	require.NoError(t, store.GetDB().Model(&gormdb.Observation{}).Where("id = ?", id).Count(&n).Error)
+	return n
+}
+
+func TestRunNow_SupersededRetention_DeletesOnlyAfterTheRetentionAndRemovesVectors(t *testing.T) {
+	cfg := defaultCfg()
+	cfg.SupersededRetentionDays = 3
+	svc, store, obsStore, _, cleanup := testSetup(t, cfg)
+	defer cleanup()
+	older, newer, conflicts := supersededByPerson(t, store, obsStore, "proj")
+	svc.SetConflictStore(conflicts)
+	var mu sync.Mutex
+	var removed []int64
+	svc.vectorCleanupFn = func(_ context.Context, ids []int64) {
+		mu.Lock()
+		defer mu.Unlock()
+		removed = append(removed, ids...)
+	}
+
+	decidedDaysAgo(t, store, 2)
+	svc.RunNow(context.Background())
+	time.Sleep(300 * time.Millisecond)
+	assert.EqualValues(t, 1, observationCount(t, store, older), "decided two days ago, kept for three")
+
+	decidedDaysAgo(t, store, 4)
+	svc.RunNow(context.Background())
+	time.Sleep(300 * time.Millisecond)
+	assert.EqualValues(t, 0, observationCount(t, store, older), "past the retention, deleted")
+	assert.EqualValues(t, 1, observationCount(t, store, newer), "the note that won is never touched")
+	mu.Lock()
+	assert.Equal(t, []int64{older}, removed, "the vector of the deleted note is removed too")
+	mu.Unlock()
+}
+
+func TestRunNow_SupersededRetention_ZeroKeepsThemForEver(t *testing.T) {
+	cfg := defaultCfg()
+	cfg.SupersededRetentionDays = 0
+	svc, store, obsStore, _, cleanup := testSetup(t, cfg)
+	defer cleanup()
+	older, _, conflicts := supersededByPerson(t, store, obsStore, "proj")
+	svc.SetConflictStore(conflicts)
+	decidedDaysAgo(t, store, 400)
+
+	svc.RunNow(context.Background())
+	time.Sleep(300 * time.Millisecond)
+	assert.EqualValues(t, 1, observationCount(t, store, older))
+}
+
+func TestRunNow_SupersededRetention_WithoutAConflictStoreNothingHappens(t *testing.T) {
+	cfg := defaultCfg()
+	cfg.SupersededRetentionDays = 1
+	svc, store, obsStore, _, cleanup := testSetup(t, cfg)
+	defer cleanup()
+	older, _, _ := supersededByPerson(t, store, obsStore, "proj")
+	decidedDaysAgo(t, store, 10)
+
+	svc.RunNow(context.Background())
+	time.Sleep(300 * time.Millisecond)
+	assert.EqualValues(t, 1, observationCount(t, store, older))
+}
+
+func TestRunNow_CleanupStale_LeavesNotesAPersonSupersededToTheRetention(t *testing.T) {
+	cfg := defaultCfg()
+	cfg.CleanupStaleObservations = true
+	cfg.SupersededRetentionDays = 0
+	svc, store, obsStore, _, cleanup := testSetup(t, cfg)
+	defer cleanup()
+	hidden, _, conflicts := supersededByPerson(t, store, obsStore, "proj")
+	svc.SetConflictStore(conflicts)
+	// Another note superseded the old way, without a decision, is still cleaned up.
+	automatic := insertObservation(t, obsStore, "session-x", "other", 3)
+	require.NoError(t, store.GetDB().Model(&gormdb.Observation{}).Where("id = ?", automatic).Update("is_superseded", 1).Error)
+
+	svc.RunNow(context.Background())
+	time.Sleep(300 * time.Millisecond)
+	assert.EqualValues(t, 1, observationCount(t, store, hidden), "a note a person superseded follows the retention setting, not the stale cleanup")
+	assert.EqualValues(t, 0, observationCount(t, store, automatic))
+}
