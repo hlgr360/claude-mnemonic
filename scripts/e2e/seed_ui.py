@@ -25,6 +25,24 @@ for name, (title, text) in {"main_proj": ("Retry policy", "Webhook deliveries re
     tool("remember", path=d, title=title, text=text)
 tool("project_manage", action="alias", alias="old-fragment_abcdef", project=ids["main_proj"])
 
+# A project with three notes about one setting and two proposals between them, for the conflict review panel.
+d = os.path.join(base, "reviewed"); os.makedirs(d)
+ids["reviewed"] = json.loads(tool("project_resolve", path=d))["id"]
+for title, text in (("Cache lifetime is one hour", "The rate cache lives for 60 minutes."),
+                    ("Cache lifetime is one day", "The rate cache lives for 24 hours."),
+                    ("Cache lifetime is a week", "The rate cache lives for 7 days.")):
+    tool("remember", path=d, title=title, text=text)
+    time.sleep(0.05)
+import urllib.request
+def post(path, body):
+    req = urllib.request.Request(f"http://localhost:{PORT}{path}", method="POST", data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})
+    return json.loads(urllib.request.urlopen(req, timeout=30).read())
+rows = json.loads(urllib.request.urlopen(f"http://localhost:{PORT}/api/observations?project={ids['reviewed']}&limit=20", timeout=30).read())
+rows = rows["observations"] if isinstance(rows, dict) else rows
+by = {o["title"]: o["id"] for o in rows}
+post("/api/conflicts", {"older_id": by["Cache lifetime is one hour"], "newer_id": by["Cache lifetime is one day"], "reason": "The lifetime changed from an hour to a day."})
+post("/api/conflicts", {"older_id": by["Cache lifetime is one day"], "newer_id": by["Cache lifetime is a week"], "reason": "The lifetime changed again."})
+
 # Two projects that the old dropdown could not show: one with only an observation (its session row is gone, as after
 # a cleanup) and one with only session summaries. The dropdown and the manager must both list them.
 d = os.path.join(base, "obs_only"); os.makedirs(d)

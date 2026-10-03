@@ -33,6 +33,12 @@ const { stats } = useStats(currentProject)
 // The badge on the Conflicts tab
 const { openCount: conflictCount, refreshCount: refreshConflictCount } = useConflictCount(currentProject)
 
+// A decision hides or restores a note, so the badge and the timeline's markings are stale
+function onConflictsChanged() {
+  refreshConflictCount()
+  refresh()
+}
+
 // Note: Feedback is handled directly in ObservationCard component
 </script>
 
@@ -105,7 +111,7 @@ const { openCount: conflictCount, refreshCount: refreshConflictCount } = useConf
           <ConflictsPanel
             v-if="currentFilter === 'conflicts'"
             :project="currentProject"
-            @changed="refreshConflictCount"
+            @changed="onConflictsChanged"
           />
 
           <!-- Timeline -->

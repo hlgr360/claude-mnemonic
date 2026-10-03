@@ -18,6 +18,8 @@ const (
 	conflictNeighbours = 4
 	// conflictCheckTimeout bounds the question about one observation, whichever backend answers.
 	conflictCheckTimeout = 2 * time.Minute
+	// conflictVectorFetch is how many vector documents (several per observation) a neighbour search asks for.
+	conflictVectorFetch = 200
 	// conflictQueryChars clips the text a neighbour search is made from.
 	conflictQueryChars = 600
 	// conflictProposerLLM is recorded on proposals written by the model.
@@ -59,14 +61,16 @@ func (s *Service) olderNeighbours(ctx context.Context, obs *models.Observation, 
 	if observationStore == nil {
 		return nil, false, nil
 	}
-	results, ok, err := s.vectorSearch(ctx, conflictQuery(obs), conflictNeighbours*vectorFetchFactor*2,
-		sqlitevec.BuildWhereFilter(sqlitevec.DocTypeObservation, obs.Project))
+	// The vector client's project filter (project OR global scope) is not a form vec0 can answer, so the search is
+	// made over every project, deep enough to still find the project's own notes, and narrowed here.
+	results, ok, err := s.vectorSearch(ctx, conflictQuery(obs), conflictVectorFetch,
+		sqlitevec.BuildWhereFilter(sqlitevec.DocTypeObservation, ""))
 	if err != nil || !ok {
 		return nil, ok, err
 	}
 	var ids []int64
 	for _, h := range distinctObservationHits(results, minSimilarity, "") {
-		if h.id != obs.ID {
+		if h.id != obs.ID && h.project == obs.Project {
 			ids = append(ids, h.id)
 		}
 	}

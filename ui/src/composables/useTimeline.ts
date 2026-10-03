@@ -144,7 +144,7 @@ export function useTimeline() {
 
   // Watch for SSE events and debounced refresh
   watch(lastEvent, (event) => {
-    if (event && (event.type === 'observation' || event.type === 'prompt' || event.type === 'summary')) {
+    if (event && (event.type === 'observation' || event.type === 'prompt' || event.type === 'summary' || event.type === 'conflict')) {
       console.log('[Timeline] SSE event queued refresh:', event.type)
       debouncedRefresh()
     }

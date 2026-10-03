@@ -31,18 +31,18 @@ func conflictAPI(t *testing.T) (*Service, func()) {
 
 type conflictsBody struct {
 	Conflicts []struct {
+		Relation     string `json:"relation"`
+		Confidence   string `json:"confidence"`
+		Proposer     string `json:"proposer"`
+		Decision     string `json:"decision"`
+		Reason       string `json:"reason"`
 		Older, Newer struct {
 			ID           int64 `json:"id"`
 			IsSuperseded bool  `json:"is_superseded"`
 		}
-		Relation             string `json:"relation"`
-		Confidence           string `json:"confidence"`
-		Proposer             string `json:"proposer"`
-		Decision             string `json:"decision"`
-		Reason               string `json:"reason"`
-		ID                   int64  `json:"id"`
-		RestorableUntilEpoch int64  `json:"restorable_until_epoch"`
-		Resolved             bool   `json:"resolved"`
+		ID                   int64 `json:"id"`
+		RestorableUntilEpoch int64 `json:"restorable_until_epoch"`
+		Resolved             bool  `json:"resolved"`
 	} `json:"conflicts"`
 	Total     int `json:"total"`
 	OpenCount int `json:"open_count"`
