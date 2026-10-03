@@ -51,7 +51,67 @@ func TestSessionStore_ProjectSummaries(t *testing.T) {
 
 	names, err := sessions.GetAllProjects(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"projA"}, names, "GetAllProjects only sees sessions; summaries also see observation-only projects")
+	assert.Equal(t, []string{"projA", "projB"}, names, "both lists see the observation-only project")
+}
+
+func TestSessionStore_ProjectSummaries_IncludesProjectsWithOnlySummaries(t *testing.T) {
+	obsStore, store, cleanup := testObservationStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	sessions := NewSessionStore(store)
+	summaries := NewSummaryStore(store)
+
+	// projS: only summaries (their session row is gone and it never had observations).
+	_, _, err := summaries.StoreSummary(ctx, "sdk-s", "projS", &models.ParsedSummary{Request: "one"}, 1, 0)
+	require.NoError(t, err)
+	_, _, err = summaries.StoreSummary(ctx, "sdk-s2", "projS", &models.ParsedSummary{Request: "two"}, 2, 0)
+	require.NoError(t, err)
+	require.NoError(t, store.DB.Exec("DELETE FROM sdk_sessions WHERE project = ?", "projS").Error)
+
+	// projO: sessions and observations as before.
+	obs := &models.ParsedObservation{Type: models.ObsTypeDiscovery, Title: "t", Narrative: "n"}
+	_, _, err = obsStore.StoreObservation(ctx, "sdk-o", "projO", obs, 1, 10)
+	require.NoError(t, err)
+
+	got, err := sessions.ProjectSummaries(ctx)
+	require.NoError(t, err)
+	byProject := map[string]ProjectSummary{}
+	for _, p := range got {
+		byProject[p.Project] = p
+	}
+	require.Len(t, byProject, 2)
+	assert.Equal(t, ProjectSummary{Project: "projS", Sessions: 0, Observations: 0, Summaries: 2, LastActiveEpoch: byProject["projS"].LastActiveEpoch}, byProject["projS"])
+	assert.NotZero(t, byProject["projS"].LastActiveEpoch, "a summary-only project still has a last-active time")
+	assert.Equal(t, int64(0), byProject["projO"].Summaries)
+	assert.Equal(t, int64(1), byProject["projO"].Observations)
+
+	names, err := sessions.GetAllProjects(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"projO", "projS"}, names, "the project list is the same set, alphabetical")
+	var fromSummaries []string
+	for _, p := range got {
+		fromSummaries = append(fromSummaries, p.Project)
+	}
+	assert.ElementsMatch(t, names, fromSummaries, "ProjectSummaries and GetAllProjects never disagree")
+}
+
+func TestSessionStore_GetAllProjects_LeavesOutArchivedOnlyAndBlankProjects(t *testing.T) {
+	obsStore, store, cleanup := testObservationStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	sessions := NewSessionStore(store)
+
+	obs := &models.ParsedObservation{Type: models.ObsTypeDiscovery, Title: "t", Narrative: "n"}
+	id, _, err := obsStore.StoreObservation(ctx, "sdk-c", "projC", obs, 1, 10)
+	require.NoError(t, err)
+	require.NoError(t, store.DB.Exec("DELETE FROM sdk_sessions WHERE project = ?", "projC").Error)
+	require.NoError(t, store.DB.Exec("UPDATE observations SET is_archived = 1 WHERE id = ?", id).Error)
+	_, err = sessions.CreateSDKSession(ctx, "claude-blank", "", "p")
+	require.NoError(t, err)
+
+	names, err := sessions.GetAllProjects(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, names)
 }
 
 func TestSessionStore_ProjectSummaries_ExcludesArchivedObservationsAndEmptyProjects(t *testing.T) {

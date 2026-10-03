@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { fetchProjects } from '@/utils/api'
+import { listProjects } from '@/utils/projectAdmin'
+import { buildProjectOptions, optionMatches, selectedText } from '@/utils/projectOptions'
+import type { ProjectOption } from '@/utils/projectOptions'
 import ProjectManager from '@/components/ProjectManager.vue'
 import type { ProjectChange } from '@/components/ProjectManager.vue'
 
@@ -12,29 +14,21 @@ const emit = defineEmits<{
   'update:project': [project: string | null]
 }>()
 
-const projects = ref<string[]>([])
+// The same list the management panel shows: every project that has any data, by name.
+const projects = ref<ProjectOption[]>([])
 const searchQuery = ref('')
 const isOpen = ref(false)
 const loading = ref(false)
 const showManager = ref(false)
 
-const filteredProjects = computed(() => {
-  if (!searchQuery.value) return projects.value
-  const query = searchQuery.value.toLowerCase()
-  return projects.value.filter(p => p.toLowerCase().includes(query))
-})
+const filteredProjects = computed(() => projects.value.filter(p => optionMatches(p, searchQuery.value)))
 
-const selectedProjectName = computed(() => {
-  if (!props.currentProject) return 'All Projects'
-  // Extract just the directory name from the full path
-  const parts = props.currentProject.split('/')
-  return parts[parts.length - 1] || props.currentProject
-})
+const selectedProjectName = computed(() => selectedText(projects.value, props.currentProject))
 
-async function loadProjects(fresh = false) {
+async function loadProjects() {
   loading.value = true
   try {
-    projects.value = await fetchProjects(fresh)
+    projects.value = buildProjectOptions(await listProjects())
   } catch (err) {
     console.error('[ProjectFilter] Failed to load projects:', err)
   } finally {
@@ -51,8 +45,8 @@ function selectProject(project: string | null) {
 function toggleDropdown() {
   isOpen.value = !isOpen.value
   if (isOpen.value) {
-    // /api/projects is cacheable for 5 minutes: bypass that on each open so a merged or deleted project never reappears.
-    loadProjects(true)
+    // Re-read on each open so a merged or deleted project never reappears (the list is never cached).
+    loadProjects()
   }
 }
 
@@ -63,7 +57,7 @@ function openManager() {
 
 // After a merge, delete or alias change: re-read the list, and point the filter somewhere that still exists.
 async function onProjectsChanged(change: ProjectChange) {
-  await loadProjects(true)
+  await loadProjects()
   if (change.kind === 'alias') return
   if (props.currentProject === change.project) {
     // The project we were looking at is gone: follow it into the merge target, or fall back to all projects.
@@ -149,14 +143,20 @@ onMounted(() => {
         <button
           v-else
           v-for="project in filteredProjects"
-          :key="project"
-          @click="selectProject(project)"
+          :key="project.id"
+          :title="project.id"
+          @click="selectProject(project.id)"
           class="w-full px-4 py-2 text-left text-sm hover:bg-slate-700 transition-colors flex items-center gap-2"
-          :class="{ 'bg-slate-700 text-claude-400': currentProject === project, 'text-slate-300': currentProject !== project }"
+          :class="{ 'bg-slate-700 text-claude-400': currentProject === project.id, 'text-slate-300': currentProject !== project.id }"
         >
           <i class="fas fa-folder text-slate-500" />
-          <span class="truncate">{{ project.split('/').pop() }}</span>
-          <i v-if="currentProject === project" class="fas fa-check ml-auto text-claude-400" />
+          <span class="min-w-0 flex-1">
+            <span class="block truncate">{{ project.text }}</span>
+            <!-- The hash is only shown when it is needed: when several projects share a name. -->
+            <span v-if="project.namesake" class="block truncate text-xs text-slate-500 font-mono">{{ project.id }}</span>
+          </span>
+          <span v-if="project.note" class="text-xs text-slate-500 whitespace-nowrap">{{ project.note }}</span>
+          <i v-if="currentProject === project.id" class="fas fa-check text-claude-400" />
         </button>
       </div>
 

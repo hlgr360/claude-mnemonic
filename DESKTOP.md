@@ -191,6 +191,11 @@ ids they had; nothing is migrated.
 Open the project dropdown in the dashboard and choose **Manage projects…**: merge a project into
 another, delete it, or remove an alias. The same is available to the model as `project_manage`.
 
+The dropdown and the panel list the same projects: every project that has any data (a session, an
+observation or a session summary), by name. The hash is shown only when two projects share a name
+(and as a tooltip), and a pasted hash still finds its project in the search. A project that only has
+summaries is marked "summaries only".
+
 Every delete and merge is **previewed first**; only a second call carrying the preview's
 confirmation token does anything. The token is tied to the project's current contents, so if it
 changed after the preview the action is refused and you review again. A backup of the whole
