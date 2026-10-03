@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -42,9 +43,11 @@ func newFakeWorker(t *testing.T, routes map[string]func(w http.ResponseWriter, r
 			rec.query[k] = r.URL.Query().Get(k)
 		}
 		if r.Body != nil {
-			if raw, _ := io.ReadAll(r.Body); len(raw) > 0 {
+			raw, _ := io.ReadAll(r.Body)
+			if len(raw) > 0 {
 				_ = json.Unmarshal(raw, &rec.body)
 			}
+			r.Body = io.NopCloser(bytes.NewReader(raw)) // handlers read the body too
 		}
 		fw.mu.Lock()
 		fw.seen = append(fw.seen, rec)
@@ -204,17 +207,17 @@ func TestToolsList_DesktopToolsOnlyInDesktopMode(t *testing.T) {
 	code := NewServer(nil, "", "p_aaaaaa", "v")
 	initialize(t, code, "claude-code")
 	codeTools := toolNames(t, code)
-	for _, n := range []string{"project_suggest", "project_resolve", "project_list", "context", "remember"} {
+	for _, n := range []string{"project_suggest", "project_resolve", "project_list", "context", "remember", "project_manage"} {
 		assert.NotContains(t, codeTools, n, "Code's tool list must not change")
 	}
 
 	desktop := NewServer(nil, "", "p_aaaaaa", "v")
 	initialize(t, desktop, "claude-ai")
 	desktopTools := toolNames(t, desktop)
-	for _, n := range []string{"project_suggest", "project_resolve", "project_list", "context", "remember"} {
+	for _, n := range []string{"project_suggest", "project_resolve", "project_list", "context", "remember", "project_manage"} {
 		assert.Contains(t, desktopTools, n)
 	}
-	assert.Len(t, desktopTools, len(codeTools)+5, "desktop adds exactly the five project tools")
+	assert.Len(t, desktopTools, len(codeTools)+6, "desktop adds exactly the six project tools")
 }
 
 func TestToolDescriptions_CarryTheProtocol(t *testing.T) {
@@ -238,7 +241,7 @@ func TestDesktopToolsAreUnknownInCodeMode(t *testing.T) {
 	s := NewServer(nil, "", "p_aaaaaa", "v")
 	initialize(t, s, "claude-code")
 
-	for _, name := range []string{"remember", "project_list", "context", "project_suggest", "project_resolve"} {
+	for _, name := range []string{"remember", "project_list", "context", "project_suggest", "project_resolve", "project_manage"} {
 		_, err := call(s, name, map[string]any{"text": "x"})
 		require.Error(t, err, name)
 		assert.Contains(t, err.Error(), "unknown tool", name)
@@ -654,4 +657,154 @@ func TestRun_EndToEndOverStdio(t *testing.T) {
 	}
 	cancel()
 	assert.Empty(t, fw.requests("/api/observations/remember"))
+}
+
+func manageWorker(t *testing.T) *fakeWorker {
+	t.Helper()
+	return newFakeWorker(t, map[string]func(http.ResponseWriter, *http.Request){
+		"GET /api/projects/repo_aaaaaa/stats": jsonReply(`{"project":"repo_aaaaaa","observations":3}`),
+		"DELETE /api/projects/repo_aaaaaa": func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Query().Get("confirm") == "tok123" {
+				jsonReply(`{"dry_run":false,"message":"Deleted project repo_aaaaaa. A backup is at /b/x.db."}`)(w, r)
+				return
+			}
+			jsonReply(`{"dry_run":true,"confirm":"tok123","message":"Would permanently delete project repo_aaaaaa with 3 observations."}`)(w, r)
+		},
+		"POST /api/projects/frag_bbbbbb/merge": func(w http.ResponseWriter, r *http.Request) {
+			var body map[string]string
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			if body["confirm"] == "mtok" {
+				jsonReply(`{"dry_run":false,"message":"Merged frag_bbbbbb into repo_aaaaaa."}`)(w, r)
+				return
+			}
+			jsonReply(`{"dry_run":true,"confirm":"mtok","message":"Would move 2 observations."}`)(w, r)
+		},
+		"POST /api/projects/aliases":            jsonReply(`{"alias":"x_111111","canonical":"repo_aaaaaa"}`),
+		"DELETE /api/projects/aliases/x_111111": func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) },
+		"DELETE /api/projects/frag_ffffff": func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, "project id is an alias: frag_ffffff: it is an alias, not a project", http.StatusConflict)
+		},
+	})
+}
+
+func TestProjectManage_DescriptionRequiresUserApproval(t *testing.T) {
+	var desc string
+	for _, tool := range desktopTools() {
+		if tool.Name == "project_manage" {
+			desc = tool.Description
+		}
+	}
+	assert.Contains(t, desc, "DESTRUCTIVE")
+	assert.Contains(t, desc, "WITHOUT confirm")
+	assert.Contains(t, desc, "explicit approval")
+	assert.Contains(t, desc, "Never invent or reuse a token")
+	assert.Contains(t, desc, "backup")
+}
+
+func TestProjectManage_Stats(t *testing.T) {
+	fw := manageWorker(t)
+	out, err := call(desktopServer(t, fw), "project_manage", map[string]any{"action": "stats", "project": "repo_aaaaaa"})
+	require.NoError(t, err)
+	assert.Contains(t, out, `"observations":3`)
+}
+
+func TestProjectManage_DeleteIsAPreviewUntilConfirmed(t *testing.T) {
+	fw := manageWorker(t)
+	s := desktopServer(t, fw)
+
+	out, err := call(s, "project_manage", map[string]any{"action": "delete", "project": "repo_aaaaaa"})
+	require.NoError(t, err)
+	assert.Contains(t, out, "Would permanently delete project repo_aaaaaa")
+	assert.Contains(t, out, "only a PREVIEW; nothing has changed")
+	assert.Contains(t, out, "explicit approval")
+	assert.Contains(t, out, "confirm: tok123", "the token is handed to the model for the follow-up call")
+	reqs := fw.requests("/api/projects/repo_aaaaaa")
+	require.Len(t, reqs, 1)
+	assert.Empty(t, reqs[0].query["confirm"], "the first call never carries a confirmation")
+
+	out, err = call(s, "project_manage", map[string]any{"action": "delete", "project": "repo_aaaaaa", "confirm": "tok123"})
+	require.NoError(t, err)
+	assert.Equal(t, "Deleted project repo_aaaaaa. A backup is at /b/x.db.", out)
+	reqs = fw.requests("/api/projects/repo_aaaaaa")
+	require.Len(t, reqs, 2)
+	assert.Equal(t, "tok123", reqs[1].query["confirm"])
+}
+
+func TestProjectManage_MergePreviewThenConfirm(t *testing.T) {
+	fw := manageWorker(t)
+	s := desktopServer(t, fw)
+
+	out, err := call(s, "project_manage", map[string]any{"action": "merge", "project": "frag_bbbbbb", "into": "repo_aaaaaa"})
+	require.NoError(t, err)
+	assert.Contains(t, out, "only a PREVIEW")
+	assert.Contains(t, out, "confirm: mtok")
+	first := fw.requests("/api/projects/frag_bbbbbb/merge")[0].body
+	assert.Equal(t, "repo_aaaaaa", first["into"])
+	assert.Equal(t, "", first["confirm"])
+
+	out, err = call(s, "project_manage", map[string]any{"action": "merge", "project": "frag_bbbbbb", "into": "repo_aaaaaa", "confirm": "mtok"})
+	require.NoError(t, err)
+	assert.Equal(t, "Merged frag_bbbbbb into repo_aaaaaa.", out)
+	assert.Equal(t, "mtok", fw.requests("/api/projects/frag_bbbbbb/merge")[1].body["confirm"])
+}
+
+func TestProjectManage_AliasAndUnalias(t *testing.T) {
+	fw := manageWorker(t)
+	s := desktopServer(t, fw)
+
+	_, err := call(s, "project_manage", map[string]any{"action": "alias", "alias": "x_111111", "project": "repo_aaaaaa"})
+	require.NoError(t, err)
+	b := fw.requests("/api/projects/aliases")[0].body
+	assert.Equal(t, map[string]any{"alias": "x_111111", "canonical": "repo_aaaaaa", "source": "mcp"}, b)
+
+	out, err := call(s, "project_manage", map[string]any{"action": "unalias", "alias": "x_111111"})
+	require.NoError(t, err)
+	assert.Equal(t, "Removed alias x_111111.", out)
+}
+
+func TestProjectManage_ValidationNeverReachesTheWorker(t *testing.T) {
+	fw := manageWorker(t)
+	s := desktopServer(t, fw)
+
+	tests := []struct {
+		name string
+		args map[string]any
+		want string
+	}{
+		{"missing action", map[string]any{}, "unknown action"},
+		{"unknown action", map[string]any{"action": "wipe", "project": "repo_aaaaaa"}, "unknown action"},
+		{"stats needs a project", map[string]any{"action": "stats"}, "project is required"},
+		{"delete needs a project", map[string]any{"action": "delete"}, "project is required"},
+		{"merge needs a project", map[string]any{"action": "merge", "into": "repo_aaaaaa"}, "project is required"},
+		{"merge needs a target", map[string]any{"action": "merge", "project": "frag_bbbbbb"}, "into is required"},
+		{"alias needs both", map[string]any{"action": "alias", "alias": "x_111111"}, "project is required"},
+		{"unalias needs an alias", map[string]any{"action": "unalias"}, "alias is required"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := call(s, "project_manage", tt.args)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.want)
+		})
+	}
+	assert.Equal(t, 0, fw.total())
+}
+
+func TestProjectManage_DoesNotResolveAliasesOrNamesForDestructiveActions(t *testing.T) {
+	fw := manageWorker(t)
+	s := desktopServer(t, fw)
+
+	_, err := call(s, "project_manage", map[string]any{"action": "delete", "project": "frag_ffffff"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "409")
+	assert.Contains(t, err.Error(), "alias, not a project", "the worker's refusal reaches the model unchanged")
+	assert.Empty(t, fw.requests("/api/projects/resolve"), "the id is passed through exactly; nothing is resolved behind the user's back")
+}
+
+func TestProjectManage_PathIsEscaped(t *testing.T) {
+	fw := manageWorker(t)
+	_, err := call(desktopServer(t, fw), "project_manage", map[string]any{"action": "stats", "project": "a/b c"})
+	require.Error(t, err, "the fake has no such route")
+	reqs := fw.requests("/api/projects/a/b c/stats")
+	require.Len(t, reqs, 1, "the id arrives as one escaped segment, decoded by the server")
 }

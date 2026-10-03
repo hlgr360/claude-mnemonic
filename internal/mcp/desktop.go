@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -183,6 +186,24 @@ func desktopTools() []Tool {
 			},
 		},
 		{
+			Name: "project_manage",
+			Description: "Inspect, alias, merge or delete projects. stats is read-only. delete and merge are DESTRUCTIVE: first call WITHOUT confirm to get a preview (nothing changes), " +
+				"show the user exactly what would be removed or moved and get their explicit approval, then repeat the same call with the confirm token from the preview. " +
+				"Never invent or reuse a token, and never confirm without asking the user. A backup of the database is taken automatically before any change. " +
+				"Use exact project ids from project_list; names are not accepted here.",
+			InputSchema: map[string]any{
+				"type":     "object",
+				"required": []string{"action"},
+				"properties": map[string]any{
+					"action":  map[string]any{"type": "string", "enum": []string{"stats", "delete", "merge", "alias", "unalias"}, "description": "stats: counts for a project. delete: remove a project and all its data. merge: move a project's data into another and keep its id as an alias. alias: declare an id to be another project. unalias: remove an alias."},
+					"project": map[string]any{"type": "string", "description": "Exact project id (stats, delete, merge); the surviving project for alias"},
+					"into":    map[string]any{"type": "string", "description": "merge: the project to move the data into (an id or alias that already exists)"},
+					"alias":   map[string]any{"type": "string", "description": "alias / unalias: the alias id"},
+					"confirm": map[string]any{"type": "string", "description": "delete / merge: the token returned by the preview, sent only after the user approved"},
+				},
+			},
+		},
+		{
 			Name: "remember",
 			Description: "Save durable knowledge (a decision, a finding, a fix) to a project's memory. Only after the user has chosen a project: never in a declined, read-only chat, and never with a guessed project. " +
 				"Pass the project id (or the folder path to start a new project). Text inside <private> tags is not stored.",
@@ -206,7 +227,7 @@ func desktopTools() []Tool {
 // isDesktopTool reports whether name is one of the tools added by Desktop mode.
 func isDesktopTool(name string) bool {
 	switch name {
-	case "project_suggest", "project_resolve", "project_list", "context", "remember":
+	case "project_suggest", "project_resolve", "project_list", "context", "remember", "project_manage":
 		return true
 	}
 	return false
@@ -225,6 +246,8 @@ func (s *Server) callDesktopTool(ctx context.Context, name string, args json.Raw
 		return s.toolContext(ctx, args)
 	case "remember":
 		return s.toolRemember(ctx, args)
+	case "project_manage":
+		return s.toolProjectManage(ctx, args)
 	}
 	return "", fmt.Errorf("unknown tool %q", name)
 }
@@ -404,4 +427,127 @@ func (s *Server) searchAcrossProjects(ctx context.Context, args searchArgs) (str
 		params["obs_type"] = args.ObsType
 	}
 	return s.proxyGetRaw(ctx, "/api/search/cross-project", params)
+}
+
+// proxyDeleteRaw sends a DELETE to the worker.
+func (s *Server) proxyDeleteRaw(ctx context.Context, path string, params map[string]string) (string, error) {
+	if s.client == nil {
+		return "", fmt.Errorf("worker unavailable at %s: http client not configured", s.workerURL)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, s.workerURL+path, nil)
+	if err != nil {
+		return "", err
+	}
+	q := req.URL.Query()
+	for k, v := range params {
+		if v != "" {
+			q.Set(k, v)
+		}
+	}
+	req.URL.RawQuery = q.Encode()
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("worker unavailable at %s: %w", s.workerURL, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("read worker response: %w", err)
+	}
+	if resp.StatusCode >= 400 {
+		return "", fmt.Errorf("worker returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	return string(body), nil
+}
+
+// previewNote is appended to every destructive preview so the instruction sits
+// next to the token, where the model is looking when it decides what to do next.
+const previewNote = "\n\nThis is only a PREVIEW; nothing has changed. Show the user what would happen and ask for their explicit approval. " +
+	"Only if they approve, call project_manage again with the same arguments plus this confirm token. Do not proceed on your own."
+
+func (s *Server) toolProjectManage(ctx context.Context, args json.RawMessage) (string, error) {
+	var a struct {
+		Action  string `json:"action"`
+		Project string `json:"project"`
+		Into    string `json:"into"`
+		Alias   string `json:"alias"`
+		Confirm string `json:"confirm"`
+	}
+	if err := json.Unmarshal(args, &a); err != nil {
+		return "", fmt.Errorf("project_manage: invalid arguments: %w", err)
+	}
+	need := func(field, value string) error {
+		if strings.TrimSpace(value) == "" {
+			return fmt.Errorf("project_manage %s: %s is required", a.Action, field)
+		}
+		return nil
+	}
+
+	switch a.Action {
+	case "stats":
+		if err := need("project", a.Project); err != nil {
+			return "", err
+		}
+		return s.proxyGetRaw(ctx, "/api/projects/"+url.PathEscape(a.Project)+"/stats", nil)
+
+	case "delete":
+		if err := need("project", a.Project); err != nil {
+			return "", err
+		}
+		raw, err := s.proxyDeleteRaw(ctx, "/api/projects/"+url.PathEscape(a.Project), map[string]string{"confirm": a.Confirm})
+		if err != nil {
+			return "", err
+		}
+		return describeAdminResult(raw)
+
+	case "merge":
+		if err := need("project", a.Project); err != nil {
+			return "", err
+		}
+		if err := need("into", a.Into); err != nil {
+			return "", err
+		}
+		raw, err := s.proxyPostRaw(ctx, "/api/projects/"+url.PathEscape(a.Project)+"/merge", map[string]string{"into": a.Into, "confirm": a.Confirm})
+		if err != nil {
+			return "", err
+		}
+		return describeAdminResult(raw)
+
+	case "alias":
+		if err := need("alias", a.Alias); err != nil {
+			return "", err
+		}
+		if err := need("project", a.Project); err != nil {
+			return "", err
+		}
+		return s.proxyPostRaw(ctx, "/api/projects/aliases", map[string]string{"alias": a.Alias, "canonical": a.Project, "source": "mcp"})
+
+	case "unalias":
+		if err := need("alias", a.Alias); err != nil {
+			return "", err
+		}
+		if _, err := s.proxyDeleteRaw(ctx, "/api/projects/aliases/"+url.PathEscape(a.Alias), nil); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("Removed alias %s.", a.Alias), nil
+	}
+	return "", fmt.Errorf("project_manage: unknown action %q (use stats, delete, merge, alias or unalias)", a.Action)
+}
+
+// describeAdminResult turns the worker's delete/merge answer into text for the
+// model: the message, plus the approval instruction when it was only a preview.
+func describeAdminResult(raw string) (string, error) {
+	var r struct {
+		Message string `json:"message"`
+		Confirm string `json:"confirm"`
+		DryRun  bool   `json:"dry_run"`
+	}
+	if err := json.Unmarshal([]byte(raw), &r); err != nil {
+		return "", fmt.Errorf("decode worker response: %w", err)
+	}
+	if r.DryRun {
+		return r.Message + previewNote + "\nconfirm: " + r.Confirm, nil
+	}
+	return r.Message, nil
 }
