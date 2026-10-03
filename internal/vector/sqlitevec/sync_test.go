@@ -346,3 +346,11 @@ func TestSync_FormatObservationDocs_EmptyScope(t *testing.T) {
 	assert.Len(t, docs, 1)
 	assert.Equal(t, "project", docs[0].Metadata["scope"])
 }
+
+func TestSummaryDocIDs_CoverEveryFieldTheSummaryIsSplitInto(t *testing.T) {
+	got := SummaryDocIDs(42)
+	assert.Equal(t, []string{
+		"summary_42_request", "summary_42_investigated", "summary_42_learned",
+		"summary_42_completed", "summary_42_next_steps", "summary_42_notes",
+	}, got)
+}

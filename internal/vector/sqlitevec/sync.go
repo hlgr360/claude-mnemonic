@@ -219,6 +219,34 @@ func (s *Sync) DeleteObservations(ctx context.Context, observationIDs []int64) e
 	return nil
 }
 
+// summaryFields are the per-field documents a session summary is split into (see formatSummaryDocs).
+var summaryFields = []string{"request", "investigated", "learned", "completed", "next_steps", "notes"}
+
+// SummaryDocIDs returns the vector document ids a summary may have, one per field.
+func SummaryDocIDs(summaryID int64) []string {
+	ids := make([]string, 0, len(summaryFields))
+	for _, f := range summaryFields {
+		ids = append(ids, fmt.Sprintf("summary_%d_%s", summaryID, f))
+	}
+	return ids
+}
+
+// DeleteSummaries removes session summary documents from the vector store. Re-saving a summary needs it:
+// the store cannot overwrite a document id, so stale documents must go before the new ones are added.
+func (s *Sync) DeleteSummaries(ctx context.Context, summaryIDs []int64) error {
+	var ids []string
+	for _, id := range summaryIDs {
+		ids = append(ids, SummaryDocIDs(id)...)
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	if err := s.client.DeleteDocuments(ctx, ids); err != nil {
+		return fmt.Errorf("delete summary docs: %w", err)
+	}
+	return nil
+}
+
 // DeleteUserPrompts removes user prompt documents from the vector store.
 func (s *Sync) DeleteUserPrompts(ctx context.Context, promptIDs []int64) error {
 	if len(promptIDs) == 0 {
