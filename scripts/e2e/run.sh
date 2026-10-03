@@ -46,6 +46,14 @@ cleanup() {
 trap cleanup EXIT
 
 stop_worker() { kill $(lsof -ti ":$WORKER_PORT") 2>/dev/null; sleep 1; }
+
+# The conflict proposer is on by default and would call a model for the notes the suites write. Only the conflict suite
+# wants it, with a fake claude; every other suite runs with it switched off.
+NO_PROPOSALS='"CLAUDE_MNEMONIC_CONFLICT_PROPOSALS_ENABLED": false'
+base_settings() {
+  mkdir -p "$WORK/home/.claude-mnemonic"
+  printf '{%s}\n' "$NO_PROPOSALS" > "$WORK/home/.claude-mnemonic/settings.json"
+}
 fresh_worker() {
   stop_worker
   rm -rf "$WORK/home/.claude-mnemonic/claude-mnemonic.db"* "$WORK/home/.claude-mnemonic/backups"
@@ -72,6 +80,7 @@ echo "building into $WORK"
   && go build -tags fts5 -ldflags "-s -w" -buildvcs=false -o "$WORK/bin/mcp-server" ./cmd/mcp \
   && go build -tags fts5 -ldflags "-s -w" -buildvcs=false -o "$WORK/bin/pre-compact" ./cmd/hooks/pre-compact) || { echo "build failed"; exit 1; }
 
+base_settings
 fresh_worker || exit 1
 suite "Desktop mode over stdio (chat, Cowork, worktrees, aliases)" python3 "$HERE/drive_mcp.py"
 suite "Code mode unchanged, pinned project, lazy worker start"        python3 "$HERE/drive_modes.py"
@@ -116,31 +125,31 @@ XML
 FAKE
 chmod +x "$WORK/fake-claude"
 mkdir -p "$WORK/home/.claude-mnemonic"
-printf '{"CLAUDE_CODE_PATH": "%s/fake-claude"}\n' "$WORK" > "$WORK/home/.claude-mnemonic/settings.json"
+printf '{"CLAUDE_CODE_PATH": "%s/fake-claude", '"$NO_PROPOSALS"'}\n' "$WORK" > "$WORK/home/.claude-mnemonic/settings.json"
 fresh_worker || exit 1
 suite "PreCompact hook summarises the conversation before a compaction" python3 "$HERE/drive_precompact.py"
 
 # Local LLM: the summary task on a fake Ollama (the suite plays Ollama itself and switches it off midway),
 # with the fake claude from above as the fallback.
 OLLAMA_E2E_PORT="${E2E_OLLAMA_PORT:-37996}"
-printf '{"CLAUDE_CODE_PATH": "%s/fake-claude", "CLAUDE_MNEMONIC_OLLAMA_URL": "http://127.0.0.1:%s", "CLAUDE_MNEMONIC_OLLAMA_MODEL": "gemma3:12b", "CLAUDE_MNEMONIC_LLM_BACKEND_SUMMARY": "ollama"}\n' "$WORK" "$OLLAMA_E2E_PORT" > "$WORK/home/.claude-mnemonic/settings.json"
+printf '{"CLAUDE_CODE_PATH": "%s/fake-claude", "CLAUDE_MNEMONIC_OLLAMA_URL": "http://127.0.0.1:%s", "CLAUDE_MNEMONIC_OLLAMA_MODEL": "gemma3:12b", "CLAUDE_MNEMONIC_LLM_BACKEND_SUMMARY": "ollama", %s}\n' "$WORK" "$OLLAMA_E2E_PORT" "$NO_PROPOSALS" > "$WORK/home/.claude-mnemonic/settings.json"
 fresh_worker || exit 1
 suite "Local LLM backend: Ollama for summaries, fallback to the CLI"   env E2E_OLLAMA_PORT="$OLLAMA_E2E_PORT" python3 "$HERE/drive_llm.py"
-rm -f "$WORK/home/.claude-mnemonic/settings.json"
+base_settings
 
 # Project briefs: switched on with low thresholds, written by the fake claude above. The first automatic pass runs
 # 30 s after the worker starts, so the suite seeds its data straight away and then waits for it.
-printf '{"CLAUDE_CODE_PATH": "%s/fake-claude", "CLAUDE_MNEMONIC_PROJECT_BRIEF_ENABLED": true, "CLAUDE_MNEMONIC_PROJECT_BRIEF_MIN_NEW_OBSERVATIONS": 3, "CLAUDE_MNEMONIC_PROJECT_BRIEF_INTERVAL_MINUTES": 1, "CLAUDE_MNEMONIC_PROJECT_BRIEF_MAX_PER_RUN": 3}\n' "$WORK" > "$WORK/home/.claude-mnemonic/settings.json"
+printf '{"CLAUDE_CODE_PATH": "%s/fake-claude", "CLAUDE_MNEMONIC_PROJECT_BRIEF_ENABLED": true, "CLAUDE_MNEMONIC_PROJECT_BRIEF_MIN_NEW_OBSERVATIONS": 3, "CLAUDE_MNEMONIC_PROJECT_BRIEF_INTERVAL_MINUTES": 1, "CLAUDE_MNEMONIC_PROJECT_BRIEF_MAX_PER_RUN": 3, %s}\n' "$WORK" "$NO_PROPOSALS" > "$WORK/home/.claude-mnemonic/settings.json"
 fresh_worker || exit 1
 suite "Project briefs: automatic and on request, shown first to Desktop"  python3 "$HERE/drive_brief.py"
-rm -f "$WORK/home/.claude-mnemonic/settings.json"
+base_settings
 
 # Conflict proposals: switched on with a low similarity bar, answered by the fake claude above. The first automatic
 # pass runs 45 s after the worker starts, so the suite seeds its data straight away and then waits for it.
 printf '{"CLAUDE_CODE_PATH": "%s/fake-claude", "CLAUDE_MNEMONIC_CONFLICT_PROPOSALS_ENABLED": true, "CLAUDE_MNEMONIC_CONFLICT_PROPOSALS_INTERVAL_MINUTES": 1, "CLAUDE_MNEMONIC_CONFLICT_PROPOSALS_MIN_SIMILARITY": 0.6}\n' "$WORK" > "$WORK/home/.claude-mnemonic/settings.json"
 fresh_worker || exit 1
 suite "Conflict review: proposals, decisions, hiding, undo"            python3 "$HERE/drive_conflicts.py"
-rm -f "$WORK/home/.claude-mnemonic/settings.json"
+base_settings
 
 if [ "$RUN_UI" = "1" ]; then
   if [ ! -d "$ROOT/ui/dist" ] || ! command -v node >/dev/null; then

@@ -559,12 +559,12 @@ func TestLoad_UnusableProjectBriefSettingsKeepTheDefaults(t *testing.T) {
 	assert.Equal(t, BackendClaude, cfg.LLMBackendBrief)
 }
 
-func TestLoad_ConflictProposalsAreOffByDefaultAndNothingIsDeletedByDefault(t *testing.T) {
+func TestLoad_ConflictProposalsAreOnByDefaultAndNothingIsDeletedByDefault(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	cfg, err := Load()
 	require.NoError(t, err)
 
-	assert.False(t, cfg.ConflictProposalsEnabled, "proposals spend Claude usage, so they are opt-in")
+	assert.True(t, cfg.ConflictProposalsEnabled, "proposals are on by default; they only propose, a person decides")
 	assert.Equal(t, 20, cfg.ConflictProposalsMaxPerRun)
 	assert.Equal(t, 60, cfg.ConflictProposalsIntervalMin)
 	assert.InDelta(t, 0.65, cfg.ConflictProposalsMinSim, 0.0001)
@@ -592,6 +592,15 @@ func TestLoad_ConflictProposalSettings(t *testing.T) {
 	assert.Equal(t, BackendOllama, cfg.LLMBackendConflict)
 }
 
+func TestLoad_ConflictProposalsCanBeSwitchedOff(t *testing.T) {
+	writeSettings(t, `{"CLAUDE_MNEMONIC_CONFLICT_PROPOSALS_ENABLED": false}`)
+	cfg, err := Load()
+	require.NoError(t, err)
+
+	assert.False(t, cfg.ConflictProposalsEnabled)
+	assert.Equal(t, 20, cfg.ConflictProposalsMaxPerRun, "the other settings keep their defaults")
+}
+
 func TestLoad_UnusableConflictSettingsKeepTheDefaults(t *testing.T) {
 	writeSettings(t, `{
 		"CLAUDE_MNEMONIC_CONFLICT_PROPOSALS_ENABLED": "yes",
@@ -604,7 +613,7 @@ func TestLoad_UnusableConflictSettingsKeepTheDefaults(t *testing.T) {
 	cfg, err := Load()
 	require.NoError(t, err)
 
-	assert.False(t, cfg.ConflictProposalsEnabled)
+	assert.True(t, cfg.ConflictProposalsEnabled, "a value that is not a boolean keeps the default")
 	assert.Equal(t, 20, cfg.ConflictProposalsMaxPerRun)
 	assert.Equal(t, 60, cfg.ConflictProposalsIntervalMin)
 	assert.InDelta(t, 0.65, cfg.ConflictProposalsMinSim, 0.0001, "a similarity above 1 is not one")

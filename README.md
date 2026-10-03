@@ -182,7 +182,7 @@ curl -s localhost:37777/api/projects/<project>/brief              # read it
 | `PROJECT_BRIEF_MAX_PER_RUN` | `3` | At most this many briefs per pass, the projects with the most new observations first |
 | `PROJECT_BRIEF_INTERVAL_MINUTES` | `60` | How often a pass looks for projects that need a brief |
 
-### Conflict Review (optional)
+### Conflict Review
 
 Over time notes go out of date: a newer note says the cache now lives for a day, and the older one still says an
 hour. The **Conflicts** tab of the dashboard (`http://localhost:37777`) is where you settle such pairs. Each
@@ -199,9 +199,11 @@ Nothing is ever hidden without you: the proposals come from Haiku (or from you, 
 changes a note. A hidden note stays in the dashboard, marked *Superseded*, and can be fetched by id. Claude Code is
 otherwise unchanged; only notes you decided about are left out of its context.
 
-Looking for pairs spends Claude usage (one short call per new observation that has close older neighbours in the
-same project), so the **proposer is off by default**. In our checks Haiku's strict prompt flagged roughly one in
-eight of the pairs it was shown, and only about half of those were real, which is why it only proposes. You can
+Looking for pairs spends Claude usage: one short Haiku call per new observation that has close older neighbours in
+the same project, and at most 20 observations per hourly pass, so an existing archive is worked through over time.
+The **proposer is on by default**. To switch it off, put `"CLAUDE_MNEMONIC_CONFLICT_PROPOSALS_ENABLED": false` in
+`~/.claude-mnemonic/settings.json` and restart the worker. In our checks Haiku's strict prompt flagged roughly one
+in eight of the pairs it was shown, and only about half of those were real, which is why it only proposes. You can
 also propose a pair yourself:
 
 ```sh
@@ -214,7 +216,7 @@ curl -s -X POST localhost:37777/api/conflicts/7/undo
 
 | Variable | Default | What it does |
 |----------|---------|--------------|
-| `CONFLICT_PROPOSALS_ENABLED` | `false` | Look for conflicting notes in the background and propose them |
+| `CONFLICT_PROPOSALS_ENABLED` | `true` | Look for conflicting notes in the background and propose them |
 | `CONFLICT_PROPOSALS_MAX_PER_RUN` | `20` | At most this many observations are looked at per pass, newest first |
 | `CONFLICT_PROPOSALS_INTERVAL_MINUTES` | `60` | How often a pass runs |
 | `CONFLICT_PROPOSALS_MIN_SIMILARITY` | `0.65` | How close an older note must be to the new one to be compared with it |
