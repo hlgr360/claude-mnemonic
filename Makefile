@@ -15,7 +15,7 @@ GOARCH ?= $(shell go env GOARCH)
 export CGO_ENABLED=1
 BUILD_TAGS := -tags "fts5"
 
-.PHONY: all build clean test install lint hooks worker mcp stop-worker start-worker restart-worker dashboard website dev-website setup-libs update-version restore-stamped install-desktop uninstall-desktop test-scripts
+.PHONY: all build clean test install lint hooks worker mcp stop-worker start-worker restart-worker dashboard website dev-website setup-libs update-version mark-clean restore-stamped install-desktop uninstall-desktop test-scripts
 
 all: build
 
@@ -149,7 +149,7 @@ start-worker:
 restart-worker: stop-worker start-worker
 
 # Install to stable binary location and register with Claude Code
-install: build stop-worker
+install: mark-clean build stop-worker
 	@echo "Installing claude-mnemonic..."
 	@# Verify build output binaries exist
 	@test -f $(BUILD_DIR)/worker || { echo "ERROR: $(BUILD_DIR)/worker not found. Build may have failed."; exit 1; }
@@ -179,9 +179,21 @@ install: build stop-worker
 	@$(MAKE) restore-stamped
 	@echo "Installation complete!"
 
-# Undo the version stamping done by update-version/dashboard so local installs leave the tree clean
+# The build rewrites tracked files (version stamps, lockfile and build info). Rather than listing them,
+# remember whether the tree was clean when an install started; if it was, every tracked change afterwards
+# came from the build and is discarded. If it had local edits, nothing is touched so they are never lost.
+CLEAN_MARK := $(shell git rev-parse --git-dir 2>/dev/null)/mnemonic-clean-before-install
+
+mark-clean:
+	@rm -f $(CLEAN_MARK)
+	@if git rev-parse --git-dir >/dev/null 2>&1 && git diff --quiet 2>/dev/null; then touch $(CLEAN_MARK); fi
+
 restore-stamped:
-	@git restore .claude-plugin/plugin.json marketplace.json ui/package.json ui/package-lock.json 2>/dev/null || true
+	@if [ -f $(CLEAN_MARK) ]; then \
+		git restore --worktree -- . && rm -f $(CLEAN_MARK) && echo "Restored files changed by the build."; \
+	elif git rev-parse --git-dir >/dev/null 2>&1; then \
+		echo "Left tracked files alone: there were local changes before the build (git status shows them)."; \
+	fi
 
 # Register the MCP server with Claude Desktop (preview first: python3 scripts/install-desktop.py --dry-run; see DESKTOP.md)
 install-desktop:
