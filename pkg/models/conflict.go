@@ -33,16 +33,28 @@ const (
 
 // ObservationConflict tracks conflicting observations.
 type ObservationConflict struct {
-	ResolvedAt      *string            `db:"resolved_at" json:"resolved_at,omitempty"`
-	ConflictType    ConflictType       `db:"conflict_type" json:"conflict_type"`
-	Resolution      ConflictResolution `db:"resolution" json:"resolution"`
-	Reason          string             `db:"reason" json:"reason"`
-	DetectedAt      string             `db:"detected_at" json:"detected_at"`
-	ID              int64              `db:"id" json:"id"`
-	NewerObsID      int64              `db:"newer_obs_id" json:"newer_obs_id"`
-	OlderObsID      int64              `db:"older_obs_id" json:"older_obs_id"`
-	DetectedAtEpoch int64              `db:"detected_at_epoch" json:"detected_at_epoch"`
-	Resolved        bool               `db:"resolved" json:"resolved"`
+	ResolvedAt   *string            `db:"resolved_at" json:"resolved_at,omitempty"`
+	ConflictType ConflictType       `db:"conflict_type" json:"conflict_type"`
+	Resolution   ConflictResolution `db:"resolution" json:"resolution"`
+	Reason       string             `db:"reason" json:"reason"`
+	DetectedAt   string             `db:"detected_at" json:"detected_at"`
+	// Relation is what the proposer called the pair: supersedes, contradicts, duplicate (or manual).
+	Relation string `db:"relation" json:"relation,omitempty"`
+	// Confidence is the proposer's own: low, medium or high.
+	Confidence string `db:"confidence" json:"confidence,omitempty"`
+	// Proposer says who made the proposal, for example "haiku" or "manual".
+	Proposer string `db:"proposer" json:"proposer,omitempty"`
+	// Decision is what the user decided: supersede_older, supersede_newer or keep_both; empty while open.
+	Decision string `db:"decision" json:"decision,omitempty"`
+	// SupersededObsID is the observation the decision hid, 0 when none was.
+	SupersededObsID int64 `db:"superseded_obs_id" json:"superseded_obs_id,omitempty"`
+	// ResolvedAtEpoch is when the user decided, in milliseconds.
+	ResolvedAtEpoch int64 `db:"resolved_at_epoch" json:"resolved_at_epoch,omitempty"`
+	ID              int64 `db:"id" json:"id"`
+	NewerObsID      int64 `db:"newer_obs_id" json:"newer_obs_id"`
+	OlderObsID      int64 `db:"older_obs_id" json:"older_obs_id"`
+	DetectedAtEpoch int64 `db:"detected_at_epoch" json:"detected_at_epoch"`
+	Resolved        bool  `db:"resolved" json:"resolved"`
 }
 
 // ConflictDetectionResult contains the result of conflict detection.
