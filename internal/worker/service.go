@@ -156,6 +156,8 @@ type Service struct {
 	configWatcher      *watcher.Watcher
 	updater            *update.Updater
 	rateLimiter        *PerClientRateLimiter
+	briefWriter        func(ctx context.Context, in sdk.BriefInput) (*sdk.BriefResult, error)
+	briefRunning       map[string]struct{}
 	expensiveOpLimiter *ExpensiveOperationLimiter
 	version            string
 	recentQueriesBuf   [maxRecentQueries]RecentSearchQuery
@@ -170,6 +172,7 @@ type Service struct {
 	cachedObsCountsMu  sync.RWMutex
 	staleQueueOnce     sync.Once
 	ready              atomic.Bool
+	briefMu            sync.Mutex
 }
 
 // cachedCount stores a cached count value with expiration.
@@ -576,6 +579,13 @@ func (s *Service) initializeAsync() {
 	// Start periodic WAL checkpoint loop to bound SQLite WAL file growth (issue #49).
 	s.wg.Add(1)
 	go s.walCheckpointLoop()
+
+	// Project briefs spend Claude usage, so the automatic pass only runs when it is switched on.
+	if s.config != nil && s.config.ProjectBriefEnabled {
+		s.wg.Add(1)
+		go s.briefLoop()
+		log.Info().Msg("Project brief writer started")
+	}
 
 	// Start the scheduled maintenance service (issue #49: was dead code, never instantiated).
 	// vectorCleanupFn mirrors the observation store's cleanup hook so age/stale deletions done
@@ -1327,6 +1337,8 @@ func (s *Service) setupRoutes() {
 		r.Post("/api/projects/aliases", s.handleSetProjectAlias)
 		r.Get("/api/projects/{id}/stats", s.handleProjectStats)
 		r.Get("/api/projects/{id}/catch-up", s.handleCatchUp)
+		r.Get("/api/projects/{id}/brief", s.handleGetBrief)
+		r.Post("/api/projects/{id}/brief", s.handlePostBrief)
 		r.Delete("/api/projects/{id}", s.handleDeleteProject)
 		r.Post("/api/projects/{id}/merge", s.handleMergeProject)
 		r.Delete("/api/projects/aliases/{alias}", s.handleDeleteProjectAlias)

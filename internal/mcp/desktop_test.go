@@ -1198,3 +1198,106 @@ func TestCatchUp_NeedsAProject(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "a project is required")
 }
+
+func jsonString(s string) string {
+	raw, _ := json.Marshal(s)
+	return string(raw)
+}
+
+func briefReply(text string) func(http.ResponseWriter, *http.Request) {
+	return jsonReply(`{"project":"repo_aaaaaa","text":` + jsonString(text) + `,"source":"3 of 3 observations","as_of":"2026-10-03","as_of_epoch":1}`)
+}
+
+func contextWorker(t *testing.T, brief func(http.ResponseWriter, *http.Request)) *fakeWorker {
+	t.Helper()
+	routes := map[string]func(http.ResponseWriter, *http.Request){
+		"GET /api/projects/resolve": jsonReply(`{"id":"repo_aaaaaa","match":"exact","known":true}`),
+		"GET /api/context/inject":   jsonReply(`"context body"`),
+	}
+	if brief != nil {
+		routes["GET /api/projects/repo_aaaaaa/brief"] = brief
+	}
+	return newFakeWorker(t, routes)
+}
+
+func TestContext_PutsTheBriefAheadOfTheRawObservations(t *testing.T) {
+	fw := contextWorker(t, briefReply("As of 2026-10-03, written from 3 of 3 observations.\n\n## What this is\nA plugin."))
+	out, err := call(desktopServer(t, fw), "context", map[string]any{"project": "repo_aaaaaa"})
+	require.NoError(t, err)
+
+	assert.True(t, strings.HasPrefix(out, "Project brief (it can lag behind recent work):\n\nAs of 2026-10-03"), out)
+	assert.Contains(t, out, "## What this is\nA plugin.")
+	assert.Contains(t, out, "---\nSaved observations (raw):\n\"context body\"")
+	assert.Less(t, strings.Index(out, "A plugin."), strings.Index(out, "context body"), "the brief comes first")
+}
+
+func TestContext_WithoutABriefIsExactlyWhatItWas(t *testing.T) {
+	t.Run("the worker has none", func(t *testing.T) {
+		fw := contextWorker(t, func(w http.ResponseWriter, _ *http.Request) { http.Error(w, "no brief", http.StatusNotFound) })
+		out, err := call(desktopServer(t, fw), "context", map[string]any{"project": "repo_aaaaaa"})
+		require.NoError(t, err)
+		assert.Equal(t, `"context body"`, out)
+	})
+	t.Run("the worker is an older one without the endpoint", func(t *testing.T) {
+		out, err := call(desktopServer(t, contextWorker(t, nil)), "context", map[string]any{"project": "repo_aaaaaa"})
+		require.NoError(t, err)
+		assert.Equal(t, `"context body"`, out)
+	})
+	t.Run("the brief request fails", func(t *testing.T) {
+		fw := contextWorker(t, func(w http.ResponseWriter, _ *http.Request) { http.Error(w, "boom", http.StatusInternalServerError) })
+		out, err := call(desktopServer(t, fw), "context", map[string]any{"project": "repo_aaaaaa"})
+		require.NoError(t, err)
+		assert.Equal(t, `"context body"`, out)
+	})
+	t.Run("the brief is empty", func(t *testing.T) {
+		out, err := call(desktopServer(t, contextWorker(t, briefReply("  "))), "context", map[string]any{"project": "repo_aaaaaa"})
+		require.NoError(t, err)
+		assert.Equal(t, `"context body"`, out)
+	})
+}
+
+func TestContext_IsStillUnavailableInCodeMode(t *testing.T) {
+	s := NewServer(nil, "", "p_aaaaaa", "v")
+	initialize(t, s, "claude-code")
+	_, err := call(s, "context", map[string]any{"project": "repo_aaaaaa"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown tool", "the brief is for Desktop only")
+}
+
+func TestCatchUp_ShowsTheBriefFirst(t *testing.T) {
+	fw := threadWorker(t, `{}`, `{"project":"repo_aaaaaa","brief":{"text":"As of 2026-10-03, written from 3 of 3 observations.\n\n## What this is\nA plugin.","source":"3 of 3 observations","as_of":"2026-10-03"},
+		"threads":[{"thread":"Overlay design","goal":"ship it","updated_at":"2026-10-03T16:00:00Z"}],"decisions":[]}`)
+	out, err := call(desktopServer(t, fw), "catch_up", map[string]any{"project": "repo_aaaaaa"})
+	require.NoError(t, err)
+
+	assert.True(t, strings.HasPrefix(out, "Project brief for repo_aaaaaa (it can lag behind recent work; the notes below are newer):\n\nAs of 2026-10-03"), out)
+	assert.Less(t, strings.Index(out, "A plugin."), strings.Index(out, "Thread: Overlay design"), "brief, then the threads")
+	assert.Contains(t, out, "---\nWhere the work stood in project repo_aaaaaa")
+}
+
+func TestCatchUp_AloneTheBriefIsEnoughToSayThereIsSomethingToRead(t *testing.T) {
+	fw := threadWorker(t, `{}`, `{"project":"repo_aaaaaa","brief":{"text":"As of today.\n\n## What this is\nA plugin.","source":"s","as_of":"2026-10-03"},"threads":[],"decisions":[]}`)
+	out, err := call(desktopServer(t, fw), "catch_up", map[string]any{"project": "repo_aaaaaa"})
+	require.NoError(t, err)
+
+	assert.Contains(t, out, "A plugin.")
+	assert.Contains(t, out, "No thread notes are saved for project repo_aaaaaa yet")
+	assert.NotContains(t, out, "Nothing to recover from here", "there is a brief to read")
+}
+
+func TestCatchUp_WithoutABriefIsUnchanged(t *testing.T) {
+	fw := threadWorker(t, `{}`, `{"project":"repo_aaaaaa","threads":[],"decisions":[]}`)
+	out, err := call(desktopServer(t, fw), "catch_up", map[string]any{"project": "repo_aaaaaa"})
+	require.NoError(t, err)
+	assert.NotContains(t, out, "Project brief")
+	assert.Contains(t, out, "Nothing to recover from here")
+}
+
+func TestToolDescriptions_MentionTheBrief(t *testing.T) {
+	byName := map[string]string{}
+	for _, tool := range desktopTools() {
+		byName[tool.Name] = tool.Description
+	}
+	assert.Contains(t, byName["context"], "brief")
+	assert.Contains(t, byName["catch_up"], "brief")
+}

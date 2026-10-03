@@ -389,7 +389,7 @@ func (p *Processor) IsAvailable() bool {
 			return true
 		}
 	}
-	return len(p.completers) == 3 // every task has a local backend, so the CLI is not needed
+	return len(p.completers) == len(allTasks) // every task has a local backend, so the CLI is not needed
 }
 
 // ProcessObservation processes a single tool observation and extracts insights.
@@ -675,8 +675,13 @@ func sanitizePrompt(s string) string {
 	}, s)
 }
 
-// callClaudeCLI calls the Claude Code CLI with the given prompt.
+// callClaudeCLI calls the Claude Code CLI with the given prompt and the memory extraction system prompt.
 func (p *Processor) callClaudeCLI(ctx context.Context, prompt string) (string, error) {
+	return p.callClaudeCLIWith(ctx, systemPrompt, prompt)
+}
+
+// callClaudeCLIWith calls the Claude Code CLI with a system prompt of the caller's choosing.
+func (p *Processor) callClaudeCLIWith(ctx context.Context, system, prompt string) (string, error) {
 	// Validate and sanitize prompt
 	if len(prompt) > MaxPromptSize {
 		return "", fmt.Errorf("prompt exceeds maximum size of %d bytes", MaxPromptSize)
@@ -684,7 +689,10 @@ func (p *Processor) callClaudeCLI(ctx context.Context, prompt string) (string, e
 	prompt = sanitizePrompt(prompt)
 
 	// Build the full prompt with system instructions
-	fullPrompt := systemPrompt + "\n\n" + prompt
+	fullPrompt := prompt
+	if system != "" {
+		fullPrompt = system + "\n\n" + prompt
+	}
 
 	// Create command with timeout
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)

@@ -157,6 +157,31 @@ Config file: `~/.claude-mnemonic/settings.json`
 |----------|---------|--------------|
 | `EMBEDDING_MODEL` | `bge-v1.5` | Embedding model for semantic search |
 
+### Project Brief (optional, Desktop)
+
+A project brief is a short, dated orientation for a project: what it is, its current state, the key decisions and
+why, and the conventions and gotchas, written by Haiku from the project's observations (with the observation ids it
+rests on). Claude Desktop receives it first when it calls `context` or `catch_up` for a project, so a fresh chat
+does not have to read a pile of raw observations. Claude Code's own context injection is not changed.
+
+It spends Claude usage (about one call per refresh, a few cents for a project of a few hundred observations), so
+the automatic briefs are **off by default**. The header says when it was written and from how many observations,
+because a brief can lag behind recent work. Its "Open threads" list comes straight from your checkpoint notes, not
+from the model. You can always ask for one by hand, whether or not the automatic ones are on:
+
+```sh
+curl -s -X POST localhost:37777/api/projects/<project>/brief     # write (or rewrite) it now
+curl -s localhost:37777/api/projects/<project>/brief              # read it
+```
+
+| Variable | Default | What it does |
+|----------|---------|--------------|
+| `PROJECT_BRIEF_ENABLED` | `false` | Write and refresh briefs automatically in the background |
+| `PROJECT_BRIEF_MIN_NEW_OBSERVATIONS` | `10` | A project gets its first brief at this many observations, and a new one after this many new ones |
+| `PROJECT_BRIEF_MAX_AGE_DAYS` | `7` | A brief older than this is also refreshed as soon as one observation is new |
+| `PROJECT_BRIEF_MAX_PER_RUN` | `3` | At most this many briefs per pass, the projects with the most new observations first |
+| `PROJECT_BRIEF_INTERVAL_MINUTES` | `60` | How often a pass looks for projects that need a brief |
+
 ### Local LLM Settings (Ollama, optional)
 
 Summaries, observation extraction and the stale-observation check run on the Claude CLI by default. Each of
@@ -168,6 +193,7 @@ machine. Nothing changes unless you switch a task; `GET /api/llm/status` shows w
 | `LLM_BACKEND_SUMMARY` | `claude` | `claude` or `ollama`, for session summaries |
 | `LLM_BACKEND_OBSERVATION` | `claude` | `claude` or `ollama`, for observation extraction |
 | `LLM_BACKEND_VERIFY` | `claude` | `claude` or `ollama`, for the stale-observation check |
+| `LLM_BACKEND_BRIEF` | `claude` | `claude` or `ollama`, for the project brief (see below) |
 | `LLM_FALLBACK_TO_CLAUDE` | `true` | Use the Claude CLI when Ollama is unreachable or fails |
 | `OLLAMA_MODEL` | *(none)* | Model to use, for example `gemma3:12b`. A task on `ollama` without a model stays on Claude |
 | `OLLAMA_URL` | `OLLAMA_HOST`, else `http://localhost:11434` | Where Ollama listens |

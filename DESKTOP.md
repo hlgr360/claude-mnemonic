@@ -160,6 +160,17 @@ continue earlier work (also in a new chat), and calls it again when it notices i
 compaction. Nothing is checkpointed in a chat where you declined to choose a project. To recover by hand, say
 "catch up on <project>".
 
+## Project briefs
+
+`context` and `catch_up` start with the project's **brief** when there is one: a short, dated orientation (what the
+project is, its current state, the key decisions and why, conventions and gotchas) written by Haiku from the
+project's observations, so a fresh chat does not begin with a pile of raw observations. It says when it was written
+and from how many observations, because it can lag behind recent work, and its "Open threads" list comes from your
+`checkpoint` notes. The brief is for Desktop only; Claude Code's session-start context is unchanged.
+
+Briefs spend Claude usage, so the automatic ones are off by default (`PROJECT_BRIEF_ENABLED`, see the README). You
+can write one by hand any time with `POST /api/projects/<project>/brief`.
+
 ## Project names
 
 The model shows and uses project **names** (`claude-mnemonic`), not ids. Behind each name is an id
