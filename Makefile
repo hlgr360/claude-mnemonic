@@ -15,7 +15,7 @@ GOARCH ?= $(shell go env GOARCH)
 export CGO_ENABLED=1
 BUILD_TAGS := -tags "fts5"
 
-.PHONY: all build clean test install lint hooks worker mcp stop-worker start-worker restart-worker dashboard website dev-website setup-libs update-version
+.PHONY: all build clean test install lint hooks worker mcp stop-worker start-worker restart-worker dashboard website dev-website setup-libs update-version restore-stamped
 
 all: build
 
@@ -176,7 +176,12 @@ install: build stop-worker
 	@echo "Registering plugin with Claude Code..."
 	@./scripts/register-plugin.sh "$(VERSION)"
 	@$(MAKE) start-worker
+	@$(MAKE) restore-stamped
 	@echo "Installation complete!"
+
+# Undo the version stamping done by update-version/dashboard so local installs leave the tree clean
+restore-stamped:
+	@git restore .claude-plugin/plugin.json marketplace.json ui/package.json ui/package-lock.json 2>/dev/null || true
 
 # Uninstall
 uninstall: stop-worker
