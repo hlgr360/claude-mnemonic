@@ -30,6 +30,8 @@ export interface Observation {
   created_at: string
   created_at_epoch: number
   is_stale?: boolean
+  /** Hidden from injection and search by a decision in the conflict review. */
+  is_superseded?: boolean
   // Importance scoring fields
   importance_score: number
   user_feedback: number  // -1 (thumbs down), 0 (neutral), 1 (thumbs up)

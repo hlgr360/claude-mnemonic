@@ -168,6 +168,7 @@ const splitPath = (path: string, components = 3) => {
     :border-class="config.borderClass"
     :highlight="highlight"
     class="mb-4 hover:border-amber-400/50"
+    :class="{ 'opacity-60': observation.is_superseded }"
   >
     <div class="flex items-start gap-4">
       <!-- Icon -->
@@ -184,6 +185,16 @@ const splitPath = (path: string, components = 3) => {
             :border-class="config.borderClass"
           >
             {{ observation.type.toUpperCase() }}
+          </Badge>
+          <Badge
+            v-if="observation.is_superseded"
+            icon="fa-eye-slash"
+            color-class="text-slate-300"
+            bg-class="bg-slate-500/20"
+            border-class="border-slate-500/40"
+            title="Hidden from sessions and search by a decision in the conflict review"
+          >
+            SUPERSEDED
           </Badge>
           <span class="text-xs text-slate-500">{{ formatRelativeTime(observation.created_at) }}</span>
           <span v-if="observation.project" class="text-xs text-slate-500 flex items-center gap-1">
