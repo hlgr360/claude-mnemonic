@@ -1783,7 +1783,7 @@ func (s *Service) processAllSessions() {
 
 				case session.MessageTypeSummarize:
 					if msg.Summarize != nil {
-						err := proc.ProcessSummary(
+						err := proc.ProcessSummaryConversation(
 							procCtx,
 							sess.SessionDBID,
 							sess.SDKSessionID,
@@ -1791,6 +1791,7 @@ func (s *Service) processAllSessions() {
 							sess.UserPrompt,
 							msg.Summarize.LastUserMessage,
 							msg.Summarize.LastAssistantMessage,
+							msg.Summarize.Conversation,
 						)
 						if err != nil {
 							log.Error().Err(err).

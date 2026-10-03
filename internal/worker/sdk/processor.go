@@ -552,6 +552,11 @@ func (p *Processor) ProcessObservation(ctx context.Context, sdkSessionID, projec
 
 // ProcessSummary processes a session summary request.
 func (p *Processor) ProcessSummary(ctx context.Context, sessionDBID int64, sdkSessionID, project, userPrompt, lastUserMsg, lastAssistantMsg string) error {
+	return p.ProcessSummaryConversation(ctx, sessionDBID, sdkSessionID, project, userPrompt, lastUserMsg, lastAssistantMsg, "")
+}
+
+// ProcessSummaryConversation is ProcessSummary with an excerpt of the conversation that a compaction is about to drop.
+func (p *Processor) ProcessSummaryConversation(ctx context.Context, sessionDBID int64, sdkSessionID, project, userPrompt, lastUserMsg, lastAssistantMsg, conversation string) error {
 	// Debug: log what we received
 	log.Debug().
 		Int64("sessionId", sessionDBID).
@@ -561,7 +566,7 @@ func (p *Processor) ProcessSummary(ctx context.Context, sessionDBID int64, sdkSe
 
 	// Skip summary generation if there's no meaningful assistant response
 	// This prevents generic "initial session setup" summaries
-	if !hasMeaningfulContent(lastAssistantMsg) {
+	if !hasMeaningfulContent(lastAssistantMsg) && !hasMeaningfulContent(conversation) {
 		log.Info().
 			Int64("sessionId", sessionDBID).
 			Int("msgLen", len(lastAssistantMsg)).
@@ -577,6 +582,7 @@ func (p *Processor) ProcessSummary(ctx context.Context, sessionDBID int64, sdkSe
 		UserPrompt:           userPrompt,
 		LastUserMessage:      lastUserMsg,
 		LastAssistantMessage: lastAssistantMsg,
+		Conversation:         conversation,
 	}
 	prompt := BuildSummaryPrompt(req)
 

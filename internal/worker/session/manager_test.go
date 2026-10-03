@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -1424,4 +1425,27 @@ func TestConcurrentQueueAndCleanup(t *testing.T) {
 	assert.Equal(t, 5, manager.GetActiveSessionCount())
 	// Should have 50 messages total
 	assert.Equal(t, 50, manager.GetTotalQueueDepth())
+}
+
+// TestQueueSummarizeConversation_CarriesTheConversation tests that a compaction's excerpt reaches the queued message.
+func TestQueueSummarizeConversation_CarriesTheConversation(t *testing.T) {
+	t.Parallel()
+
+	manager := &Manager{
+		sessions:      make(map[int64]*ActiveSession),
+		ProcessNotify: make(chan struct{}, 1),
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	manager.ctx = ctx
+	manager.cancel = cancel
+	manager.sessions[1] = &ActiveSession{SessionDBID: 1, pendingMessages: make([]PendingMessage, 0), notify: make(chan struct{}, 1)}
+
+	require.NoError(t, manager.QueueSummarizeConversation(ctx, 1, "user", "assistant", "User: a\n\nAssistant: b"))
+	require.NoError(t, manager.QueueSummarize(ctx, 1, "user2", "assistant2"))
+
+	messages := manager.DrainMessages(1)
+	require.Len(t, messages, 2)
+	assert.Equal(t, "User: a\n\nAssistant: b", messages[0].Summarize.Conversation)
+	assert.Equal(t, "", messages[1].Summarize.Conversation, "the Stop hook's request has no conversation")
 }

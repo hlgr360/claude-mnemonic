@@ -67,7 +67,8 @@ suite() { # name, command...
 
 echo "building into $WORK"
 (cd "$ROOT" && go build -tags fts5 -ldflags "-s -w" -buildvcs=false -o "$WORK/bin/worker" ./cmd/worker \
-  && go build -tags fts5 -ldflags "-s -w" -buildvcs=false -o "$WORK/bin/mcp-server" ./cmd/mcp) || { echo "build failed"; exit 1; }
+  && go build -tags fts5 -ldflags "-s -w" -buildvcs=false -o "$WORK/bin/mcp-server" ./cmd/mcp \
+  && go build -tags fts5 -ldflags "-s -w" -buildvcs=false -o "$WORK/bin/pre-compact" ./cmd/hooks/pre-compact) || { echo "build failed"; exit 1; }
 
 fresh_worker || exit 1
 suite "Desktop mode over stdio (chat, Cowork, worktrees, aliases)" python3 "$HERE/drive_mcp.py"
@@ -81,6 +82,30 @@ suite "Project names, and projects that share a name"                  python3 "
 
 fresh_worker || exit 1
 suite "Thread checkpoints and catch-up (recovering a compacted chat)"  python3 "$HERE/drive_threads.py"
+
+# The PreCompact hook makes the worker run a summary. Point the worker at a fake `claude` that records the prompt
+# it gets and answers with a canned summary, so this never reaches a real model.
+cat > "$WORK/fake-claude" <<FAKE
+#!/bin/sh
+for a in "\$@"; do last="\$a"; done
+printf '%s\n=====END=====\n' "\$last" >> "$WORK/fake-claude-prompts.log"
+cat <<'XML'
+<summary>
+  <request>Compaction test summary: Desktop support and thread checkpoints</request>
+  <investigated>How chat loses context at a compaction.</investigated>
+  <learned>Projects are addressed by name; checkpoints keep one note per thread.</learned>
+  <completed>Edited the desktop tools and added the checkpoint endpoint.</completed>
+  <next_steps>Decide how long a note may be.</next_steps>
+  <notes>Written by the fake summariser of the end-to-end suite.</notes>
+</summary>
+XML
+FAKE
+chmod +x "$WORK/fake-claude"
+mkdir -p "$WORK/home/.claude-mnemonic"
+printf '{"CLAUDE_CODE_PATH": "%s/fake-claude"}\n' "$WORK" > "$WORK/home/.claude-mnemonic/settings.json"
+fresh_worker || exit 1
+suite "PreCompact hook summarises the conversation before a compaction" python3 "$HERE/drive_precompact.py"
+rm -f "$WORK/home/.claude-mnemonic/settings.json"
 
 if [ "$RUN_UI" = "1" ]; then
   if [ ! -d "$ROOT/ui/dist" ] || ! command -v node >/dev/null; then

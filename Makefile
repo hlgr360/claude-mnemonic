@@ -66,6 +66,7 @@ hooks:
 	go build $(BUILD_TAGS) $(LDFLAGS) -o $(BUILD_DIR)/hooks/post-tool-use ./cmd/hooks/post-tool-use
 	go build $(BUILD_TAGS) $(LDFLAGS) -o $(BUILD_DIR)/hooks/subagent-stop ./cmd/hooks/subagent-stop
 	go build $(BUILD_TAGS) $(LDFLAGS) -o $(BUILD_DIR)/hooks/stop ./cmd/hooks/stop
+	go build $(BUILD_TAGS) $(LDFLAGS) -o $(BUILD_DIR)/hooks/pre-compact ./cmd/hooks/pre-compact
 	go build $(BUILD_TAGS) $(LDFLAGS) -o $(BUILD_DIR)/hooks/statusline ./cmd/hooks/statusline
 
 # Build MCP server
@@ -87,6 +88,7 @@ build-linux:
 	GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o $(BUILD_DIR)/linux-amd64/hooks/post-tool-use ./cmd/hooks/post-tool-use
 	GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o $(BUILD_DIR)/linux-amd64/hooks/subagent-stop ./cmd/hooks/subagent-stop
 	GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o $(BUILD_DIR)/linux-amd64/hooks/stop ./cmd/hooks/stop
+	GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o $(BUILD_DIR)/linux-amd64/hooks/pre-compact ./cmd/hooks/pre-compact
 	GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o $(BUILD_DIR)/linux-amd64/hooks/statusline ./cmd/hooks/statusline
 
 build-darwin:
@@ -105,7 +107,9 @@ build-darwin:
 	GOOS=darwin GOARCH=amd64 go build $(LDFLAGS) -o $(BUILD_DIR)/darwin-amd64/hooks/subagent-stop ./cmd/hooks/subagent-stop
 	GOOS=darwin GOARCH=arm64 go build $(LDFLAGS) -o $(BUILD_DIR)/darwin-arm64/hooks/subagent-stop ./cmd/hooks/subagent-stop
 	GOOS=darwin GOARCH=amd64 go build $(LDFLAGS) -o $(BUILD_DIR)/darwin-amd64/hooks/stop ./cmd/hooks/stop
+	GOOS=darwin GOARCH=amd64 go build $(LDFLAGS) -o $(BUILD_DIR)/darwin-amd64/hooks/pre-compact ./cmd/hooks/pre-compact
 	GOOS=darwin GOARCH=arm64 go build $(LDFLAGS) -o $(BUILD_DIR)/darwin-arm64/hooks/stop ./cmd/hooks/stop
+	GOOS=darwin GOARCH=arm64 go build $(LDFLAGS) -o $(BUILD_DIR)/darwin-arm64/hooks/pre-compact ./cmd/hooks/pre-compact
 	GOOS=darwin GOARCH=amd64 go build $(LDFLAGS) -o $(BUILD_DIR)/darwin-amd64/hooks/statusline ./cmd/hooks/statusline
 	GOOS=darwin GOARCH=arm64 go build $(LDFLAGS) -o $(BUILD_DIR)/darwin-arm64/hooks/statusline ./cmd/hooks/statusline
 
@@ -119,6 +123,7 @@ build-windows:
 	GOOS=windows GOARCH=amd64 go build $(LDFLAGS) -o $(BUILD_DIR)/windows-amd64/hooks/post-tool-use.exe ./cmd/hooks/post-tool-use
 	GOOS=windows GOARCH=amd64 go build $(LDFLAGS) -o $(BUILD_DIR)/windows-amd64/hooks/subagent-stop.exe ./cmd/hooks/subagent-stop
 	GOOS=windows GOARCH=amd64 go build $(LDFLAGS) -o $(BUILD_DIR)/windows-amd64/hooks/stop.exe ./cmd/hooks/stop
+	GOOS=windows GOARCH=amd64 go build $(LDFLAGS) -o $(BUILD_DIR)/windows-amd64/hooks/pre-compact.exe ./cmd/hooks/pre-compact
 	GOOS=windows GOARCH=amd64 go build $(LDFLAGS) -o $(BUILD_DIR)/windows-amd64/hooks/statusline.exe ./cmd/hooks/statusline
 
 # Stop any running worker
@@ -168,7 +173,7 @@ install: mark-clean build stop-worker
 	@cp .claude-plugin/plugin.json $(HOME)/.claude/plugins/marketplaces/claude-mnemonic/.claude-plugin/
 	@cp marketplace.json $(HOME)/.claude/plugins/marketplaces/claude-mnemonic/.claude-plugin/marketplace.json 2>/dev/null || true
 	@cp hooks/hooks.json $(HOME)/.claude/plugins/marketplaces/claude-mnemonic/hooks/
-	@cp hooks/session-start hooks/user-prompt hooks/post-tool-use hooks/stop hooks/subagent-stop hooks/statusline $(HOME)/.claude/plugins/marketplaces/claude-mnemonic/hooks/
+	@cp hooks/session-start hooks/user-prompt hooks/post-tool-use hooks/stop hooks/pre-compact hooks/subagent-stop hooks/statusline $(HOME)/.claude/plugins/marketplaces/claude-mnemonic/hooks/
 	@chmod +x $(HOME)/.claude/plugins/marketplaces/claude-mnemonic/hooks/*
 	@cp mcp-server $(HOME)/.claude/plugins/marketplaces/claude-mnemonic/
 	@chmod +x $(HOME)/.claude/plugins/marketplaces/claude-mnemonic/mcp-server

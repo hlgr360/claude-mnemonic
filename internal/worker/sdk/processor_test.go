@@ -1841,3 +1841,22 @@ func TestCallClaudeCLI_BinaryNotFound(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "claude CLI failed")
 }
+
+func TestProcessSummaryConversation_ACompactionWithoutAMeaningfulLastReplyStillSummarises(t *testing.T) {
+	cb := NewCircuitBreaker(1, 60)
+	cb.RecordFailure()
+	p := &Processor{circuitBreaker: cb, deduplicator: NewRequestDeduplicator(300, 1000), sem: make(chan struct{}, 4), claudePath: "/nonexistent/path"}
+
+	conversation := `User: please fix the token check in handler.go
+Assistant: I edited handler.go and implemented the expiry check in validateToken(), then updated the tests.
+User: good, now refactor the middleware and add the tests for it, then commit`
+
+	// the last reply is a short acknowledgement that the Stop hook would skip
+	err := p.ProcessSummary(context.Background(), 1, "session-1", "project-1", "", "ok", "Sure.")
+	assert.NoError(t, err, "without a conversation a short last reply is skipped")
+
+	err = p.ProcessSummaryConversation(context.Background(), 1, "session-1", "project-1", "", "ok", "Sure.", conversation)
+	if assert.Error(t, err, "with a conversation worth keeping the summariser is called (and fails here: no claude binary)") {
+		assert.Contains(t, err.Error(), "claude CLI failed")
+	}
+}
