@@ -183,6 +183,8 @@ install: mark-clean build stop-worker
 	@$(MAKE) start-worker
 	@$(MAKE) restore-stamped
 	@echo "Installation complete!"
+	@echo "Restart Claude Code to load the new plugin: sessions that are already open keep working with the new binaries,"
+	@echo "but they do not register hook events added by this version (a pre-compact hook, for example)."
 
 # The build rewrites tracked files (version stamps, lockfile and build info). Rather than listing them,
 # remember whether the tree was clean when an install started; if it was, every tracked change afterwards
@@ -219,7 +221,7 @@ uninstall-ollama:
 	@python3 scripts/setup-ollama.py disable
 
 test-scripts:
-	@python3 -m unittest scripts/test_install_desktop.py scripts/test_desktop_calls.py scripts/test_setup_ollama.py scripts/test_llm_eval.py
+	@python3 -m unittest scripts/test_install_desktop.py scripts/test_desktop_calls.py scripts/test_setup_ollama.py scripts/test_llm_eval.py scripts/test_register_plugin.py
 
 # Uninstall
 uninstall: stop-worker

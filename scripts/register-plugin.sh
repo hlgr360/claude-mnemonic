@@ -51,10 +51,26 @@ fi
 # Ensure plugins directory exists
 mkdir -p "$HOME/.claude/plugins"
 
-# Clean up old cache versions to prevent stale binaries
+# Clean up old cache versions, but keep the newest two. A Claude Code session that is already open keeps
+# the plugin root it started with, so deleting that directory silently stops the session's hooks (issue #33).
+# A version directory only holds wrapper scripts that call the stable binaries, so keeping some costs nothing.
+# CLAUDE_MNEMONIC_KEEP_VERSIONS=0 removes every other version (the old behaviour).
+KEEP_VERSIONS="${CLAUDE_MNEMONIC_KEEP_VERSIONS:-2}"
+case "$KEEP_VERSIONS" in
+    ''|*[!0-9]*) KEEP_VERSIONS=2 ;;
+esac
 if [ -d "$CACHE_BASE" ]; then
-    echo "Cleaning up old cache versions..."
-    find "$CACHE_BASE" -mindepth 1 -maxdepth 1 -type d ! -name "$VERSION" -exec rm -rf {} \; 2>/dev/null || true
+    kept=0
+    while IFS= read -r old; do
+        [ -n "$old" ] && [ "$old" != "$VERSION" ] && [ -d "$CACHE_BASE/$old" ] || continue
+        if [ "$kept" -lt "$KEEP_VERSIONS" ]; then
+            kept=$((kept + 1))
+            echo "Keeping previous plugin version $old (an open Claude Code session may still use it)"
+        else
+            rm -rf "${CACHE_BASE:?}/$old"
+            echo "Removed old plugin version $old"
+        fi
+    done < <(ls -1t "$CACHE_BASE" 2>/dev/null)
 fi
 
 # Create installed_plugins.json if it doesn't exist
