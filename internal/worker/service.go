@@ -1313,6 +1313,7 @@ func (s *Service) setupRoutes() {
 		r.Get("/api/observations", s.handleGetObservations)
 		r.Get("/api/observations/{id}", s.handleGetObservationByID)
 		r.Put("/api/observations/{id}", s.handleUpdateObservation)
+		r.Post("/api/observations/remember", s.handleRemember)
 		r.Get("/api/summaries", s.handleGetSummaries)
 		r.Get("/api/prompts", s.handleGetPrompts)
 		r.Get("/api/projects", s.handleGetProjects)
