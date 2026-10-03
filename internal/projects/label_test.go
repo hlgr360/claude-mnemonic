@@ -13,10 +13,10 @@ func ms(date string) int64 {
 }
 
 func TestLabels_UniqueNamesAreUsedAsTheyAre(t *testing.T) {
-	got := Labels([]Info{{ID: "claude-mnemonic_41bfcd", Observations: 70}, {ID: "oci_awx_b6d754", Observations: 97}}, nil)
+	got := Labels([]Info{{ID: "claude-mnemonic_41bfcd", Observations: 70}, {ID: "billing_api_b6d754", Observations: 97}}, nil)
 
 	assert.Equal(t, Label{Label: "claude-mnemonic", Use: "claude-mnemonic"}, got["claude-mnemonic_41bfcd"])
-	assert.Equal(t, Label{Label: "oci_awx", Use: "oci_awx"}, got["oci_awx_b6d754"], "underscores inside a name are part of the name")
+	assert.Equal(t, Label{Label: "billing_api", Use: "billing_api"}, got["billing_api_b6d754"], "underscores inside a name are part of the name")
 }
 
 func TestLabels_NamesakesAreDistinguishedAndMustBeUsedById(t *testing.T) {

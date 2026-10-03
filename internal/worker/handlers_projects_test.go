@@ -230,12 +230,12 @@ func TestHandleListProjectSummaries_UniqueNamesAreLabelledByName(t *testing.T) {
 	svc, cleanup := testService(t)
 	defer cleanup()
 	createTestObservation(t, svc.observationStore, "claude-mnemonic_41bfcd", "Vector search", "n", nil)
-	createTestObservation(t, svc.observationStore, "oci_awx_b6d754", "Key rotation", "n", nil)
+	createTestObservation(t, svc.observationStore, "billing_api_b6d754", "Key rotation", "n", nil)
 
 	rows := getSummaryRows(t, svc)
 	assert.Equal(t, "claude-mnemonic", rows["claude-mnemonic_41bfcd"].Label)
 	assert.Equal(t, "claude-mnemonic", rows["claude-mnemonic_41bfcd"].Use, "a unique name is what to pass back")
-	assert.Equal(t, "oci_awx", rows["oci_awx_b6d754"].Use)
+	assert.Equal(t, "billing_api", rows["billing_api_b6d754"].Use)
 	assert.Equal(t, []string{"Vector search"}, rows["claude-mnemonic_41bfcd"].SampleTitles)
 }
 

@@ -81,7 +81,7 @@ git(main_repo, "add", ".")
 git(main_repo, "commit", "-q", "-m", "init")
 worktree = os.path.join(base, "wt-random-name")
 git(main_repo, "worktree", "add", "-q", "-b", "side", worktree)
-other = os.path.join(base, "oci_awx")
+other = os.path.join(base, "billing_api")
 os.makedirs(other)
 
 print("== Cowork with a folder: the model passes the host path")
