@@ -136,6 +136,7 @@ type Service struct {
 	processor          *sdk.Processor
 	embedSvc           *embedding.Service
 	vectorClient       *sqlitevec.Client
+	vectorQueryFn      func(ctx context.Context, text string, n int, where map[string]interface{}) ([]sqlitevec.QueryResult, error) // test seam; see vectorSearch
 	vectorSync         *sqlitevec.Sync
 	vectorSyncSem      chan struct{}
 	queryExpander      *expansion.Expander
@@ -1317,6 +1318,8 @@ func (s *Service) setupRoutes() {
 		r.Get("/api/projects", s.handleGetProjects)
 		r.Get("/api/projects/summary", s.handleListProjectSummaries)
 		r.Get("/api/projects/resolve", s.handleResolveProject)
+		r.Get("/api/projects/suggest", s.handleSuggestProjects)
+		r.Get("/api/search/cross-project", s.handleCrossProjectSearch)
 		r.Get("/api/projects/aliases", s.handleListProjectAliases)
 		r.Post("/api/projects/aliases", s.handleSetProjectAlias)
 		r.Delete("/api/projects/aliases/{alias}", s.handleDeleteProjectAlias)
