@@ -46,20 +46,27 @@ type Suggestions struct {
 }
 
 const (
-	maxHitsPerProject   = 5
+	maxHitsPerProject = 5
+	// similarityFloor is the similarity a hit must exceed to count as evidence for a project. The worker keeps
+	// hits from 0.3 up, which is right for search but too low here: with a floor that low every project that so
+	// much as mentions a word of the query collects a respectable score. A hit counts by how far it is above
+	// the floor, so a few strong matches beat many mediocre ones. Calibrated on the bge embedding model, where
+	// notes about the same thing score 0.6 and up and merely related ones 0.55 and below.
+	similarityFloor     = 0.5
 	nameMatchWeight     = 0.4
 	maxNameMatchScore   = 0.8
 	recencyWeight       = 0.15
 	recencyHalfLifeDays = 14.0
 	confidentRatio      = 1.8 // top must beat the runner-up by this factor...
-	confidentMinScore   = 0.5 // ...and have at least this much evidence
+	confidentMinScore   = 0.3 // ...and have at least this much evidence (about two hits at 0.65)
 	msPerDay            = 24 * 60 * 60 * 1000
 )
 
 // Suggest ranks projects for a free-text query by combining three signals:
-// semantic hits (the strongest few per project), tokens of the query that
-// appear in the project's directory name, and a small recency boost. Hits and
-// activity recorded under an alias are credited to its canonical project.
+// semantic hits (the strongest few per project, each counted by how far it is
+// above similarityFloor), tokens of the query that appear in the project's
+// directory name, and a small recency boost. Hits and activity recorded under
+// an alias are credited to its canonical project.
 //
 // With no usable signal at all it falls back to the most recently active
 // projects, so a caller always has something to offer.
@@ -90,8 +97,8 @@ func Suggest(query string, hits []Hit, activity []Activity, aliases map[string]s
 	}
 
 	for _, h := range hits {
-		if h.Project == "" || h.Similarity <= 0 {
-			continue
+		if h.Project == "" || h.Similarity <= similarityFloor {
+			continue // a weak match is not evidence for a project
 		}
 		a := get(canon(h.Project))
 		a.sims = append(a.sims, h.Similarity)
@@ -119,7 +126,7 @@ func Suggest(query string, hits []Hit, activity []Activity, aliases map[string]s
 			if i >= maxHitsPerProject {
 				break
 			}
-			semantic += s
+			semantic += s - similarityFloor
 		}
 
 		nameScore := math.Min(nameMatchWeight*float64(nameMatches(qTokens, DisplayName(project))), maxNameMatchScore)
