@@ -171,8 +171,9 @@ class CommandLine(unittest.TestCase):
     def run_cli(self, *argv, config):
         out, err = io.StringIO(), io.StringIO()
         import contextlib
+        # --no-copy: these tests must never overwrite the real clipboard
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            code = inst.main(["--config", config, "--binary", self.binary, *argv])
+            code = inst.main(["--config", config, "--binary", self.binary, "--no-copy", *argv])
         return code, out.getvalue(), err.getvalue()
 
     def entry(self, *args):
@@ -304,7 +305,7 @@ class CommandLine(unittest.TestCase):
         self.assertIn("make install", err.getvalue())
         self.assertEqual(read(cfg), TWO)
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            code = inst.main(["--config", cfg, "--binary", "/no/such/mcp-server", "--force"])
+            code = inst.main(["--config", cfg, "--binary", "/no/such/mcp-server", "--force", "--no-copy"])
         self.assertEqual(code, 0)
 
     def test_a_custom_name_leaves_the_default_entry_alone(self):
@@ -389,7 +390,7 @@ class Instructions(unittest.TestCase):
         import contextlib
         out, err = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            code = inst.main(["--config", config, *argv])
+            code = inst.main(["--config", config, "--no-copy", *argv])
         return code, out.getvalue(), err.getvalue()
 
     def test_instructions_prints_and_never_touches_the_config(self):
@@ -408,11 +409,79 @@ class Instructions(unittest.TestCase):
         with mock.patch.object(inst, "copy_to_clipboard", return_value=None):
             self.assertIn("could not copy", self.run_cli("instructions", "--copy", config=cfg)[1])
 
-    def test_install_reminds_about_the_instruction_but_dry_run_and_uninstall_do_not(self):
+    def test_install_shows_the_instruction_itself_not_just_a_pointer(self):
         binary = tmpfile(self, "#!/bin/sh\n", name="mcp-server")
         cfg = tmpfile(self, TWO)
         out = self.run_cli("--binary", binary, config=cfg)[1]
-        self.assertIn("instructions --copy", out)
+        self.assertIn(inst.render_instructions().rstrip("\n"), out, "the full text is printed")
         self.assertIn("ignores claude-mnemonic", out)
-        self.assertNotIn("instructions --copy", self.run_cli("--binary", binary, "--dry-run", "--name", "other", config=cfg)[1])
-        self.assertNotIn("instructions --copy", self.run_cli("uninstall", config=cfg)[1])
+        self.assertIn("Copy the text below.", out, "with --no-copy it says to copy it by hand")
+        self.assertIn("instructions --copy", out, "and how to show it again")
+
+    def test_an_already_configured_run_still_shows_it(self):
+        binary = tmpfile(self, "#!/bin/sh\n", name="mcp-server")
+        cfg = tmpfile(self, TWO)
+        self.run_cli("--binary", binary, config=cfg)
+        out = self.run_cli("--binary", binary, config=cfg)[1]
+        self.assertIn("Already up to date", out)
+        self.assertIn(inst.render_instructions().rstrip("\n"), out, "this was the gap: nothing was shown on a re-run")
+
+    def test_an_update_shows_it_with_the_new_connector_name(self):
+        binary = tmpfile(self, "#!/bin/sh\n", name="mcp-server")
+        cfg = tmpfile(self, TWO)
+        out = self.run_cli("--binary", binary, "--name", "memory", config=cfg)[1]
+        self.assertIn(inst.render_instructions("memory").rstrip("\n"), out)
+        self.assertIn('"memory" (claude-mnemonic)', out)
+
+    def test_dry_run_uninstall_and_status_do_not_show_it(self):
+        binary = tmpfile(self, "#!/bin/sh\n", name="mcp-server")
+        cfg = tmpfile(self, TWO)
+        marker = "ignores claude-mnemonic"
+        self.assertNotIn(marker, self.run_cli("--binary", binary, "--dry-run", config=cfg)[1])
+        self.run_cli("--binary", binary, config=cfg)
+        self.assertNotIn(marker, self.run_cli("--binary", binary, "--dry-run", config=cfg)[1], "not even when already up to date")
+        self.assertNotIn(marker, self.run_cli("status", config=cfg)[1])
+        self.assertNotIn(marker, self.run_cli("uninstall", config=cfg)[1])
+
+    def test_install_copies_to_the_clipboard_by_default_and_says_so(self):
+        import contextlib
+        import unittest.mock as mock
+        binary = tmpfile(self, "#!/bin/sh\n", name="mcp-server")
+        cfg = tmpfile(self, TWO)
+        out = io.StringIO()
+        with mock.patch.object(inst, "copy_to_clipboard", return_value="pbcopy") as copy, contextlib.redirect_stdout(out):
+            inst.main(["--config", cfg, "--binary", binary])
+        copy.assert_called_once_with(inst.render_instructions())
+        self.assertIn("It is on your clipboard (copied with pbcopy)", out.getvalue())
+        self.assertIn(inst.render_instructions().rstrip("\n"), out.getvalue(), "it is printed as well, in case pasting is not possible")
+
+    def test_a_missing_clipboard_tool_degrades_to_a_clear_message(self):
+        import contextlib
+        import unittest.mock as mock
+        binary = tmpfile(self, "#!/bin/sh\n", name="mcp-server")
+        cfg = tmpfile(self, TWO)
+        out = io.StringIO()
+        with mock.patch.object(inst, "copy_to_clipboard", return_value=None), contextlib.redirect_stdout(out):
+            self.assertEqual(inst.main(["--config", cfg, "--binary", binary]), 0, "the install itself still succeeds")
+        self.assertIn("No clipboard tool was found: select and copy the text below.", out.getvalue())
+
+    def test_no_copy_never_calls_the_clipboard(self):
+        import contextlib
+        import unittest.mock as mock
+        binary = tmpfile(self, "#!/bin/sh\n", name="mcp-server")
+        cfg = tmpfile(self, TWO)
+        with mock.patch.object(inst, "copy_to_clipboard") as copy, contextlib.redirect_stdout(io.StringIO()):
+            inst.main(["--config", cfg, "--binary", binary, "--no-copy"])
+        copy.assert_not_called()
+
+    def test_dry_run_and_uninstall_never_call_the_clipboard(self):
+        import contextlib
+        import unittest.mock as mock
+        binary = tmpfile(self, "#!/bin/sh\n", name="mcp-server")
+        cfg = tmpfile(self, TWO)
+        with mock.patch.object(inst, "copy_to_clipboard") as copy, contextlib.redirect_stdout(io.StringIO()):
+            inst.main(["--config", cfg, "--binary", binary, "--dry-run"])
+            inst.main(["--config", cfg, "--binary", binary, "--no-copy"])
+            inst.main(["--config", cfg, "uninstall"])
+            inst.main(["--config", cfg, "status"])
+        copy.assert_not_called()

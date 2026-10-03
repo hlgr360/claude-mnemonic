@@ -82,8 +82,9 @@ Paste it into Claude Desktop (Settings, in the field for personal preferences or
 the instructions of one Desktop project if you only want it there.
 
 **It cannot be added automatically.** The instruction is stored in your claude.ai account, not in a local file,
-and `claude_desktop_config.json` has no field for it. The installer can only hand it over, and reminds you at the
-end of `install-desktop`. Server instructions are ignored by chat (measured), and MCP prompts or resources need
+and `claude_desktop_config.json` has no field for it. The installer can only hand it over: `make install-desktop`
+prints it every time it runs (first install, update, or already configured) and copies it to your clipboard, so you
+only have to paste it. Use `--no-copy` to skip the clipboard. Server instructions are ignored by chat (measured), and MCP prompts or resources need
 an action in every chat, so none of them replaces it.
 
 ### What we measured

@@ -284,12 +284,30 @@ def copy_to_clipboard(text):
     return argv[0]
 
 
-INSTRUCTION_REMINDER = (
-    "\nOne more step, once: Claude Desktop chat has its own built-in memory and ignores claude-mnemonic for ordinary\n"
-    "\"memory\" wording unless it is told to use it. Add this instruction to Claude Desktop (Settings, in the field for\n"
-    "personal preferences or custom instructions; it lives in your account, so it cannot be added automatically):\n"
-    "    python3 scripts/install-desktop.py instructions --copy      # prints it and copies it to the clipboard\n"
-)
+def instruction_section(name, copy):
+    """What to print after a Desktop install: the instruction itself and where it goes.
+
+    Chat has its own built-in memory and ignores claude-mnemonic for ordinary "memory" wording unless
+    told to use it, so this is shown whenever the entry is in place, including when nothing had to change.
+    With copy=True it is also put on the clipboard.
+    """
+    text = render_instructions(name)
+    copied = copy_to_clipboard(text) if copy else None
+    if copied:
+        where = f"It is on your clipboard (copied with {copied}), so just paste it."
+    elif copy:
+        where = "No clipboard tool was found: select and copy the text below."
+    else:
+        where = "Copy the text below."
+    rule = "-" * 72
+    return (
+        "\nOne more step, once: Claude Desktop chat has its own built-in memory and ignores claude-mnemonic for\n"
+        "ordinary \"memory\" wording unless it is told to use it. Paste this instruction into Claude Desktop\n"
+        "(Settings, in the field for personal preferences or custom instructions; it lives in your account, so it\n"
+        f"cannot be added automatically). {where}\n"
+        f"{rule}\n{text.rstrip(chr(10))}\n{rule}\n"
+        "Show it again any time with: python3 scripts/install-desktop.py instructions --copy\n"
+    )
 
 
 # --------------------------------------------------------------------------- actions
@@ -393,6 +411,8 @@ def run(opts, out=None):
         return 0
     if not uninstall and existing == entry:
         print(f"Already up to date: '{name}' is configured in {path}.", file=out)
+        if not opts.dry_run:
+            print(instruction_section(name, not opts.no_copy), end="", file=out)
         return 0
 
     edited = plan(original, name, entry, uninstall)
@@ -417,7 +437,7 @@ def run(opts, out=None):
         print(f"Command: {binary} {' '.join(args)}".rstrip(), file=out)
     print("\nQuit Claude Desktop completely (Cmd-Q / File > Exit) and reopen it; it reads this file only at startup.", file=out)
     if not uninstall:
-        print(INSTRUCTION_REMINDER, end="", file=out)
+        print(instruction_section(name, not opts.no_copy), end="", file=out)
     return 0
 
 
@@ -432,6 +452,7 @@ def parse(argv):
     p.add_argument("--dry-run", action="store_true", help="show the change without making it")
     p.add_argument("--force", action="store_true", help="write the entry even if the binary does not exist")
     p.add_argument("--copy", action="store_true", help="with 'instructions': also copy the text to the clipboard")
+    p.add_argument("--no-copy", action="store_true", help="install: show the instruction but do not copy it to the clipboard")
     return p.parse_args(argv)
 
 
