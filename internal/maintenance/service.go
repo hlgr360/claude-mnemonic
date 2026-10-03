@@ -19,6 +19,7 @@ type Service struct {
 	store            *gorm.Store
 	vectorCleanupFn  func(ctx context.Context, deletedIDs []int64)
 	config           *config.Config
+	conflictStore    *gorm.ConflictStore
 	summaryStore     *gorm.SummaryStore
 	stopCh           chan struct{}
 	doneCh           chan struct{}
@@ -51,6 +52,14 @@ func NewService(
 		stopCh:           make(chan struct{}),
 		doneCh:           make(chan struct{}),
 	}
+}
+
+// SetConflictStore lets maintenance delete the notes a person superseded once they have been hidden for
+// SupersededRetentionDays. Without it (or with that setting at its default of 0) they are kept.
+func (s *Service) SetConflictStore(store *gorm.ConflictStore) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.conflictStore = store
 }
 
 // Start begins the maintenance loop.
@@ -162,6 +171,14 @@ func (s *Service) runMaintenance(ctx context.Context) {
 		}
 	}
 
+	// Task 2b: Delete notes a person superseded long enough ago
+	if cleaned, err := s.cleanupSupersededByDecision(ctx); err != nil {
+		s.log.Error().Err(err).Msg("Failed to cleanup superseded observations")
+	} else if cleaned > 0 {
+		totalCleaned += cleaned
+		s.log.Info().Int64("cleaned", cleaned).Msg("Deleted superseded observations past their retention")
+	}
+
 	// Task 3: Optimize database
 	var optimized bool
 	if err := s.store.Optimize(ctx); err != nil {
@@ -233,13 +250,34 @@ func (s *Service) cleanupOldObservations(ctx context.Context) (int64, error) {
 	return int64(len(deletedIDs)), nil
 }
 
-// cleanupStaleObservations deletes observations marked as stale.
+// cleanupSupersededByDecision deletes the observations a person superseded in the conflict review more than
+// SupersededRetentionDays ago, with their conflicts, and removes their vectors. Zero days keeps them.
+func (s *Service) cleanupSupersededByDecision(ctx context.Context) (int64, error) {
+	s.mu.Lock()
+	conflictStore := s.conflictStore
+	s.mu.Unlock()
+	if conflictStore == nil || s.config.SupersededRetentionDays <= 0 {
+		return 0, nil
+	}
+	deletedIDs, err := conflictStore.CleanupSuperseded(ctx, s.config.SupersededRetentionDays)
+	if err != nil {
+		return 0, err
+	}
+	if len(deletedIDs) > 0 && s.vectorCleanupFn != nil {
+		s.vectorCleanupFn(ctx, deletedIDs)
+	}
+	return int64(len(deletedIDs)), nil
+}
+
+// cleanupStaleObservations deletes observations marked as superseded. Notes a person superseded in the
+// conflict review are left alone here: how long they are kept is decided by SupersededRetentionDays only.
 func (s *Service) cleanupStaleObservations(ctx context.Context) (int64, error) {
 	// Get IDs of stale observations (is_superseded = true)
 	var deletedIDs []int64
 	err := s.store.GetDB().WithContext(ctx).
 		Model(&gorm.Observation{}).
 		Where("is_superseded = ?", true).
+		Where("id NOT IN (SELECT superseded_obs_id FROM observation_conflicts WHERE resolved = 1 AND superseded_obs_id != 0)").
 		Pluck("id", &deletedIDs).Error
 	if err != nil {
 		return 0, err

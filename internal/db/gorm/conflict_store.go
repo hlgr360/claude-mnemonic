@@ -11,9 +11,6 @@ import (
 	"github.com/lukaszraczylo/claude-mnemonic/pkg/models"
 )
 
-// SupersededRetentionDays is the number of days to keep superseded observations before deletion.
-const SupersededRetentionDays = 3
-
 // ConflictStore provides conflict-related database operations using GORM.
 type ConflictStore struct {
 	db *gorm.DB
@@ -164,53 +161,6 @@ type ConflictWithDetails struct {
 	OlderObsTitle string
 }
 
-// CleanupSupersededObservations deletes observations that have been superseded for longer than
-// SupersededRetentionDays. Returns the IDs of deleted observations for downstream cleanup (e.g., vector DB).
-func (s *ConflictStore) CleanupSupersededObservations(ctx context.Context, project string) ([]int64, error) {
-	// Calculate cutoff time (3 days ago in milliseconds)
-	cutoffEpoch := time.Now().AddDate(0, 0, -SupersededRetentionDays).UnixMilli()
-
-	var toDelete []int64
-
-	// Use a transaction to prevent TOCTOU race condition
-	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		// Find IDs to delete
-		err := tx.Table("observations o").
-			Select("DISTINCT o.id").
-			Joins("JOIN observation_conflicts oc ON o.id = oc.older_obs_id").
-			Where("o.is_superseded = 1").
-			Where("o.project = ?", project).
-			Where("oc.detected_at_epoch < ?", cutoffEpoch).
-			Pluck("o.id", &toDelete).Error
-
-		if err != nil {
-			return err
-		}
-
-		if len(toDelete) == 0 {
-			return nil
-		}
-
-		// Delete the conflict records first (due to foreign key constraints)
-		for _, obsID := range toDelete {
-			err := tx.Where("newer_obs_id = ? OR older_obs_id = ?", obsID, obsID).
-				Delete(&ObservationConflict{}).Error
-			if err != nil {
-				return err
-			}
-		}
-
-		// Delete the observations
-		return tx.Delete(&Observation{}, toDelete).Error
-	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	return toDelete, nil
-}
-
 // GetConflictsWithDetails retrieves all conflicts with observation titles for display.
 func (s *ConflictStore) GetConflictsWithDetails(ctx context.Context, project string, limit int) ([]*ConflictWithDetails, error) {
 	var results []struct {
@@ -258,6 +208,12 @@ func toModelConflict(c *ObservationConflict) *models.ObservationConflict {
 		DetectedAt:      c.DetectedAt,
 		DetectedAtEpoch: c.DetectedAtEpoch,
 		Resolved:        c.Resolved == 1,
+		Relation:        c.Relation.String,
+		Confidence:      c.Confidence.String,
+		Proposer:        c.Proposer.String,
+		Decision:        c.Decision.String,
+		SupersededObsID: c.SupersededObsID,
+		ResolvedAtEpoch: c.ResolvedAtEpoch,
 	}
 
 	if c.Reason.Valid {

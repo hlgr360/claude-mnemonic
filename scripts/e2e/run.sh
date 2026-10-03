@@ -41,7 +41,7 @@ export E2E_DIR="$WORK" E2E_PORT="$WORKER_PORT" DO_NOT_TRACK=1 CGO_ENABLED=1
 
 cleanup() {
   kill $(lsof -ti ":$WORKER_PORT") $(lsof -ti ":37998") $(lsof -ti ":${E2E_OLLAMA_PORT:-37996}") $(lsof -ti ":$UI_PORT") $(lsof -ti ":9333") 2>/dev/null
-  if [ "${KEEP:-0}" = "1" ]; then echo "kept: $WORK"; else rm -rf "$WORK" "${TMPDIR:-/tmp}"/e2e-* "${TMPDIR:-/tmp}"/e2e-admin-* "${TMPDIR:-/tmp}"/e2e-names-* "${TMPDIR:-/tmp}"/e2e-threads-* "${TMPDIR:-/tmp}"/e2e-brief-* "${TMPDIR:-/tmp}"/ui-e2e-* 2>/dev/null; fi
+  if [ "${KEEP:-0}" = "1" ]; then echo "kept: $WORK"; else rm -rf "$WORK" "${TMPDIR:-/tmp}"/e2e-* "${TMPDIR:-/tmp}"/e2e-admin-* "${TMPDIR:-/tmp}"/e2e-names-* "${TMPDIR:-/tmp}"/e2e-threads-* "${TMPDIR:-/tmp}"/e2e-brief-* "${TMPDIR:-/tmp}"/e2e-conflicts-* "${TMPDIR:-/tmp}"/ui-e2e-* 2>/dev/null; fi
 }
 trap cleanup EXIT
 
@@ -97,6 +97,11 @@ case "\$last" in
     first=\$(printf '%s' "\$last" | sed -n '/^OBSERVATIONS (/,\$p' | grep -o '\[#[0-9]*\]' | head -1)
     printf '## What this is\nA small tool that remembers things %s and a made-up citation [#999999]. Contact me@example.com for details.\n\n## Current state\nIt works.\n\n## Open items\n- an invented open item\n' "\$first"
     exit 0 ;;
+  *"CONFLICT CHECK REQUEST"*)
+    # a conflict check: say the first older candidate has been superseded by the newer note
+    first=\$(printf '%s' "\$last" | sed -n '/^OLDER NOTES:/,\$p' | grep -o '\[#[0-9]*\]' | head -1 | tr -d '[#]')
+    printf '[{"older_id": %s, "relation": "supersedes", "confidence": "high", "reason": "The newer note changes the value the older one states."}]\n' "\$first"
+    exit 0 ;;
 esac
 cat <<'XML'
 <summary>
@@ -128,6 +133,13 @@ rm -f "$WORK/home/.claude-mnemonic/settings.json"
 printf '{"CLAUDE_CODE_PATH": "%s/fake-claude", "CLAUDE_MNEMONIC_PROJECT_BRIEF_ENABLED": true, "CLAUDE_MNEMONIC_PROJECT_BRIEF_MIN_NEW_OBSERVATIONS": 3, "CLAUDE_MNEMONIC_PROJECT_BRIEF_INTERVAL_MINUTES": 1, "CLAUDE_MNEMONIC_PROJECT_BRIEF_MAX_PER_RUN": 3}\n' "$WORK" > "$WORK/home/.claude-mnemonic/settings.json"
 fresh_worker || exit 1
 suite "Project briefs: automatic and on request, shown first to Desktop"  python3 "$HERE/drive_brief.py"
+rm -f "$WORK/home/.claude-mnemonic/settings.json"
+
+# Conflict proposals: switched on with a low similarity bar, answered by the fake claude above. The first automatic
+# pass runs 45 s after the worker starts, so the suite seeds its data straight away and then waits for it.
+printf '{"CLAUDE_CODE_PATH": "%s/fake-claude", "CLAUDE_MNEMONIC_CONFLICT_PROPOSALS_ENABLED": true, "CLAUDE_MNEMONIC_CONFLICT_PROPOSALS_INTERVAL_MINUTES": 1, "CLAUDE_MNEMONIC_CONFLICT_PROPOSALS_MIN_SIMILARITY": 0.6}\n' "$WORK" > "$WORK/home/.claude-mnemonic/settings.json"
+fresh_worker || exit 1
+suite "Conflict review: proposals, decisions, hiding, undo"            python3 "$HERE/drive_conflicts.py"
 rm -f "$WORK/home/.claude-mnemonic/settings.json"
 
 if [ "$RUN_UI" = "1" ]; then

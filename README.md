@@ -182,6 +182,47 @@ curl -s localhost:37777/api/projects/<project>/brief              # read it
 | `PROJECT_BRIEF_MAX_PER_RUN` | `3` | At most this many briefs per pass, the projects with the most new observations first |
 | `PROJECT_BRIEF_INTERVAL_MINUTES` | `60` | How often a pass looks for projects that need a brief |
 
+### Conflict Review (optional)
+
+Over time notes go out of date: a newer note says the cache now lives for a day, and the older one still says an
+hour. The **Conflicts** tab of the dashboard (`http://localhost:37777`) is where you settle such pairs. Each
+proposal opens as the older and the newer note side by side, with the words and items that differ marked, and you
+choose:
+
+- **Newer replaces older**: the older note is hidden from session context and from search.
+- **Older replaces newer**: the same the other way round.
+- **Keep both**: the two do not conflict. The pair is remembered and never proposed again.
+- **Skip**: decide later.
+
+A decision takes effect at once and an **Undo** is offered right away (and from the *Decided* list at any time).
+Nothing is ever hidden without you: the proposals come from Haiku (or from you, below) and a model's say-so never
+changes a note. A hidden note stays in the dashboard, marked *Superseded*, and can be fetched by id. Claude Code is
+otherwise unchanged; only notes you decided about are left out of its context.
+
+Looking for pairs spends Claude usage (one short call per new observation that has close older neighbours in the
+same project), so the **proposer is off by default**. In our checks Haiku's strict prompt flagged roughly one in
+eight of the pairs it was shown, and only about half of those were real, which is why it only proposes. You can
+also propose a pair yourself:
+
+```sh
+curl -s -X POST localhost:37777/api/conflicts -H 'Content-Type: application/json' \
+  -d '{"older_id": 12, "newer_id": 40, "reason": "the cache lifetime changed"}'
+curl -s 'localhost:37777/api/conflicts?status=open'                       # what waits for a decision
+curl -s -X POST localhost:37777/api/conflicts/7/resolve -d '{"decision": "supersede_older"}'
+curl -s -X POST localhost:37777/api/conflicts/7/undo
+```
+
+| Variable | Default | What it does |
+|----------|---------|--------------|
+| `CONFLICT_PROPOSALS_ENABLED` | `false` | Look for conflicting notes in the background and propose them |
+| `CONFLICT_PROPOSALS_MAX_PER_RUN` | `20` | At most this many observations are looked at per pass, newest first |
+| `CONFLICT_PROPOSALS_INTERVAL_MINUTES` | `60` | How often a pass runs |
+| `CONFLICT_PROPOSALS_MIN_SIMILARITY` | `0.65` | How close an older note must be to the new one to be compared with it |
+| `SUPERSEDED_RETENTION_DAYS` | `0` | Delete a note this many days after you superseded it. `0` keeps hidden notes for ever |
+| `LLM_BACKEND_CONFLICT` | `claude` | `claude` or `ollama`, for the proposer. No local model passed our checks, so keep `claude` |
+
+An observation is looked at once; if the model call fails it is tried again in the next pass.
+
 ### Local LLM Settings (Ollama, optional)
 
 Summaries, observation extraction and the stale-observation check run on the Claude CLI by default. Each of
@@ -194,6 +235,7 @@ machine. Nothing changes unless you switch a task; `GET /api/llm/status` shows w
 | `LLM_BACKEND_OBSERVATION` | `claude` | `claude` or `ollama`, for observation extraction |
 | `LLM_BACKEND_VERIFY` | `claude` | `claude` or `ollama`, for the stale-observation check |
 | `LLM_BACKEND_BRIEF` | `claude` | `claude` or `ollama`, for the project brief (see below) |
+| `LLM_BACKEND_CONFLICT` | `claude` | `claude` or `ollama`, for the conflict proposer (see above) |
 | `LLM_FALLBACK_TO_CLAUDE` | `true` | Use the Claude CLI when Ollama is unreachable or fails |
 | `OLLAMA_MODEL` | *(none)* | Model to use, for example `gemma3:12b`. A task on `ollama` without a model stays on Claude |
 | `OLLAMA_URL` | `OLLAMA_HOST`, else `http://localhost:11434` | Where Ollama listens |

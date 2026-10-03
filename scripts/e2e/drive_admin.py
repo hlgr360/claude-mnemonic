@@ -115,6 +115,7 @@ check("delete preview shows what would go and changed nothing", "PREVIEW" in tex
 must("remember", project=ids["doomed"], title="Added after preview", text="A second aquarium note that arrived after the preview was shown.")
 err, text = tool("project_manage", action="delete", project=ids["doomed"], confirm=dtoken)
 check("a token from before the data changed is refused", err and "409" in text, text)
+time.sleep(4)  # the new note's vectors are synced in the background and are part of the preview's counts
 err, text = tool("project_manage", action="delete", project=ids["doomed"])
 dtoken = re.search(r"confirm: (\w+)", text).group(1)
 err, text = tool("project_manage", action="delete", project=ids["doomed"], confirm=dtoken)

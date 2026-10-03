@@ -41,7 +41,7 @@ export interface Stats {
 }
 
 export interface SSEEvent {
-  type: 'processing_status' | 'observation' | 'session' | 'prompt' | 'summary' | 'heartbeat' | 'connected'
+  type: 'processing_status' | 'observation' | 'session' | 'prompt' | 'summary' | 'conflict' | 'heartbeat' | 'connected'
   title?: string
   action?: string
   project?: string
@@ -49,7 +49,7 @@ export interface SSEEvent {
   queueDepth?: number
 }
 
-export type FilterType = 'all' | 'observations' | 'summaries' | 'prompts'
+export type FilterType = 'all' | 'observations' | 'summaries' | 'prompts' | 'conflicts'
 
 export interface ComponentHealth {
   name: string

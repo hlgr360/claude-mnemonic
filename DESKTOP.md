@@ -171,6 +171,14 @@ and from how many observations, because it can lag behind recent work, and its "
 Briefs spend Claude usage, so the automatic ones are off by default (`PROJECT_BRIEF_ENABLED`, see the README). You
 can write one by hand any time with `POST /api/projects/<project>/brief`.
 
+## Superseded notes
+
+When you decide in the dashboard's **Conflicts** tab that a newer note replaces an older one, the older note is no
+longer returned by `context` or the searches, in Desktop and in Claude Code alike, and later briefs are written
+without it (a brief written before your decision can still mention it until it is refreshed). It stays in the
+dashboard, marked, and an *Undo* brings it back. Nothing is hidden without that decision. See "Conflict Review" in
+the README.
+
 ## Project names
 
 The model shows and uses project **names** (`claude-mnemonic`), not ids. Behind each name is an id

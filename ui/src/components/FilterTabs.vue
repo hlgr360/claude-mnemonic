@@ -8,6 +8,7 @@ defineProps<{
   currentConceptFilter: ConceptType | null
   observationCount: number
   promptCount: number
+  conflictCount?: number
 }>()
 
 const emit = defineEmits<{
@@ -23,7 +24,8 @@ const tabs: { key: FilterType; label: string; icon: string }[] = [
   { key: 'all', label: 'All', icon: 'fa-layer-group' },
   { key: 'observations', label: 'Observations', icon: 'fa-brain' },
   { key: 'summaries', label: 'Summaries', icon: 'fa-clipboard-list' },
-  { key: 'prompts', label: 'Prompts', icon: 'fa-comment' }
+  { key: 'prompts', label: 'Prompts', icon: 'fa-comment' },
+  { key: 'conflicts', label: 'Conflicts', icon: 'fa-code-compare' }
 ]
 </script>
 
@@ -44,10 +46,15 @@ const tabs: { key: FilterType; label: string; icon: string }[] = [
       >
         <i class="fas mr-1.5" :class="tab.icon" />
         {{ tab.label }}
+        <span
+          v-if="tab.key === 'conflicts' && conflictCount"
+          data-testid="conflict-badge"
+          class="ml-1.5 px-1.5 py-0.5 rounded-full text-[11px] leading-none bg-amber-500/80 text-black"
+        >{{ conflictCount }}</span>
       </button>
 
       <!-- Stats -->
-      <div class="ml-auto flex items-center gap-3 text-xs text-slate-500">
+      <div v-if="currentFilter !== 'conflicts'" class="ml-auto flex items-center gap-3 text-xs text-slate-500">
         <span>{{ observationCount }} obs</span>
         <span>·</span>
         <span>{{ promptCount }} prompts</span>

@@ -158,6 +158,7 @@ type Service struct {
 	rateLimiter        *PerClientRateLimiter
 	briefWriter        func(ctx context.Context, in sdk.BriefInput) (*sdk.BriefResult, error)
 	briefRunning       map[string]struct{}
+	conflictProposer   conflictProposeFunc
 	expensiveOpLimiter *ExpensiveOperationLimiter
 	version            string
 	recentQueriesBuf   [maxRecentQueries]RecentSearchQuery
@@ -173,6 +174,7 @@ type Service struct {
 	staleQueueOnce     sync.Once
 	ready              atomic.Bool
 	briefMu            sync.Mutex
+	conflictRunning    atomic.Bool
 }
 
 // cachedCount stores a cached count value with expiration.
@@ -587,6 +589,13 @@ func (s *Service) initializeAsync() {
 		log.Info().Msg("Project brief writer started")
 	}
 
+	// Conflict proposals spend model usage too, so they are opt-in. They only ever propose; a person decides.
+	if s.config != nil && s.config.ConflictProposalsEnabled {
+		s.wg.Add(1)
+		go s.conflictLoop()
+		log.Info().Msg("Conflict proposer started")
+	}
+
 	// Start the scheduled maintenance service (issue #49: was dead code, never instantiated).
 	// vectorCleanupFn mirrors the observation store's cleanup hook so age/stale deletions done
 	// directly via GORM still remove their vectors from sqlite-vec.
@@ -601,6 +610,7 @@ func (s *Service) initializeAsync() {
 		}
 	}
 	maintSvc := maintenance.NewService(store, observationStore, summaryStore, promptStore, vectorCleanupFn, s.config, log.Logger)
+	maintSvc.SetConflictStore(conflictStore)
 	s.initMu.Lock()
 	s.maintenanceSvc = maintSvc
 	s.initMu.Unlock()
@@ -1340,6 +1350,11 @@ func (s *Service) setupRoutes() {
 		r.Get("/api/projects/{id}/brief", s.handleGetBrief)
 		r.Post("/api/projects/{id}/brief", s.handlePostBrief)
 		r.Delete("/api/projects/{id}", s.handleDeleteProject)
+		r.Get("/api/conflicts", s.handleListConflicts)
+		r.Get("/api/conflicts/count", s.handleCountConflicts)
+		r.Post("/api/conflicts", s.handleCreateConflict)
+		r.Post("/api/conflicts/{id}/resolve", s.handleResolveConflict)
+		r.Post("/api/conflicts/{id}/undo", s.handleUndoConflict)
 		r.Post("/api/projects/{id}/merge", s.handleMergeProject)
 		r.Delete("/api/projects/aliases/{alias}", s.handleDeleteProjectAlias)
 		r.Get("/api/stats", s.handleGetStats)

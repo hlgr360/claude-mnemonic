@@ -152,14 +152,30 @@ type ObservationConflict struct {
 	DetectedAt      string                    `gorm:"not null"`
 	Reason          sql.NullString            `gorm:"type:text"`
 	ResolvedAt      sql.NullString
-	ID              int64 `gorm:"primaryKey;autoIncrement"`
-	NewerObsID      int64 `gorm:"index:idx_conflicts_newer;not null"`
-	OlderObsID      int64 `gorm:"index:idx_conflicts_older;not null"`
-	DetectedAtEpoch int64 `gorm:"index:idx_conflicts_unresolved,priority:2,sort:desc;not null"`
-	Resolved        int   `gorm:"default:0;index:idx_conflicts_unresolved,priority:1"`
+	Relation        sql.NullString `gorm:"type:text"`
+	Confidence      sql.NullString `gorm:"type:text"`
+	Proposer        sql.NullString `gorm:"type:text"`
+	Decision        sql.NullString `gorm:"type:text"`
+	ID              int64          `gorm:"primaryKey;autoIncrement"`
+	NewerObsID      int64          `gorm:"index:idx_conflicts_newer;index:idx_conflicts_pair,priority:1;not null"`
+	OlderObsID      int64          `gorm:"index:idx_conflicts_older;index:idx_conflicts_pair,priority:2;not null"`
+	DetectedAtEpoch int64          `gorm:"index:idx_conflicts_unresolved,priority:2,sort:desc;not null"`
+	SupersededObsID int64          `gorm:"default:0"`
+	ResolvedAtEpoch int64          `gorm:"default:0"`
+	Resolved        int            `gorm:"default:0;index:idx_conflicts_unresolved,priority:1"`
 }
 
 func (ObservationConflict) TableName() string { return "observation_conflicts" }
+
+// ConflictCheck records that an observation has been looked at by the conflict proposer, so a restart or a
+// later pass does not ask about it again.
+type ConflictCheck struct {
+	ObservationID  int64 `gorm:"primaryKey"`
+	CheckedAtEpoch int64 `gorm:"not null"`
+	Proposals      int   `gorm:"default:0"`
+}
+
+func (ConflictCheck) TableName() string { return "conflict_checks" }
 
 // BeforeCreate hook to ensure timestamps are set.
 func (c *ObservationConflict) BeforeCreate(tx *gorm.DB) error {

@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { useSSE, useStats, useTimeline, useUpdate, useHealth } from '@/composables'
+import { useConflictCount, useSSE, useStats, useTimeline, useUpdate, useHealth } from '@/composables'
 import Header from '@/components/Header.vue'
 import StatsCards from '@/components/StatsCards.vue'
 import FilterTabs from '@/components/FilterTabs.vue'
 import Timeline from '@/components/Timeline.vue'
+import ConflictsPanel from '@/components/ConflictsPanel.vue'
 import Sidebar from '@/components/Sidebar.vue'
 
 // Composables
@@ -29,6 +30,14 @@ const {
 } = useTimeline()
 // Pass currentProject ref to useStats for project-specific retrieval stats
 const { stats } = useStats(currentProject)
+// The badge on the Conflicts tab
+const { openCount: conflictCount, refreshCount: refreshConflictCount } = useConflictCount(currentProject)
+
+// A decision hides or restores a note, so the badge and the timeline's markings are stale
+function onConflictsChanged() {
+  refreshConflictCount()
+  refresh()
+}
 
 // Note: Feedback is handled directly in ObservationCard component
 </script>
@@ -92,13 +101,22 @@ const { stats } = useStats(currentProject)
             :current-concept-filter="currentConceptFilter"
             :observation-count="observationCount"
             :prompt-count="promptCount"
+            :conflict-count="conflictCount"
             @update:filter="setFilter"
             @update:type-filter="setTypeFilter"
             @update:concept-filter="setConceptFilter"
           />
 
+          <!-- Conflict review -->
+          <ConflictsPanel
+            v-if="currentFilter === 'conflicts'"
+            :project="currentProject"
+            @changed="onConflictsChanged"
+          />
+
           <!-- Timeline -->
           <Timeline
+            v-else
             :items="filteredItems"
             :loading="loading"
           />

@@ -571,6 +571,18 @@ func runMigrations(db *gorm.DB, sqlDB *sql.DB) error {
 				return tx.Migrator().DropTable("project_aliases")
 			},
 		},
+
+		// Migration 018: conflict proposals: who proposed, how sure, what the user decided and when, plus a marker
+		// for the observations the proposer has already looked at.
+		{
+			ID: "018_conflict_review",
+			Migrate: func(tx *gorm.DB) error {
+				return tx.AutoMigrate(&ObservationConflict{}, &ConflictCheck{})
+			},
+			Rollback: func(tx *gorm.DB) error {
+				return tx.Migrator().DropTable("conflict_checks")
+			},
+		},
 	})
 
 	if err := m.Migrate(); err != nil {
