@@ -185,6 +185,36 @@ try {
   const dropdownGone = await evaluate(`(async () => { document.querySelector('.project-filter > button').click(); await new Promise(r => setTimeout(r, 800)); return ![...document.querySelectorAll('.project-filter button[title]')].some(b => b.title === ${JSON.stringify(ids.spare)}) })()`)
   check('and the dropdown list was re-read (no stale cached entry)', dropdownGone)
 
+  console.log('== the sidebar shows the real totals, not the size of the first page')
+  const num = (re, s) => Number(((re.exec(s) ?? [])[1] ?? '').replace(/[^0-9]/g, ''))
+  const sidebarNumbers = async () => {
+    const t = await text()
+    return { observations: num(/Observations\s*\n?\s*([\d.,]+)/, t), prompts: num(/Prompts\s*\n?\s*([\d.,]+)/, t), summaries: num(/Summaries\s*\n?\s*([\d.,]+)/, t) }
+  }
+  const allTotals = await worker('/api/counts')
+  check('there are more observations than the first page of 50', allTotals.observations > 50, JSON.stringify(allTotals))
+  await waitFor(`/Observations\\s*\\n?\\s*[\\d.,]+/.test(document.body.innerText)`, 'sidebar numbers')
+  await waitFor(`(() => { const m = /Observations\\s*\\n?\\s*([\\d.,]+)/.exec(document.body.innerText); return m && Number(m[1].replace(/[^0-9]/g, '')) === ${allTotals.observations} })()`, 'the sidebar to show the real observation total')
+  const shownNow = await sidebarNumbers()
+  check('the sidebar shows the worker totals, also after a project was deleted', JSON.stringify(shownNow) === JSON.stringify({ observations: allTotals.observations, prompts: allTotals.prompts, summaries: allTotals.summaries }), JSON.stringify(shownNow) + ' vs ' + JSON.stringify(allTotals))
+  check('the tabs show the real number too', (await text()).includes(`${allTotals.observations} obs`))
+  const note = await evaluate(`document.querySelector('[data-testid=showing-note]')?.innerText ?? ''`)
+  check('a note says the timeline holds only the newest part', note.includes(`50 of ${allTotals.observations} observations`), note)
+
+  // The previous section leaves the dropdown open; open it only when it is closed.
+  const openDropdown = () => evaluate(`(() => { if (!document.querySelector('.project-filter button[title]')) document.querySelector('.project-filter > button').click(); return true })()`)
+  await openDropdown()
+  await waitFor(`[...document.querySelectorAll('.project-filter button[title]')].some(b => b.title === ${JSON.stringify(ids.bulk)})`, 'bulk in the dropdown')
+  await clickByText('.project-filter button', nameOf(ids.bulk))
+  const bulkTotals = await worker(`/api/counts?project=${ids.bulk}`)
+  await waitFor(`(() => { const m = /Observations\\s*\\n?\\s*([\\d.,]+)/.exec(document.body.innerText); return m && Number(m[1].replace(/[^0-9]/g, '')) === ${bulkTotals.observations} })()`, 'the sidebar to follow the project filter')
+  check('picking a project shows that project\'s totals', bulkTotals.observations === 52, JSON.stringify(bulkTotals))
+  check('and no note is needed when the page holds all of them', !(await evaluate(`!!document.querySelector('[data-testid=showing-note]')`)))
+  await openDropdown()
+  await waitFor(`[...document.querySelectorAll('.project-filter button')].some(b => b.innerText.includes('All Projects'))`, 'All Projects entry')
+  await clickByText('.project-filter button', 'All Projects')
+  await waitFor(`document.querySelector('.project-filter > button').innerText.includes('All Projects')`, 'filter back on all projects')
+
   console.log('== the Conflicts tab: review proposals side by side')
   const openConflicts = async () => (await worker('/api/conflicts?status=open')).conflicts
   const injectedIds = async () => ((await worker(`/api/context/inject?project=${ids.reviewed}`)).observations ?? []).map(o => o.id)

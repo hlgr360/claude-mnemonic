@@ -25,6 +25,14 @@ for name, (title, text) in {"main_proj": ("Retry policy", "Webhook deliveries re
     tool("remember", path=d, title=title, text=text)
 tool("project_manage", action="alias", alias="old-fragment_abcdef", project=ids["main_proj"])
 
+# A project with more notes than the dashboard's first page (50), so the real totals differ from the page size.
+d = os.path.join(base, "bulk"); os.makedirs(d)
+ids["bulk"] = json.loads(tool("project_resolve", path=d))["id"]
+topics = ["harbour", "orchard", "glacier", "lantern", "compass", "meadow", "saffron", "quartz", "tundra", "velvet", "walnut", "zephyr", "ember"]
+for i in range(52):
+    tool("remember", path=d, title=f"Bulk note {i:02d} about the {topics[i % len(topics)]} {topics[(i * 5 + 3) % len(topics)]}",
+         text=f"Entry {i}: the {topics[i % len(topics)]} notes mention the {topics[(i * 7 + 1) % len(topics)]} in passing, number {i * 31}.")
+
 # A project with three notes about one setting and two proposals between them, for the conflict review panel.
 d = os.path.join(base, "reviewed"); os.makedirs(d)
 ids["reviewed"] = json.loads(tool("project_resolve", path=d))["id"]

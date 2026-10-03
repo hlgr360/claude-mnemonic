@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { useConflictCount, useSSE, useStats, useTimeline, useUpdate, useHealth } from '@/composables'
+import { computed } from 'vue'
+import { useConflictCount, useSSE, useStats, useTimeline, useTotals, useUpdate, useHealth } from '@/composables'
+import { showingText } from '@/utils/counts'
 import Header from '@/components/Header.vue'
 import StatsCards from '@/components/StatsCards.vue'
 import FilterTabs from '@/components/FilterTabs.vue'
@@ -30,6 +32,10 @@ const {
 } = useTimeline()
 // Pass currentProject ref to useStats for project-specific retrieval stats
 const { stats } = useStats(currentProject)
+// The real totals; the timeline only holds the newest part of each list
+const { totals } = useTotals(currentProject)
+const shownCounts = computed(() => ({ observations: observationCount.value, prompts: promptCount.value, summaries: summaryCount.value }))
+const showing = computed(() => showingText(shownCounts.value, totals.value))
 // The badge on the Conflicts tab
 const { openCount: conflictCount, refreshCount: refreshConflictCount } = useConflictCount(currentProject)
 
@@ -79,9 +85,9 @@ function onConflictsChanged() {
         <!-- Sidebar -->
         <Sidebar
           :stats="stats"
-          :observation-count="observationCount"
-          :prompt-count="promptCount"
-          :summary-count="summaryCount"
+          :observation-count="totals?.observations ?? observationCount"
+          :prompt-count="totals?.prompts ?? promptCount"
+          :summary-count="totals?.summaries ?? summaryCount"
           :current-project="currentProject"
           :health="health"
           @update:project="setProject"
@@ -99,13 +105,17 @@ function onConflictsChanged() {
             :current-filter="currentFilter"
             :current-type-filter="currentTypeFilter"
             :current-concept-filter="currentConceptFilter"
-            :observation-count="observationCount"
-            :prompt-count="promptCount"
+            :observation-count="totals?.observations ?? observationCount"
+            :prompt-count="totals?.prompts ?? promptCount"
             :conflict-count="conflictCount"
             @update:filter="setFilter"
             @update:type-filter="setTypeFilter"
             @update:concept-filter="setConceptFilter"
           />
+
+          <p v-if="showing && currentFilter !== 'conflicts'" data-testid="showing-note" class="text-xs text-slate-500 -mt-2 mb-3 px-1">
+            {{ showing }}
+          </p>
 
           <!-- Conflict review -->
           <ConflictsPanel
