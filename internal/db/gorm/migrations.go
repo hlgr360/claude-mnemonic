@@ -560,6 +560,17 @@ func runMigrations(db *gorm.DB, sqlDB *sql.DB) error {
 				return nil
 			},
 		},
+
+		// Migration 017: Project aliases (maps fragment/legacy project IDs to a canonical project)
+		{
+			ID: "017_project_aliases",
+			Migrate: func(tx *gorm.DB) error {
+				return tx.AutoMigrate(&ProjectAlias{})
+			},
+			Rollback: func(tx *gorm.DB) error {
+				return tx.Migrator().DropTable("project_aliases")
+			},
+		},
 	})
 
 	if err := m.Migrate(); err != nil {

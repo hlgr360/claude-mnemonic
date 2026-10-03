@@ -201,6 +201,29 @@ func (r *ObservationRelation) BeforeCreate(tx *gorm.DB) error {
 	return nil
 }
 
+// ProjectAlias maps an alternative project ID (for example a fragment created
+// before worktree-aware identity) to the canonical project it stands for.
+type ProjectAlias struct {
+	Alias          string `gorm:"primaryKey;not null"`
+	Canonical      string `gorm:"index;not null"`
+	Source         string `gorm:"type:text;not null;default:'manual'"`
+	CreatedAt      string `gorm:"not null"`
+	CreatedAtEpoch int64  `gorm:"not null"`
+}
+
+func (ProjectAlias) TableName() string { return "project_aliases" }
+
+// BeforeCreate hook to ensure timestamps are set.
+func (a *ProjectAlias) BeforeCreate(tx *gorm.DB) error {
+	if a.CreatedAtEpoch == 0 {
+		a.CreatedAtEpoch = time.Now().UnixMilli()
+	}
+	if a.CreatedAt == "" {
+		a.CreatedAt = time.Now().Format(time.RFC3339)
+	}
+	return nil
+}
+
 // Pattern represents a detected recurring pattern.
 type Pattern struct {
 	Status          models.PatternStatus   `gorm:"type:text;default:'active';check:status IN ('active', 'deprecated', 'merged');index"`
