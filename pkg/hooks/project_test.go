@@ -181,11 +181,87 @@ func TestProjectIDWithName_RealGitWorktree(t *testing.T) {
 	wtRoot := filepath.Join(base, "wt")
 	git(mainRoot, "worktree", "add", "-q", "-b", "side", wtRoot)
 
-	// git records real (symlink-resolved) paths, e.g. /private/var on macOS.
-	realMain, err := filepath.EvalSymlinks(mainRoot)
-	require.NoError(t, err)
-
-	assert.Equal(t, realMain, CanonicalProjectPath(wtRoot))
+	// git records symlink-resolved paths (macOS: /var -> /private/var), but the
+	// caller reached both checkouts through the same spelling, so the canonical
+	// path must come back in that spelling or the project would split in two.
+	assert.Equal(t, mainRoot, CanonicalProjectPath(wtRoot))
 	sub := mkdir(t, wtRoot, "x", "y")
-	assert.Equal(t, filepath.Join(realMain, "x", "y"), CanonicalProjectPath(sub))
+	assert.Equal(t, filepath.Join(mainRoot, "x", "y"), CanonicalProjectPath(sub))
+	assert.Equal(t, ProjectIDWithName(mainRoot), ProjectIDWithName(wtRoot))
+}
+
+// symlinkedWorktree builds <base>/real/{main,wt} as git would record them (real
+// paths) and returns the paths a user reaches them by through <base>/link -> real.
+func symlinkedWorktree(t *testing.T) (linkMain, linkWt, realMain string) {
+	t.Helper()
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
+	realMain, realWt := fakeWorktreeIn(t, filepath.Join(base, "real"))
+	require.NoError(t, os.Symlink(filepath.Join(base, "real"), filepath.Join(base, "link")))
+	return filepath.Join(base, "link", "main"), filepath.Join(base, "link", filepath.Base(realWt)), realMain
+}
+
+// fakeWorktreeIn is fakeWorktree with the admin files written using absolute real paths.
+func fakeWorktreeIn(t *testing.T, base string) (mainRoot, wtRoot string) {
+	t.Helper()
+	return fakeWorktree(t, base, false)
+}
+
+func TestCanonicalProjectPath_SymlinkedParentKeepsTheCallersSpelling(t *testing.T) {
+	linkMain, linkWt, _ := symlinkedWorktree(t)
+
+	assert.Equal(t, linkMain, CanonicalProjectPath(linkWt), "main root comes back through the same symlink the worktree was reached by")
+}
+
+func TestCanonicalProjectPath_SymlinkedParentSubdirectory(t *testing.T) {
+	linkMain, linkWt, _ := symlinkedWorktree(t)
+	sub := mkdir(t, linkWt, "internal", "mcp")
+
+	assert.Equal(t, filepath.Join(linkMain, "internal", "mcp"), CanonicalProjectPath(sub))
+}
+
+func TestProjectIDWithName_SymlinkedParentSharesTheMainCheckoutID(t *testing.T) {
+	linkMain, linkWt, _ := symlinkedWorktree(t)
+
+	assert.Equal(t, ProjectIDWithName(linkMain), ProjectIDWithName(linkWt))
+}
+
+func TestCanonicalProjectPath_RealPathAccessIsUnaffectedBySymlinkLogic(t *testing.T) {
+	_, _, realMain := symlinkedWorktree(t)
+	realWt := filepath.Join(filepath.Dir(realMain), "wt")
+
+	assert.Equal(t, realMain, CanonicalProjectPath(realWt), "reached by real paths, nothing to translate")
+}
+
+func TestCanonicalProjectPath_MainOutsideTheSymlinkedPrefixIsLeftAsGitRecordedIt(t *testing.T) {
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
+	// The worktree is reached through a symlink, but the main repo lives elsewhere entirely.
+	mainRoot := mkdir(t, base, "elsewhere", "main")
+	realWtParent := mkdir(t, base, "real")
+	wtReal := mkdir(t, realWtParent, "wt")
+	admin := mkdir(t, mainRoot, ".git", "worktrees", "wt")
+	write(t, filepath.Join(admin, "commondir"), "../..\n")
+	write(t, filepath.Join(wtReal, ".git"), "gitdir: "+admin+"\n")
+	require.NoError(t, os.Symlink(realWtParent, filepath.Join(base, "link")))
+
+	assert.Equal(t, mainRoot, CanonicalProjectPath(filepath.Join(base, "link", "wt")))
+}
+
+func TestCutPathPrefix(t *testing.T) {
+	tests := []struct {
+		path, prefix, rest string
+		ok                 bool
+	}{
+		{"/private/var/x/main", "/private", "var/x/main", true},
+		{"/private", "/private", "", true},
+		{"/privateer/x", "/private", "", false}, // whole elements only
+		{"/a/b", "/", "a/b", true},
+		{"/a/b", "/c", "", false},
+	}
+	for _, tt := range tests {
+		rest, ok := cutPathPrefix(tt.path, tt.prefix)
+		assert.Equal(t, tt.ok, ok, "%s under %s", tt.path, tt.prefix)
+		assert.Equal(t, tt.rest, rest, "%s under %s", tt.path, tt.prefix)
+	}
 }

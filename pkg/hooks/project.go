@@ -37,7 +37,69 @@ func CanonicalProjectPath(absPath string) string {
 	if err != nil {
 		return absPath
 	}
-	return filepath.Join(mainRoot, rel)
+	return filepath.Join(inCallerPathForm(root, mainRoot), rel)
+}
+
+// inCallerPathForm rewrites mainRoot, which git records with symlinks resolved,
+// into the form the caller used to reach the worktree root. When both live
+// under the same symlinked directory (macOS /var -> /private/var, a symlinked
+// ~/code), the project is otherwise hashed from two spellings of one path and
+// splits in two.
+//
+// It compares the root as given with its resolved form, finds the trailing
+// path elements they share, and swaps the differing leading part. If anything
+// does not line up it returns mainRoot unchanged.
+func inCallerPathForm(root, mainRoot string) string {
+	realRoot, err := filepath.EvalSymlinks(root)
+	if err != nil || realRoot == root {
+		return mainRoot
+	}
+
+	given := splitPath(root)
+	real := splitPath(realRoot)
+	shared := 0
+	for shared < len(given) && shared < len(real) &&
+		given[len(given)-1-shared] == real[len(real)-1-shared] {
+		shared++
+	}
+	givenPrefix := joinPath(given[:len(given)-shared])
+	realPrefix := joinPath(real[:len(real)-shared])
+
+	rest, ok := cutPathPrefix(mainRoot, realPrefix)
+	if !ok {
+		return mainRoot
+	}
+	return filepath.Join(givenPrefix, rest)
+}
+
+func splitPath(p string) []string {
+	var parts []string
+	for _, e := range strings.Split(filepath.ToSlash(filepath.Clean(p)), "/") {
+		if e != "" {
+			parts = append(parts, e)
+		}
+	}
+	return parts
+}
+
+func joinPath(parts []string) string {
+	return string(filepath.Separator) + filepath.Join(parts...)
+}
+
+// cutPathPrefix reports whether p lies under prefix, comparing whole path
+// elements, and returns the remainder.
+func cutPathPrefix(p, prefix string) (string, bool) {
+	p, prefix = filepath.Clean(p), filepath.Clean(prefix)
+	if prefix == string(filepath.Separator) {
+		return strings.TrimPrefix(p, string(filepath.Separator)), true
+	}
+	if p == prefix {
+		return "", true
+	}
+	if rest, ok := strings.CutPrefix(p, prefix+string(filepath.Separator)); ok {
+		return rest, true
+	}
+	return "", false
 }
 
 // findGitFile walks up from dir looking for the nearest ".git" entry. It
