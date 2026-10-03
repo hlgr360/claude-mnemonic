@@ -204,11 +204,11 @@ func (r *ObservationRelation) BeforeCreate(tx *gorm.DB) error {
 // ProjectAlias maps an alternative project ID (for example a fragment created
 // before worktree-aware identity) to the canonical project it stands for.
 type ProjectAlias struct {
-	Alias          string `gorm:"primaryKey;not null"`
-	Canonical      string `gorm:"index;not null"`
-	Source         string `gorm:"type:text;not null;default:'manual'"`
-	CreatedAt      string `gorm:"not null"`
-	CreatedAtEpoch int64  `gorm:"not null"`
+	Alias          string `gorm:"primaryKey;not null" json:"alias"`
+	Canonical      string `gorm:"index;not null" json:"canonical"`
+	Source         string `gorm:"type:text;not null;default:'manual'" json:"source"`
+	CreatedAt      string `gorm:"not null" json:"created_at"`
+	CreatedAtEpoch int64  `gorm:"not null" json:"created_at_epoch"`
 }
 
 func (ProjectAlias) TableName() string { return "project_aliases" }

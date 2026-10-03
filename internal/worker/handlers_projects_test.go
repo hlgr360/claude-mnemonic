@@ -154,8 +154,13 @@ func TestHandleProjectAliases_ListAndDelete(t *testing.T) {
 
 	rec := doRequest(t, svc, http.MethodGet, "/api/projects/aliases", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
-	var rows []struct{ Alias, Canonical, Source string }
+	var rows []struct {
+		Alias     string `json:"alias"`
+		Canonical string `json:"canonical"`
+		Source    string `json:"source"`
+	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &rows))
+	assert.Contains(t, rec.Body.String(), `"alias":"a_111111"`, "the API uses lowercase keys the dashboard can rely on")
 	require.Len(t, rows, 2)
 	assert.Equal(t, "a_111111", rows[0].Alias)
 	assert.Equal(t, "manual", rows[0].Source)

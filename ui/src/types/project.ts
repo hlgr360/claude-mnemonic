@@ -1,0 +1,47 @@
+// Types for the project management API (/api/projects/*).
+
+export interface ProjectSummary {
+  project: string
+  display_name: string
+  sessions: number
+  observations: number
+  last_active_epoch: number
+  /** Set when this id has been declared an alias of another project. */
+  alias_of?: string
+  /** Ids that resolve to this project. */
+  aliases?: string[]
+}
+
+export interface ProjectAlias {
+  alias: string
+  canonical: string
+  source: string
+  created_at: string
+  created_at_epoch: number
+}
+
+export interface ProjectStats {
+  project: string
+  aliases?: string[]
+  sessions: number
+  observations: number
+  archived_observations: number
+  summaries: number
+  prompts: number
+  relations: number
+  conflicts: number
+  vectors: number
+  patterns: number
+}
+
+/** Answer to a delete or merge: a preview (dry_run, with a confirm token) or the executed result (with a backup path). */
+export interface ProjectActionResult {
+  action: 'delete' | 'merge'
+  project: string
+  into?: string
+  dry_run: boolean
+  confirm?: string
+  backup?: string
+  message: string
+  stats: ProjectStats
+}
