@@ -1,0 +1,170 @@
+// Drive the real dashboard in headless Chrome over the DevTools protocol.
+import { spawn } from 'node:child_process'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+const [, , uiUrl, workerUrl, idsJson] = process.argv
+const ids = JSON.parse(idsJson)
+const CHROME = process.env.CHROME || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+const PORT = 9333
+let ok = 0, fail = 0
+const check = (name, cond, detail = '') => { cond ? ok++ : fail++; console.log(`  ${cond ? 'PASS' : 'FAIL'}  ${name}${cond ? '' : '  ' + detail}`) }
+const sleep = (ms) => new Promise(r => setTimeout(r, ms))
+
+const chrome = spawn(CHROME, ['--headless=new', `--remote-debugging-port=${PORT}`, `--user-data-dir=${mkdtempSync(join(tmpdir(), 'chrome-'))}`,
+  '--no-first-run', '--no-default-browser-check', '--window-size=1280,1000', 'about:blank'], { stdio: 'ignore' })
+const cleanup = () => { try { chrome.kill() } catch {} }
+process.on('exit', cleanup)
+
+async function targetWs() {
+  for (let i = 0; i < 50; i++) {
+    try {
+      const list = await (await fetch(`http://127.0.0.1:${PORT}/json/list`)).json()
+      const page = list.find(t => t.type === 'page')
+      if (page) return page.webSocketDebuggerUrl
+    } catch {}
+    await sleep(200)
+  }
+  throw new Error('chrome did not start')
+}
+
+const ws = new WebSocket(await targetWs())
+await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej })
+let seq = 0
+const waiting = new Map()
+ws.onmessage = (m) => { const d = JSON.parse(m.data); if (d.id && waiting.has(d.id)) { waiting.get(d.id)(d); waiting.delete(d.id) } }
+const send = (method, params = {}) => new Promise(res => { const id = ++seq; waiting.set(id, res); ws.send(JSON.stringify({ id, method, params })) })
+const evaluate = async (expression) => {
+  const r = await send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true })
+  if (r.result.exceptionDetails) throw new Error(JSON.stringify(r.result.exceptionDetails.exception?.description ?? r.result.exceptionDetails))
+  return r.result.result.value
+}
+const waitFor = async (expression, what, ms = 8000) => {
+  const end = Date.now() + ms
+  while (Date.now() < end) { try { if (await evaluate(expression)) return true } catch {} await sleep(100) }
+  throw new Error('timed out waiting for ' + what)
+}
+const text = () => evaluate('document.body.innerText')
+const clickByText = (sel, label) => evaluate(`(() => { const el = [...document.querySelectorAll(${JSON.stringify(sel)})].find(e => e.innerText.trim().includes(${JSON.stringify(label)})); if (!el) return false; el.click(); return true })()`)
+const clickAria = (label) => evaluate(`(() => { const el = document.querySelector('[aria-label=${JSON.stringify(label)}]'); if (!el) return false; el.click(); return true })()`)
+const worker = async (path, init) => { const r = await fetch(workerUrl + path, init); return r.status === 204 ? null : r.json().catch(() => null) }
+
+try {
+  await send('Page.enable')
+  await send('Page.navigate', { url: uiUrl })
+  await waitFor(`!!document.querySelector('.project-filter button')`, 'project filter')
+
+  console.log('== open the manager from the project dropdown')
+  await evaluate(`document.querySelector('.project-filter button').click()`)
+  await waitFor(`document.body.innerText.includes('Manage projects…')`, 'footer button')
+  check('dropdown has a "Manage projects…" entry', true)
+  await clickByText('.project-filter button', 'Manage projects')
+  await waitFor(`document.body.innerText.includes('Merge a project into another, or delete it')`, 'manager modal')
+  // The modal opens before its list has loaded: wait for the rows themselves, not for text that also appears in the timeline.
+  await waitFor(`!!document.querySelector('[aria-label="Delete ${ids.doomed}"]') && document.body.innerText.includes('also old-fragment_abcdef')`, 'manager rows and aliases loaded')
+  const rowIds = await evaluate(`[...document.querySelectorAll('[aria-label^="Delete "]')].map(b => b.getAttribute('aria-label').slice(7))`)
+  check('every seeded project has a row in the manager', Object.values(ids).every(id => rowIds.includes(id)), JSON.stringify(rowIds))
+  let t = await text()
+  check('observation counts are shown in the rows', (t.match(/1 observations/g) ?? []).length >= 4)
+  check('the alias is listed under Aliases and as a chip on its project', t.includes('old-fragment_abcdef') && t.includes('also old-fragment_abcdef'))
+
+  console.log('== delete: preview first, nothing changes until confirmed')
+  check('clicked Delete on the doomed project', await clickAria(`Delete ${ids.doomed}`))
+  await waitFor(`document.body.innerText.includes('Delete ${ids.doomed}?')`, 'delete preview')
+  t = await text()
+  check('the preview explains it is permanent and backed up', /backup of the whole database/.test(t))
+  check('the preview shows counts', /Observations/.test(t) && /Vectors/.test(t))
+  check('the project still exists on the worker', (await worker(`/api/projects/${ids.doomed}/stats`)).observations === 1)
+
+  console.log('== a change after the preview forces a re-confirm instead of deleting blindly')
+  await worker('/api/observations/remember', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ project: ids.doomed, text: 'Added while the preview was open.' }) })
+  await clickByText('button', 'Delete project')
+  await waitFor(`document.body.innerText.includes('changed since the preview')`, 'stale-token message')
+  check('stale confirmation is refused with an explanation', true)
+  check('nothing was deleted', (await worker(`/api/projects/${ids.doomed}/stats`)).observations === 2)
+  t = await text()
+  check('the preview now shows the current numbers', /Delete .*\?/.test(t) && t.includes('2') )
+
+  console.log('== confirm with the fresh preview')
+  await clickByText('button', 'Delete project')
+  await waitFor(`document.body.innerText.includes('Deleted project ${ids.doomed}')`, 'delete result')
+  check('success notice names the project and the backup', (await text()).includes('backup of the database before the change is at'))
+  check('the worker no longer has it', (await fetch(`${workerUrl}/api/projects/${ids.doomed}/stats`)).status === 404)
+  await waitFor(`!document.body.innerText.includes('${ids.doomed}') || document.body.innerText.includes('Deleted project ${ids.doomed}')`, 'list refresh')
+  check('the row is gone from the list', !(await evaluate(`!!document.querySelector('[aria-label="Delete ${ids.doomed}"]')`)))
+
+  console.log('== merge: pick a target, preview, confirm')
+  check('clicked Merge on the fragment', await clickAria(`Merge ${ids.fragment}`))
+  await waitFor(`document.body.innerText.includes('Merge ${ids.fragment} into:')`, 'target picker')
+  check('the picker does not offer the source itself', !(await evaluate(`[...document.querySelectorAll('select[aria-label="Merge target"] option')].some(o => o.value === ${JSON.stringify(ids.fragment)})`)))
+  check('Preview is disabled until a target is chosen', await evaluate(`[...document.querySelectorAll('button')].find(b => b.innerText.trim() === 'Preview').disabled`))
+  await evaluate(`(() => { const s = document.querySelector('select[aria-label="Merge target"]'); s.value = ${JSON.stringify(ids.main_proj)}; s.dispatchEvent(new Event('change', { bubbles: true })) })()`)
+  await waitFor(`!([...document.querySelectorAll('button')].find(b => b.innerText.trim() === 'Preview').disabled)`, 'preview enabled')
+  await clickByText('button', 'Preview')
+  await waitFor(`document.body.innerText.includes('Merge ${ids.fragment} into ${ids.main_proj}?')`, 'merge preview')
+  t = await text()
+  check('merge preview says embeddings are kept and the old id keeps resolving', /Embeddings are kept/.test(t) && t.includes('will keep resolving'))
+  check('nothing moved yet', (await worker(`/api/projects/${ids.fragment}/stats`)).observations === 1)
+  await clickByText('button', 'Merge projects')
+  await waitFor(`document.body.innerText.includes('Merged ${ids.fragment} into ${ids.main_proj}')`, 'merge result')
+  check('the survivor now holds both notes', (await worker(`/api/projects/${ids.main_proj}/stats`)).observations === 2)
+  const resolved = await worker(`/api/projects/resolve?id=${ids.fragment}`)
+  check('the old id resolves to the survivor', resolved.id === ids.main_proj && resolved.match === 'alias', JSON.stringify(resolved))
+  await waitFor(`document.body.innerText.includes('also ${ids.fragment}')`, 'alias chip on survivor')
+  check('the survivor shows the merged id as an alias', true)
+
+  console.log('== remove an alias from the list')
+  check('clicked remove on the manual alias', await clickAria('Remove alias old-fragment_abcdef'))
+  await waitFor(`!document.body.innerText.includes('also old-fragment_abcdef')`, 'alias removed')
+  check('alias is gone on the worker', (await worker('/api/projects/aliases')).every(a => a.alias !== 'old-fragment_abcdef'))
+
+  console.log('== cancelling leaves everything alone')
+  await clickAria(`Delete ${ids.spare}`)
+  await waitFor(`document.body.innerText.includes('Delete ${ids.spare}?')`, 'second preview')
+  await clickByText('button', 'Cancel')
+  await waitFor(`!document.body.innerText.includes('Delete ${ids.spare}?')`, 'preview closed')
+  check('cancel closes the preview and deletes nothing', (await worker(`/api/projects/${ids.spare}/stats`)).observations === 1)
+
+  console.log('== closing the modal')
+  await evaluate(`document.querySelector('[aria-label="Close"]').click()`)
+  await waitFor(`!document.body.innerText.includes('Merge a project into another, or delete it')`, 'modal closed')
+  check('modal closes', true)
+
+  console.log('== deleting the project the filter is on falls back to all projects')
+  const triggerText = () => evaluate(`document.querySelector('.project-filter > button').innerText`)
+  check('filter starts on all projects', (await triggerText()).includes('All Projects'))
+  await evaluate(`document.querySelector('.project-filter > button').click()`)
+  await waitFor(`[...document.querySelectorAll('.project-filter button')].some(b => b.innerText.includes(${JSON.stringify(ids.spare)}))`, 'spare in dropdown')
+  await clickByText('.project-filter button', ids.spare)
+  await waitFor(`document.querySelector('.project-filter > button').innerText.includes(${JSON.stringify(ids.spare)})`, 'filter on spare')
+  check('filter now shows the spare project', true)
+  await evaluate(`document.querySelector('.project-filter > button').click()`)
+  await waitFor(`document.body.innerText.includes('Manage projects…')`, 'footer')
+  await clickByText('.project-filter button', 'Manage projects')
+  await waitFor(`!!document.querySelector('[aria-label="Delete ${ids.spare}"]')`, 'manager reopened')
+  await clickAria(`Delete ${ids.spare}`)
+  await waitFor(`document.body.innerText.includes('Delete ${ids.spare}?')`, 'spare preview')
+  await clickByText('button', 'Delete project')
+  await waitFor(`document.body.innerText.includes('Deleted project ${ids.spare}')`, 'spare deleted')
+  await evaluate(`document.querySelector('[aria-label="Close"]').click()`)
+  await waitFor(`document.querySelector('.project-filter > button').innerText.includes('All Projects')`, 'filter reset')
+  check('the filter fell back to All Projects instead of pointing at a deleted project', true)
+  const dropdownGone = await evaluate(`(async () => { document.querySelector('.project-filter > button').click(); await new Promise(r => setTimeout(r, 800)); return !document.body.innerText.includes(${JSON.stringify(ids.spare)}) })()`)
+  check('and the dropdown list was re-read (no stale cached entry)', dropdownGone)
+} catch (e) {
+  fail++; console.log('  FAIL  ' + e.message)
+  const diag = await evaluate(`JSON.stringify({
+    rows: [...document.querySelectorAll('[aria-label^="Delete "]')].map(b => b.getAttribute('aria-label')),
+    alerts: [...document.querySelectorAll('[role=alert],[role=status]')].map(e => e.innerText),
+    loadingShown: document.body.innerText.includes('Loading projects'),
+    modal: document.body.innerText.includes('Merge a project into another'),
+    chips: document.body.innerText.includes('also old-fragment_abcdef')
+  })`).catch(() => 'n/a')
+  console.log('--- diagnostics at failure: ' + diag)
+} finally {
+  console.log(`\n${ok} passed, ${fail} failed`)
+  cleanup()
+  process.exit(fail ? 1 : 0)
+}
