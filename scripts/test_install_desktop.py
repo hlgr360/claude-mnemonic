@@ -341,3 +341,78 @@ class Locations(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Instructions(unittest.TestCase):
+    def test_default_name_is_used_without_a_parenthesis(self):
+        text = inst.render_instructions()
+        self.assertIn("in the claude-mnemonic connector.", text)
+        self.assertIn("project_suggest tool of the claude-mnemonic connector", text)
+        self.assertNotIn("{", text, "every placeholder is filled in")
+
+    def test_a_custom_name_is_used_and_still_says_what_it_is(self):
+        text = inst.render_instructions("memory")
+        self.assertIn('in the "memory" (claude-mnemonic) connector.', text)
+        self.assertIn("project_suggest tool of the memory connector", text)
+        self.assertNotIn("{", text)
+
+    def test_the_rules_the_server_also_enforces_are_in_it(self):
+        text = inst.render_instructions()
+        for want in ("in addition to any built-in memory", "Never pick a project for me", "do not save anything",
+                     "If two projects share a name, ask me", "Do not use it for general questions", "Tell me which source"):
+            self.assertIn(want, text)
+
+    def test_the_document_and_the_installer_cannot_drift_apart(self):
+        doc = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "DESKTOP.md"), encoding="utf-8").read()
+        self.assertIn(inst.render_instructions().rstrip("\n"), doc, "DESKTOP.md must contain exactly what the installer prints")
+
+    def test_clipboard_tool_selection_and_fallback(self):
+        import unittest.mock as mock
+        with mock.patch.object(inst.shutil, "which", side_effect=lambda c: "/usr/bin/" + c if c == "xclip" else None):
+            self.assertEqual(inst.clipboard_command(), ["xclip", "-selection", "clipboard"])
+        with mock.patch.object(inst.shutil, "which", return_value=None):
+            self.assertIsNone(inst.clipboard_command())
+            self.assertIsNone(inst.copy_to_clipboard("x"), "no tool means a clear None, not a crash")
+        with mock.patch.object(inst.shutil, "which", return_value="/usr/bin/pbcopy"), \
+                mock.patch.object(inst.subprocess, "run", side_effect=OSError("boom")):
+            self.assertIsNone(inst.copy_to_clipboard("x"), "a failing tool degrades the same way")
+
+    def test_copy_sends_exactly_the_text_to_the_tool(self):
+        import unittest.mock as mock
+        with mock.patch.object(inst.shutil, "which", side_effect=lambda c: "/usr/bin/pbcopy" if c == "pbcopy" else None), \
+                mock.patch.object(inst.subprocess, "run") as run:
+            self.assertEqual(inst.copy_to_clipboard("héllo"), "pbcopy")
+            self.assertEqual(run.call_args.args[0], ["pbcopy"])
+            self.assertEqual(run.call_args.kwargs["input"], "héllo".encode("utf-8"))
+
+    def run_cli(self, *argv, config):
+        import contextlib
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = inst.main(["--config", config, *argv])
+        return code, out.getvalue(), err.getvalue()
+
+    def test_instructions_prints_and_never_touches_the_config(self):
+        cfg = tmpfile(self, TWO)
+        code, out, _ = self.run_cli("instructions", config=cfg)
+        self.assertEqual(code, 0)
+        self.assertIn("project_suggest", out)
+        self.assertEqual(read(cfg), TWO)
+        self.assertEqual(os.listdir(os.path.dirname(cfg)), [os.path.basename(cfg)], "no backup, nothing written")
+
+    def test_instructions_copy_reports_what_happened(self):
+        import unittest.mock as mock
+        cfg = tmpfile(self, TWO)
+        with mock.patch.object(inst, "copy_to_clipboard", return_value="pbcopy"):
+            self.assertIn("copied to the clipboard with pbcopy", self.run_cli("instructions", "--copy", config=cfg)[1])
+        with mock.patch.object(inst, "copy_to_clipboard", return_value=None):
+            self.assertIn("could not copy", self.run_cli("instructions", "--copy", config=cfg)[1])
+
+    def test_install_reminds_about_the_instruction_but_dry_run_and_uninstall_do_not(self):
+        binary = tmpfile(self, "#!/bin/sh\n", name="mcp-server")
+        cfg = tmpfile(self, TWO)
+        out = self.run_cli("--binary", binary, config=cfg)[1]
+        self.assertIn("instructions --copy", out)
+        self.assertIn("ignores claude-mnemonic", out)
+        self.assertNotIn("instructions --copy", self.run_cli("--binary", binary, "--dry-run", "--name", "other", config=cfg)[1])
+        self.assertNotIn("instructions --copy", self.run_cli("uninstall", config=cfg)[1])
