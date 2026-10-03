@@ -36,8 +36,8 @@ type suggestResponse struct {
 	Suggestions []struct {
 		Project   string   `json:"project"`
 		Reason    string   `json:"reason"`
-		Hits      int      `json:"hits"`
 		TopTitles []string `json:"top_titles"`
+		Hits      int      `json:"hits"`
 	} `json:"suggestions"`
 	Confident  bool `json:"confident"`
 	VectorUsed bool `json:"vector_used"`
@@ -151,7 +151,6 @@ func TestHandleSuggestProjects_RespectsLimit(t *testing.T) {
 
 type crossSearchResponse struct {
 	Query        string `json:"query"`
-	Count        int    `json:"count"`
 	Observations []struct {
 		Project    string  `json:"project"`
 		Canonical  string  `json:"canonical_project"`
@@ -161,6 +160,7 @@ type crossSearchResponse struct {
 		Similarity float64 `json:"similarity"`
 		ID         int64   `json:"id"`
 	} `json:"observations"`
+	Count int `json:"count"`
 }
 
 func TestHandleCrossProjectSearch_ReturnsObservationsFromEveryProject(t *testing.T) {

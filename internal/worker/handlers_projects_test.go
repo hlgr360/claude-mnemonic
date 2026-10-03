@@ -100,18 +100,18 @@ func TestHandleSetProjectAlias_Validation(t *testing.T) {
 	defer cleanup()
 
 	tests := []struct {
-		name string
 		body any
+		name string
 		want int
 	}{
-		{"missing canonical", setAliasRequest{Alias: "a_111111"}, http.StatusBadRequest},
-		{"missing alias", setAliasRequest{Canonical: "b_222222"}, http.StatusBadRequest},
-		{"blank values", setAliasRequest{Alias: "  ", Canonical: " "}, http.StatusBadRequest},
-		{"self alias", setAliasRequest{Alias: "a_111111", Canonical: "a_111111"}, http.StatusBadRequest},
-		{"path traversal in alias", setAliasRequest{Alias: "../etc", Canonical: "b_222222"}, http.StatusBadRequest},
-		{"shell characters in canonical", setAliasRequest{Alias: "a_111111", Canonical: "b;rm -rf"}, http.StatusBadRequest},
-		{"valid", setAliasRequest{Alias: "a_111111", Canonical: "b_222222"}, http.StatusOK},
-		{"cycle", setAliasRequest{Alias: "b_222222", Canonical: "a_111111"}, http.StatusBadRequest},
+		{setAliasRequest{Alias: "a_111111"}, "missing canonical", http.StatusBadRequest},
+		{setAliasRequest{Canonical: "b_222222"}, "missing alias", http.StatusBadRequest},
+		{setAliasRequest{Alias: "  ", Canonical: " "}, "blank values", http.StatusBadRequest},
+		{setAliasRequest{Alias: "a_111111", Canonical: "a_111111"}, "self alias", http.StatusBadRequest},
+		{setAliasRequest{Alias: "../etc", Canonical: "b_222222"}, "path traversal in alias", http.StatusBadRequest},
+		{setAliasRequest{Alias: "a_111111", Canonical: "b;rm -rf"}, "shell characters in canonical", http.StatusBadRequest},
+		{setAliasRequest{Alias: "a_111111", Canonical: "b_222222"}, "valid", http.StatusOK},
+		{setAliasRequest{Alias: "b_222222", Canonical: "a_111111"}, "cycle", http.StatusBadRequest},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

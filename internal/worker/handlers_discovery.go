@@ -37,9 +37,9 @@ func (s *Service) vectorSearch(ctx context.Context, text string, n int, where ma
 
 // observationHit is one distinct observation found by a cross-project query.
 type observationHit struct {
-	id         int64
 	project    string
 	title      string
+	id         int64
 	similarity float64
 }
 

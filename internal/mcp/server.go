@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -22,14 +23,19 @@ import (
 // Server is the MCP server that proxies tool calls to the worker HTTP API.
 // Field order optimized for memory alignment (fieldalignment).
 type Server struct {
-	stdin        io.Reader
-	stdout       io.Writer
-	client       *http.Client
-	workerURL    string
-	project      string
-	version      string
-	writeMu      sync.Mutex
-	lastActivity atomic.Int64
+	stdin         io.Reader
+	stdout        io.Writer
+	client        *http.Client
+	bootstrap     *workerBootstrap
+	workerURL     string
+	project       string
+	version       string
+	mode          Mode
+	clientName    string
+	stateMu       sync.RWMutex
+	writeMu       sync.Mutex
+	lastActivity  atomic.Int64
+	projectPinned bool
 }
 
 // NewServer creates a new MCP server that proxies to the worker HTTP API.
@@ -231,19 +237,33 @@ func (s *Server) handleRequest(ctx context.Context, req *Request) *Response {
 
 // handleInitialize handles the initialize request.
 func (s *Server) handleInitialize(req *Request) *Response {
+	// Desktop clients start one shared server with no project, so the project
+	// has to come from the model on each call (see defaultProject).
+	var params struct {
+		ClientInfo struct {
+			Name string `json:"name"`
+		} `json:"clientInfo"`
+	}
+	_ = json.Unmarshal(req.Params, &params)
+	s.setClientName(params.ClientInfo.Name)
+
+	result := map[string]any{
+		"protocolVersion": "2024-11-05",
+		"capabilities": map[string]any{
+			"tools": map[string]any{},
+		},
+		"serverInfo": map[string]any{
+			"name":    "claude-mnemonic",
+			"version": s.version,
+		},
+	}
+	if s.desktop() {
+		result["instructions"] = desktopInstructions
+	}
 	return &Response{
 		JSONRPC: "2.0",
 		ID:      req.ID,
-		Result: map[string]any{
-			"protocolVersion": "2024-11-05",
-			"capabilities": map[string]any{
-				"tools": map[string]any{},
-			},
-			"serverInfo": map[string]any{
-				"name":    "claude-mnemonic",
-				"version": s.version,
-			},
-		},
+		Result:  result,
 	}
 }
 
@@ -352,6 +372,10 @@ func (s *Server) handleToolsList(req *Request) *Response {
 				},
 			},
 		},
+	}
+
+	if s.desktop() {
+		tools = append(tools, desktopTools()...)
 	}
 
 	return &Response{
@@ -474,6 +498,17 @@ func (s *Server) dispatchAction(ctx context.Context, tool string, actions map[st
 
 // callTool dispatches to the appropriate tool handler by proxying to the worker HTTP API.
 func (s *Server) callTool(ctx context.Context, name string, args json.RawMessage) (string, error) {
+	// Desktop has no hooks to start the worker; this is a no-op in Code mode.
+	if err := s.ensureWorker(ctx); err != nil {
+		return "", err
+	}
+	if isDesktopTool(name) {
+		if !s.desktop() {
+			return "", fmt.Errorf("unknown tool: %s", name)
+		}
+		return s.callDesktopTool(ctx, name, args)
+	}
+
 	// Parse common search params used by many tools
 	var sa searchArgs
 	// Best-effort parse; individual handlers validate as needed
@@ -481,7 +516,7 @@ func (s *Server) callTool(ctx context.Context, name string, args json.RawMessage
 
 	// Default project from server config
 	if sa.Project == "" {
-		sa.Project = s.project
+		sa.Project = s.defaultProject()
 	}
 
 	switch name {
@@ -551,13 +586,13 @@ func (s *Server) callTool(ctx context.Context, name string, args json.RawMessage
 	// --- Stats and analytics endpoints ---
 	case "get_memory_stats":
 		return s.proxyGetRaw(ctx, "/api/stats", map[string]string{
-			"project": s.project,
+			"project": s.defaultProject(),
 		})
 	case "check_system_health":
 		return s.proxyGetRaw(ctx, "/api/selfcheck", nil)
 	case "get_maintenance_stats":
 		return s.proxyGetRaw(ctx, "/api/stats", map[string]string{
-			"project": s.project,
+			"project": s.defaultProject(),
 		})
 	case "trigger_maintenance":
 		return s.proxyPostRaw(ctx, "/api/maintenance/run", nil)
@@ -731,6 +766,13 @@ func anyToString(v any) string {
 
 // handleSearchProxy proxies search requests to GET /api/context/search.
 func (s *Server) handleSearchProxy(ctx context.Context, args searchArgs) (string, error) {
+	// With no project (Desktop before one is chosen, or declined) search every project.
+	if args.Project == "" && s.desktop() {
+		if strings.TrimSpace(args.Query) == "" {
+			return "", fmt.Errorf("search: a query is required when no project is chosen")
+		}
+		return s.searchAcrossProjects(ctx, args)
+	}
 	params := map[string]string{
 		"project": args.Project,
 		"query":   args.Query,
@@ -775,7 +817,7 @@ func (s *Server) handleTimelineProxy(ctx context.Context, args json.RawMessage) 
 	}
 
 	if params.Project == "" {
-		params.Project = s.project
+		params.Project = s.defaultProject()
 	}
 	if params.Before <= 0 {
 		params.Before = 10
@@ -896,7 +938,7 @@ func (s *Server) handleFindSimilarProxy(ctx context.Context, args json.RawMessag
 		return "", fmt.Errorf("query is required")
 	}
 	if params.Project == "" {
-		params.Project = s.project
+		params.Project = s.defaultProject()
 	}
 	if params.Limit == 0 {
 		params.Limit = 10
@@ -1167,7 +1209,7 @@ func (s *Server) handleGetObservationsByTagProxy(ctx context.Context, args json.
 		return "", fmt.Errorf("tag is required")
 	}
 	if params.Project == "" {
-		params.Project = s.project
+		params.Project = s.defaultProject()
 	}
 	if params.Limit == 0 {
 		params.Limit = 50
@@ -1296,7 +1338,7 @@ func (s *Server) handleAnalyzeImportanceProxy(ctx context.Context, args json.Raw
 		return "", fmt.Errorf("invalid arguments: %w", err)
 	}
 	if params.Project == "" {
-		params.Project = s.project
+		params.Project = s.defaultProject()
 	}
 	if params.Limit == 0 {
 		params.Limit = 10
@@ -1357,7 +1399,7 @@ func (s *Server) handleExplainSearchProxy(ctx context.Context, args json.RawMess
 		return "", fmt.Errorf("query is required")
 	}
 	if params.Project == "" {
-		params.Project = s.project
+		params.Project = s.defaultProject()
 	}
 	if params.TopN == 0 {
 		params.TopN = 5
@@ -1379,7 +1421,7 @@ func (s *Server) handleGetTemporalTrendsProxy(ctx context.Context, args json.Raw
 		return "", fmt.Errorf("invalid arguments: %w", err)
 	}
 	if params.Project == "" {
-		params.Project = s.project
+		params.Project = s.defaultProject()
 	}
 
 	return s.proxyGetRaw(ctx, "/api/stats", map[string]string{
@@ -1396,7 +1438,7 @@ func (s *Server) handleGetDataQualityProxy(ctx context.Context, args json.RawMes
 		return "", fmt.Errorf("invalid arguments: %w", err)
 	}
 	if params.Project == "" {
-		params.Project = s.project
+		params.Project = s.defaultProject()
 	}
 
 	return s.proxyGetRaw(ctx, "/api/stats", map[string]string{
@@ -1425,7 +1467,7 @@ func (s *Server) handleExportProxy(ctx context.Context, args json.RawMessage) (s
 	if params.Project != "" {
 		qp["project"] = params.Project
 	} else {
-		qp["project"] = s.project
+		qp["project"] = s.defaultProject()
 	}
 	if params.ObsType != "" {
 		qp["obs_type"] = params.ObsType
@@ -1454,7 +1496,7 @@ func (s *Server) handleSuggestConsolidationsProxy(ctx context.Context, args json
 		return "", fmt.Errorf("invalid arguments: %w", err)
 	}
 	if params.Project == "" {
-		params.Project = s.project
+		params.Project = s.defaultProject()
 	}
 
 	qp := map[string]string{
@@ -1493,7 +1535,7 @@ func (s *Server) handleBatchTagProxy(ctx context.Context, args json.RawMessage) 
 		return "", fmt.Errorf("tags is required")
 	}
 	if params.Project == "" {
-		params.Project = s.project
+		params.Project = s.defaultProject()
 	}
 
 	// Search for matching observations

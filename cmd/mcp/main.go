@@ -36,6 +36,7 @@ func defaultProject() string {
 func main() {
 	// Parse flags
 	project := flag.String("project", "", "Project ID (default: derived from CLAUDE_PROJECT_DIR or cwd)")
+	modeFlag := flag.String("mode", "auto", "Project mode: auto (detect from the MCP client), code (fixed project) or desktop (model chooses the project)")
 	debug := flag.Bool("debug", false, "Enable debug logging")
 	flag.Parse()
 
@@ -46,7 +47,14 @@ func main() {
 	}
 	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, NoColor: true})
 
-	if *project == "" || strings.Contains(*project, "${") {
+	mode, err := mcp.ParseMode(*modeFlag)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Invalid --mode")
+	}
+
+	// An explicit --project is the user's choice and is kept even in Desktop mode.
+	pinned := *project != "" && !strings.Contains(*project, "${")
+	if !pinned {
 		*project = defaultProject()
 	}
 
@@ -76,7 +84,15 @@ func main() {
 
 	// Create and run MCP server
 	server := mcp.NewServer(client, workerURL, *project, Version)
-	log.Info().Str("project", *project).Str("version", Version).Str("worker", workerURL).Msg("Starting MCP server")
+	server.SetMode(mode)
+	server.SetProjectPinned(pinned)
+	// Desktop has no hooks to start the worker, so the server does it on the first tool call.
+	server.SetWorkerBootstrap(func() error {
+		_, err := hooks.EnsureWorkerRunning()
+		return err
+	})
+	log.Info().Str("project", *project).Bool("pinned", pinned).Str("mode", string(mode)).
+		Str("version", Version).Str("worker", workerURL).Msg("Starting MCP server")
 
 	if err := server.Run(ctx); err != nil {
 		if err == context.Canceled {

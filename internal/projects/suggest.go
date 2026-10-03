@@ -26,10 +26,10 @@ type Activity struct {
 type Suggestion struct {
 	Project         string   `json:"project"`
 	DisplayName     string   `json:"display_name"`
+	Reason          string   `json:"reason"`
+	TopTitles       []string `json:"top_titles,omitempty"`
 	Score           float64  `json:"score"`
 	Hits            int      `json:"hits"`
-	TopTitles       []string `json:"top_titles,omitempty"`
-	Reason          string   `json:"reason"`
 	Sessions        int64    `json:"sessions"`
 	Observations    int64    `json:"observations"`
 	LastActiveEpoch int64    `json:"last_active_epoch"`

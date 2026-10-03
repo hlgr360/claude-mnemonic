@@ -43,11 +43,11 @@ type Resolution struct {
 	// ID is the canonical project ID. Empty when Match is MatchNone.
 	ID    string `json:"id,omitempty"`
 	Match Match  `json:"match"`
+	// Candidates lists possible projects when the reference was ambiguous or unmatched.
+	Candidates []string `json:"candidates,omitempty"`
 	// Known reports whether ID is already a project in the store. A path that
 	// resolves to an unknown ID is valid: it is a project with no history yet.
 	Known bool `json:"known"`
-	// Candidates lists possible projects when the reference was ambiguous or unmatched.
-	Candidates []string `json:"candidates,omitempty"`
 }
 
 // DisplayName returns the directory-name part of a project ID ("repo_ab12cd" -> "repo").
