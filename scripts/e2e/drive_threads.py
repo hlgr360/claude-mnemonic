@@ -39,6 +39,13 @@ class Chat:
         r = self.rpc("tools/call", {"name": name, "arguments": a})["result"]
         return r.get("isError", False), r["content"][0]["text"]
 
+    def must(self, name, **a):
+        """A setup step: stop at once, naming the step and the worker's answer, instead of failing a check later."""
+        err, text = self.tool(name, **a)
+        if err:
+            raise SystemExit(f"setup step failed: {name} {a} -> {text[:300]}")
+        return text
+
     def close(self):
         self.proc.stdin.close()
         self.proc.wait(timeout=10)
@@ -51,7 +58,7 @@ print("== the tools are there in a chat")
 chat = Chat(1)
 names = [t["name"] for t in chat.rpc("tools/list")["result"]["tools"]]
 check("checkpoint and catch_up are listed", "checkpoint" in names and "catch_up" in names, names)
-pid = json.loads(chat.tool("project_resolve", path=folder)[1])["id"]
+pid = json.loads(chat.must("project_resolve", path=folder))["id"]
 
 print("== checkpoint keeps one note per thread")
 err, text = chat.tool("checkpoint", path=folder, thread="Overlay design", goal="Make the plugin usable from Desktop",
@@ -61,7 +68,7 @@ err, text = chat.tool("checkpoint", project=pid, thread="overlay  DESIGN", goal=
                       progress="Measuring skipped; judged by daily use", decisions="Names, not ids, in every tool")
 check("the same thread name updates it", not err and "Updated the note" in text, text)
 time.sleep(0.05)
-chat.tool("checkpoint", project=pid, thread="Compaction recovery", goal="Survive Desktop compaction",
+chat.must("checkpoint", project=pid, thread="Compaction recovery", goal="Survive Desktop compaction",
           progress="Designing checkpoint and catch_up", next_steps="Write the tools")
 summaries = api(f"/api/summaries?project={urllib.parse.quote(pid)}&limit=20")
 check("two notes exist, visible to the dashboard as summaries", len(summaries) == 2, [s.get("request") for s in summaries])
@@ -77,15 +84,15 @@ check("resolved open items are gone", "Measure usage" not in text, text)
 check("decisions of the thread are shown", "Names, not ids" in text)
 
 print("== project decisions are part of the digest")
-chat.tool("remember", project=pid, type="decision", title="Use thread notes", text="Chat recovery rests on one living note per thread.")
+chat.must("remember", project=pid, type="decision", title="Use thread notes", text="Chat recovery rests on one living note per thread.")
 err, text = chat.tool("catch_up", project=pid)
 check("a saved decision shows up", not err and "Use thread notes" in text, text)
-chat.tool("remember", project=pid, type="discovery", title="Just a finding", text="Not a decision.")
+chat.must("remember", project=pid, type="discovery", title="Just a finding", text="Not a decision.")
 err, text = chat.tool("catch_up", project=pid)
 check("other observation types do not", "Just a finding" not in text, text)
 
 print("== private text never reaches the note")
-chat.tool("checkpoint", project=pid, thread="Keys", goal="Rotate <private>sk-live-123456</private> the credentials", progress="Started")
+chat.must("checkpoint", project=pid, thread="Keys", goal="Rotate <private>sk-live-123456</private> the credentials", progress="Started")
 err, text = chat.tool("catch_up", project=pid)
 check("it was stripped before storing", not err and "sk-live-123456" not in text and "Rotate" in text, text)
 check("and is not in the database either", "sk-live-123456" not in json.dumps(api(f"/api/summaries?project={urllib.parse.quote(pid)}&limit=20")))

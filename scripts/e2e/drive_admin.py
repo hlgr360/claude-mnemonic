@@ -33,6 +33,14 @@ def tool(name, **a):
     return r.get("isError", False), r["content"][0]["text"]
 
 
+def must(name, **a):
+    """A setup step: stop at once, naming the step and the worker's answer, instead of failing a check later."""
+    err, text = tool(name, **a)
+    if err:
+        raise SystemExit(f"setup step failed: {name} {a} -> {text[:300]}")
+    return text
+
+
 def api(path, method="GET", body=None):
     req = urllib.request.Request(f"http://localhost:{PORT}{path}", method=method,
                                  data=json.dumps(body).encode() if body is not None else None, headers={"Content-Type": "application/json"})
@@ -56,7 +64,7 @@ notes = {
 }
 print("== seed three projects through remember(path)")
 for name, d in dirs.items():
-    ids[name] = json.loads(tool("project_resolve", path=d)[1])["id"]
+    ids[name] = json.loads(must("project_resolve", path=d))["id"]
     err, text = tool("remember", path=d, title=notes[name][0], text=notes[name][1], type="discovery")
     check(f"{name} seeded", not err and ids[name] in text, text)
 time.sleep(5)  # async vector sync
@@ -104,7 +112,7 @@ print("== delete: preview, stale token, confirm")
 err, text = tool("project_manage", action="delete", project=ids["doomed"])
 dtoken = re.search(r"confirm: (\w+)", text).group(1)
 check("delete preview shows what would go and changed nothing", "PREVIEW" in text and "1 observations" in text, text[:300])
-tool("remember", project=ids["doomed"], title="Added after preview", text="A second aquarium note that arrived after the preview was shown.")
+must("remember", project=ids["doomed"], title="Added after preview", text="A second aquarium note that arrived after the preview was shown.")
 err, text = tool("project_manage", action="delete", project=ids["doomed"], confirm=dtoken)
 check("a token from before the data changed is refused", err and "409" in text, text)
 err, text = tool("project_manage", action="delete", project=ids["doomed"])
