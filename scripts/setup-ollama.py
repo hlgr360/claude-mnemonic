@@ -28,8 +28,9 @@ DEFAULT_URL = "http://localhost:11434"
 TASKS = ("summary", "observation", "verify")
 PREFIX = "CLAUDE_MNEMONIC_"
 MODELS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ollama-models.json")
-SMALL_MODEL_WARNING = ("Small local models write noticeably worse summaries than Haiku; compare on your own sessions "
-                       "before moving 'summary' or 'observation'. 'verify' (a yes/no check) is the safest to start with.")
+SMALL_MODEL_WARNING = ("Local models are clearly worse than Haiku here: their summaries invent details, and in our test none was good "
+                       "enough to replace Haiku (issue #26). None of the three tasks is risk-free: 'verify' permanently deletes an "
+                       "observation when the model calls it invalid. Compare on your own sessions before moving any task.")
 
 ask = input  # replaced in tests
 
@@ -384,7 +385,7 @@ def cmd_setup(args, out):
     entry = known(models, model)
     if entry is None:
         out(f"Note: {model} is not one of the models we have tried with claude-mnemonic.")
-    elif entry.get("status") == "poor":
+    elif entry.get("status") in ("poor", "weak"):
         out(f"Warning: {entry['notes']}")
 
     tasks = parse_tasks(args.task)  # a bad --task is refused before anything is downloaded
@@ -429,7 +430,7 @@ def cmd_setup(args, out):
         return 0
     for key, (old, new) in changes.items():
         out(f"  {key}: {old!r} -> {new!r}")
-    if any(t in tasks for t in ("summary", "observation")):
+    if tasks:
         out(SMALL_MODEL_WARNING)
     if args.dry_run:
         out("Dry run: nothing was written.")
