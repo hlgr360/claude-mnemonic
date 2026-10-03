@@ -223,6 +223,13 @@ func (s *ProjectAdminStore) Merge(ctx context.Context, from, into, source string
 	return moved, err
 }
 
+// CheckRemovable fails with ErrProjectNotFound or ErrProjectIsAlias unless the
+// project can be deleted or merged away. It changes nothing, so callers can
+// validate before taking a snapshot.
+func (s *ProjectAdminStore) CheckRemovable(ctx context.Context, project string) error {
+	return checkRemovable(s.db.WithContext(ctx), project)
+}
+
 // checkRemovable fails unless project is a real project and not an alias.
 func checkRemovable(tx *gorm.DB, project string) error {
 	if _, isAlias, err := resolveAliasIn(tx, project); err != nil {
