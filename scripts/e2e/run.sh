@@ -40,7 +40,7 @@ fi
 export E2E_DIR="$WORK" E2E_PORT="$WORKER_PORT" DO_NOT_TRACK=1 CGO_ENABLED=1
 
 cleanup() {
-  kill $(lsof -ti ":$WORKER_PORT") $(lsof -ti ":37998") $(lsof -ti ":$UI_PORT") $(lsof -ti ":9333") 2>/dev/null
+  kill $(lsof -ti ":$WORKER_PORT") $(lsof -ti ":37998") $(lsof -ti ":${E2E_OLLAMA_PORT:-37996}") $(lsof -ti ":$UI_PORT") $(lsof -ti ":9333") 2>/dev/null
   if [ "${KEEP:-0}" = "1" ]; then echo "kept: $WORK"; else rm -rf "$WORK" "${TMPDIR:-/tmp}"/e2e-* "${TMPDIR:-/tmp}"/e2e-admin-* "${TMPDIR:-/tmp}"/e2e-names-* "${TMPDIR:-/tmp}"/e2e-threads-* "${TMPDIR:-/tmp}"/ui-e2e-* 2>/dev/null; fi
 }
 trap cleanup EXIT
@@ -49,6 +49,8 @@ stop_worker() { kill $(lsof -ti ":$WORKER_PORT") 2>/dev/null; sleep 1; }
 fresh_worker() {
   stop_worker
   rm -rf "$WORK/home/.claude-mnemonic/claude-mnemonic.db"* "$WORK/home/.claude-mnemonic/backups"
+  # Hooks cache the worker's pid for 10 s and skip themselves when it is dead; forget the old worker's.
+  rm -f "$WORK/home/.claude-mnemonic/.worker-cache"
   (cd "$WORK" && HOME="$WORK/home" CLAUDE_MNEMONIC_WORKER_PORT="$WORKER_PORT" nohup ./bin/worker > worker.log 2>&1 &)
   for _ in $(seq 1 90); do
     curl -s -m 2 "http://localhost:$WORKER_PORT/health" | grep -q '"ready":true' && return 0
@@ -105,6 +107,13 @@ mkdir -p "$WORK/home/.claude-mnemonic"
 printf '{"CLAUDE_CODE_PATH": "%s/fake-claude"}\n' "$WORK" > "$WORK/home/.claude-mnemonic/settings.json"
 fresh_worker || exit 1
 suite "PreCompact hook summarises the conversation before a compaction" python3 "$HERE/drive_precompact.py"
+
+# Local LLM: the summary task on a fake Ollama (the suite plays Ollama itself and switches it off midway),
+# with the fake claude from above as the fallback.
+OLLAMA_E2E_PORT="${E2E_OLLAMA_PORT:-37996}"
+printf '{"CLAUDE_CODE_PATH": "%s/fake-claude", "CLAUDE_MNEMONIC_OLLAMA_URL": "http://127.0.0.1:%s", "CLAUDE_MNEMONIC_OLLAMA_MODEL": "gemma3:12b", "CLAUDE_MNEMONIC_LLM_BACKEND_SUMMARY": "ollama"}\n' "$WORK" "$OLLAMA_E2E_PORT" > "$WORK/home/.claude-mnemonic/settings.json"
+fresh_worker || exit 1
+suite "Local LLM backend: Ollama for summaries, fallback to the CLI"   env E2E_OLLAMA_PORT="$OLLAMA_E2E_PORT" python3 "$HERE/drive_llm.py"
 rm -f "$WORK/home/.claude-mnemonic/settings.json"
 
 if [ "$RUN_UI" = "1" ]; then

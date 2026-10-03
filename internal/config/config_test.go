@@ -434,3 +434,76 @@ func TestLoad_ContextSettings(t *testing.T) {
 	assert.Equal(t, []string{"bugfix", "feature"}, cfg.ContextObsTypes)
 	assert.Equal(t, []string{"security", "performance"}, cfg.ContextObsConcepts)
 }
+
+func writeSettings(t *testing.T, json string) {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	require.NoError(t, os.MkdirAll(filepath.Join(home, ".claude-mnemonic"), 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(home, ".claude-mnemonic", "settings.json"), []byte(json), 0o600))
+}
+
+func TestLoad_LocalLLMIsOffByDefault(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	cfg, err := Load()
+	require.NoError(t, err)
+
+	for name, backend := range map[string]string{"summary": cfg.LLMBackendSummary, "observation": cfg.LLMBackendObservation, "verify": cfg.LLMBackendVerify} {
+		assert.Equal(t, BackendClaude, backend, "task %s runs on the Claude CLI unless switched", name)
+	}
+	assert.True(t, cfg.LLMFallbackToClaude)
+	assert.Equal(t, "", cfg.OllamaModel, "no model is chosen for the user")
+	assert.Equal(t, 16384, cfg.OllamaNumCtx)
+	assert.Equal(t, 120, cfg.OllamaTimeoutSeconds)
+	assert.Equal(t, "10m", cfg.OllamaKeepAlive)
+}
+
+func TestLoad_LocalLLMSettings(t *testing.T) {
+	writeSettings(t, `{
+		"CLAUDE_MNEMONIC_OLLAMA_URL": " 127.0.0.1:11434 ",
+		"CLAUDE_MNEMONIC_OLLAMA_MODEL": "gemma3:12b",
+		"CLAUDE_MNEMONIC_OLLAMA_NUM_CTX": 8192,
+		"CLAUDE_MNEMONIC_OLLAMA_KEEP_ALIVE": "30m",
+		"CLAUDE_MNEMONIC_OLLAMA_TIMEOUT_SECONDS": 300,
+		"CLAUDE_MNEMONIC_LLM_BACKEND_SUMMARY": "Ollama",
+		"CLAUDE_MNEMONIC_LLM_BACKEND_VERIFY": " ollama ",
+		"CLAUDE_MNEMONIC_LLM_FALLBACK_TO_CLAUDE": false
+	}`)
+	cfg, err := Load()
+	require.NoError(t, err)
+
+	assert.Equal(t, "127.0.0.1:11434", cfg.OllamaURL)
+	assert.Equal(t, "gemma3:12b", cfg.OllamaModel)
+	assert.Equal(t, 8192, cfg.OllamaNumCtx)
+	assert.Equal(t, "30m", cfg.OllamaKeepAlive)
+	assert.Equal(t, 300, cfg.OllamaTimeoutSeconds)
+	assert.Equal(t, BackendOllama, cfg.LLMBackendSummary, "values are case-insensitive")
+	assert.Equal(t, BackendOllama, cfg.LLMBackendVerify)
+	assert.Equal(t, BackendClaude, cfg.LLMBackendObservation, "a task that is not mentioned stays on Claude")
+	assert.False(t, cfg.LLMFallbackToClaude)
+}
+
+func TestLoad_UnusableLocalLLMSettingsKeepTheDefaults(t *testing.T) {
+	writeSettings(t, `{
+		"CLAUDE_MNEMONIC_LLM_BACKEND_SUMMARY": "gpt",
+		"CLAUDE_MNEMONIC_LLM_BACKEND_OBSERVATION": 7,
+		"CLAUDE_MNEMONIC_OLLAMA_NUM_CTX": -5,
+		"CLAUDE_MNEMONIC_OLLAMA_TIMEOUT_SECONDS": "soon",
+		"CLAUDE_MNEMONIC_OLLAMA_KEEP_ALIVE": ""
+	}`)
+	cfg, err := Load()
+	require.NoError(t, err)
+
+	assert.Equal(t, BackendClaude, cfg.LLMBackendSummary, "an unknown backend is ignored, not trusted")
+	assert.Equal(t, BackendClaude, cfg.LLMBackendObservation)
+	assert.Equal(t, 16384, cfg.OllamaNumCtx)
+	assert.Equal(t, 120, cfg.OllamaTimeoutSeconds)
+	assert.Equal(t, "10m", cfg.OllamaKeepAlive)
+}
+
+func TestValidBackend(t *testing.T) {
+	assert.True(t, ValidBackend("claude"))
+	assert.True(t, ValidBackend("ollama"))
+	assert.False(t, ValidBackend(""))
+	assert.False(t, ValidBackend("Claude"), "callers normalise the case first")
+}

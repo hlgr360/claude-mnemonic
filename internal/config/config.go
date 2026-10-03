@@ -45,6 +45,12 @@ type Config struct {
 	ClaudeCodePath               string   `json:"claude_code_path"`
 	EmbeddingModel               string   `json:"embedding_model"`
 	VectorStorageStrategy        string   `json:"vector_storage_strategy"`
+	OllamaURL                    string   `json:"ollama_url"`
+	OllamaModel                  string   `json:"ollama_model"`
+	OllamaKeepAlive              string   `json:"ollama_keep_alive"`
+	LLMBackendSummary            string   `json:"llm_backend_summary"`
+	LLMBackendObservation        string   `json:"llm_backend_observation"`
+	LLMBackendVerify             string   `json:"llm_backend_verify"`
 	ContextObsConcepts           []string `json:"context_obs_concepts"`
 	ContextObsTypes              []string `json:"context_obs_types"`
 	ContextFullCount             int      `json:"context_full_count"`
@@ -53,6 +59,8 @@ type Config struct {
 	ContextRelevanceThreshold    float64  `json:"context_relevance_threshold"`
 	RerankingCandidates          int      `json:"reranking_candidates"`
 	WorkerPort                   int      `json:"worker_port"`
+	OllamaNumCtx                 int      `json:"ollama_num_ctx"`
+	OllamaTimeoutSeconds         int      `json:"ollama_timeout_seconds"`
 	DeduplicationThreshold       float64  `json:"deduplication_threshold"`
 	RerankingMinImprovement      float64  `json:"reranking_min_improvement"`
 	ContextObservations          int      `json:"context_observations"`
@@ -79,6 +87,7 @@ type Config struct {
 	RerankingEnabled             bool     `json:"reranking_enabled"`
 	ContextShowLastSummary       bool     `json:"context_show_last_summary"`
 	CleanupStaleObservations     bool     `json:"cleanup_stale_observations"`
+	LLMFallbackToClaude          bool     `json:"llm_fallback_to_claude"`
 }
 
 var (
@@ -141,17 +150,34 @@ func EnsureAll() error {
 	return nil
 }
 
+// LLM backends a task can run on.
+const (
+	BackendClaude = "claude"
+	BackendOllama = "ollama"
+)
+
+// ValidBackend reports whether v names a known LLM backend.
+func ValidBackend(v string) bool { return v == BackendClaude || v == BackendOllama }
+
 // DefaultEmbeddingModel is the default embedding model to use.
 const DefaultEmbeddingModel = "bge-v1.5"
 
 // Default returns a Config with default values.
 func Default() *Config {
 	return &Config{
-		WorkerPort:                DefaultWorkerPort,
-		DBPath:                    DBPath(),
-		MaxConns:                  4,
-		Model:                     DefaultModel,
-		EmbeddingModel:            DefaultEmbeddingModel,
+		WorkerPort:     DefaultWorkerPort,
+		DBPath:         DBPath(),
+		MaxConns:       4,
+		Model:          DefaultModel,
+		EmbeddingModel: DefaultEmbeddingModel,
+		// Local LLM (Ollama) is opt-in: every task runs on the Claude CLI unless a backend is set.
+		OllamaKeepAlive:           "10m",
+		OllamaNumCtx:              16384, // room for a compaction excerpt plus the prompt
+		OllamaTimeoutSeconds:      120,
+		LLMBackendSummary:         BackendClaude,
+		LLMBackendObservation:     BackendClaude,
+		LLMBackendVerify:          BackendClaude,
+		LLMFallbackToClaude:       true,  // an unreachable Ollama falls back to the CLI
 		RerankingEnabled:          true,  // Enable by default for improved relevance
 		RerankingCandidates:       100,   // Retrieve top 100 candidates
 		RerankingResults:          10,    // Return top 10 after reranking
@@ -220,6 +246,34 @@ func Load() (*Config, error) {
 	}
 	if v, ok := settings["CLAUDE_MNEMONIC_EMBEDDING_MODEL"].(string); ok && v != "" {
 		cfg.EmbeddingModel = v
+	}
+	// Local LLM (Ollama) settings
+	if v, ok := settings["CLAUDE_MNEMONIC_OLLAMA_URL"].(string); ok {
+		cfg.OllamaURL = strings.TrimSpace(v)
+	}
+	if v, ok := settings["CLAUDE_MNEMONIC_OLLAMA_MODEL"].(string); ok {
+		cfg.OllamaModel = strings.TrimSpace(v)
+	}
+	if v, ok := settings["CLAUDE_MNEMONIC_OLLAMA_KEEP_ALIVE"].(string); ok && v != "" {
+		cfg.OllamaKeepAlive = v
+	}
+	if v, ok := settings["CLAUDE_MNEMONIC_OLLAMA_NUM_CTX"].(float64); ok && v > 0 {
+		cfg.OllamaNumCtx = int(v)
+	}
+	if v, ok := settings["CLAUDE_MNEMONIC_OLLAMA_TIMEOUT_SECONDS"].(float64); ok && v > 0 {
+		cfg.OllamaTimeoutSeconds = int(v)
+	}
+	for key, target := range map[string]*string{
+		"CLAUDE_MNEMONIC_LLM_BACKEND_SUMMARY":     &cfg.LLMBackendSummary,
+		"CLAUDE_MNEMONIC_LLM_BACKEND_OBSERVATION": &cfg.LLMBackendObservation,
+		"CLAUDE_MNEMONIC_LLM_BACKEND_VERIFY":      &cfg.LLMBackendVerify,
+	} {
+		if v, ok := settings[key].(string); ok && ValidBackend(strings.ToLower(strings.TrimSpace(v))) {
+			*target = strings.ToLower(strings.TrimSpace(v))
+		}
+	}
+	if v, ok := settings["CLAUDE_MNEMONIC_LLM_FALLBACK_TO_CLAUDE"].(bool); ok {
+		cfg.LLMFallbackToClaude = v
 	}
 	// Reranking settings
 	if v, ok := settings["CLAUDE_MNEMONIC_RERANKING_ENABLED"].(bool); ok {

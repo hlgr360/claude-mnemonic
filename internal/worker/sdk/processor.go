@@ -19,6 +19,7 @@ import (
 
 	"github.com/lukaszraczylo/claude-mnemonic/internal/config"
 	"github.com/lukaszraczylo/claude-mnemonic/internal/db/gorm"
+	"github.com/lukaszraczylo/claude-mnemonic/internal/llm"
 	"github.com/lukaszraczylo/claude-mnemonic/internal/vector/sqlitevec"
 	"github.com/lukaszraczylo/claude-mnemonic/pkg/models"
 	"github.com/lukaszraczylo/claude-mnemonic/pkg/similarity"
@@ -252,6 +253,7 @@ type Processor struct {
 	vectorSyncChan      chan *models.Observation
 	vectorSyncDone      chan struct{}
 	sem                 chan struct{}
+	completers          map[Task]llm.Completer
 	claudePath          string
 	model               string
 	vectorSyncWg        sync.WaitGroup
@@ -292,23 +294,27 @@ const MaxConcurrentCLICalls = 4
 func NewProcessor(observationStore *gorm.ObservationStore, summaryStore *gorm.SummaryStore) (*Processor, error) {
 	cfg := config.Get()
 
-	// Find Claude Code CLI
+	// Find Claude Code CLI. It is only required while some task can run on it: with every task on
+	// Ollama and no fallback, the worker works without the CLI.
 	claudePath := cfg.ClaudeCodePath
 	if claudePath == "" {
 		// Try to find in PATH
 		path, err := exec.LookPath("claude")
-		if err != nil {
+		if err == nil {
+			claudePath = path
+		} else if needsClaude(cfg) {
 			return nil, fmt.Errorf("claude CLI not found in PATH and CLAUDE_CODE_PATH not set")
 		}
-		claudePath = path
 	}
 
 	// Verify it exists
-	if _, err := os.Stat(claudePath); err != nil {
-		return nil, fmt.Errorf("claude CLI not found at %s: %w", claudePath, err)
+	if claudePath != "" {
+		if _, err := os.Stat(claudePath); err != nil && needsClaude(cfg) {
+			return nil, fmt.Errorf("claude CLI not found at %s: %w", claudePath, err)
+		}
 	}
 
-	return &Processor{
+	p := &Processor{
 		claudePath:       claudePath,
 		model:            cfg.Model,
 		observationStore: observationStore,
@@ -318,7 +324,9 @@ func NewProcessor(observationStore *gorm.ObservationStore, summaryStore *gorm.Su
 		deduplicator:     NewRequestDeduplicator(300, 1000),                      // 5-minute TTL, 1000 max entries
 		vectorSyncChan:   make(chan *models.Observation, MaxVectorSyncWorkers*2), // Buffered channel
 		vectorSyncDone:   make(chan struct{}),
-	}, nil
+	}
+	p.completers = buildCompleters(cfg, p.claudeCompleter(), NewOllamaFromConfig(cfg))
+	return p, nil
 }
 
 // StartVectorSyncWorkers starts the bounded worker pool for vector sync operations.
@@ -373,10 +381,15 @@ func (p *Processor) CircuitBreakerMetrics() CircuitBreakerMetrics {
 	return p.circuitBreaker.Metrics()
 }
 
-// IsAvailable checks if the Claude CLI is available for processing.
+// IsAvailable checks if processing can run: the Claude CLI exists, or every task is served by
+// another backend.
 func (p *Processor) IsAvailable() bool {
-	_, err := os.Stat(p.claudePath)
-	return err == nil
+	if p.claudePath != "" {
+		if _, err := os.Stat(p.claudePath); err == nil {
+			return true
+		}
+	}
+	return len(p.completers) == 3 // every task has a local backend, so the CLI is not needed
 }
 
 // ProcessObservation processes a single tool observation and extracts insights.
@@ -432,8 +445,8 @@ func (p *Processor) ProcessObservation(ctx context.Context, sdkSessionID, projec
 		return ctx.Err()
 	}
 
-	// Call Claude Code CLI
-	response, err := p.callClaudeCLI(ctx, prompt)
+	// Call the backend configured for observations (the Claude CLI unless Ollama is selected)
+	response, err := p.complete(ctx, TaskObservation, prompt)
 	if err != nil {
 		p.circuitBreaker.RecordFailure()
 		log.Error().Err(err).Str("tool", toolName).Msg("Failed to call Claude CLI for observation")
@@ -594,10 +607,10 @@ func (p *Processor) ProcessSummaryConversation(ctx context.Context, sessionDBID 
 		return ctx.Err()
 	}
 
-	// Call Claude Code CLI
-	response, err := p.callClaudeCLI(ctx, prompt)
+	// Call the backend configured for summaries (the Claude CLI unless Ollama is selected)
+	response, err := p.complete(ctx, TaskSummary, prompt)
 	if err != nil {
-		log.Error().Err(err).Int64("sessionId", sessionDBID).Msg("Failed to call Claude CLI for summary")
+		log.Error().Err(err).Int64("sessionId", sessionDBID).Msg("Failed to get a summary from the LLM backend")
 		return err
 	}
 
@@ -1062,8 +1075,8 @@ Your response:`,
 		strings.Join(fileContents, "\n\n"),
 	)
 
-	// Call Claude CLI for quick verification
-	response, err := p.callClaudeCLI(ctx, prompt)
+	// Quick verification on the backend configured for it
+	response, err := p.complete(ctx, TaskVerify, prompt)
 	if err != nil {
 		log.Warn().Err(err).Msg("Failed to verify observation, keeping it")
 		return true // On error, keep the observation
