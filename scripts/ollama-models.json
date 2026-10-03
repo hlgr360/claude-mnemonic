@@ -1,0 +1,45 @@
+{
+  "note": "Models the setup script offers for claude-mnemonic's optional local LLM backend. 'status' is what we know from comparing them on real turns (see issue #26); nothing is recommended until a model passes that comparison. Sizes are approximate downloads.",
+  "models": [
+    {
+      "name": "gemma3:12b",
+      "size_gb": 8.1,
+      "license": "Gemma terms of use",
+      "status": "candidate",
+      "notes": "Likely the best of the shortlist at faithful summaries of long input; the largest."
+    },
+    {
+      "name": "granite3.3:8b",
+      "aliases": [
+        "granite3.3",
+        "granite3.3:latest"
+      ],
+      "size_gb": 4.9,
+      "license": "Apache-2.0",
+      "status": "candidate",
+      "notes": "Built for extraction and summarisation; permissive licence."
+    },
+    {
+      "name": "llama3.1:8b",
+      "aliases": [
+        "llama3.1",
+        "llama3.1:latest"
+      ],
+      "size_gb": 4.9,
+      "license": "Llama community licence",
+      "status": "candidate",
+      "notes": "Same family as llama3.2, so it shows how much of the failure was model size."
+    },
+    {
+      "name": "llama3.2:3b",
+      "aliases": [
+        "llama3.2",
+        "llama3.2:latest"
+      ],
+      "size_gb": 2.0,
+      "license": "Llama community licence",
+      "status": "poor",
+      "notes": "Tested as a summarizer on real turns with the current prompt: generic and sometimes wrong. Fine for nothing that needs facts."
+    }
+  ]
+}

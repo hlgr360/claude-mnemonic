@@ -175,6 +175,11 @@ machine. Nothing changes unless you switch a task; `GET /api/llm/status` shows w
 | `OLLAMA_KEEP_ALIVE` | `10m` | How long Ollama keeps the model in memory |
 | `OLLAMA_TIMEOUT_SECONDS` | `120` | Per-request timeout |
 
+`make install-ollama` does the setup for you: it finds Ollama, shows which of the models we know are installed,
+downloads the one you pick (only after asking), checks that it answers, and saves the choice. It switches no task
+over unless you name it (`python3 scripts/setup-ollama.py --model gemma3:12b --task verify --yes` is the
+non-interactive form; add `--dry-run` to preview). `make uninstall-ollama` puts every task back on the Claude CLI.
+
 Small models write noticeably worse summaries than Haiku. In a test with `llama3.2:3b` on real turns the
 summaries were generic and sometimes wrong, so pick a model by comparing it on your own sessions first.
 
