@@ -96,7 +96,8 @@ Five memory prompts that should use claude-mnemonic and three plain prompts that
 |---|---|---|
 | Baseline | 0 of 5 | 3 of 3 |
 | Tool descriptions reworded to say "persistent project memory" (server verified to advertise them) | 0 of 5 | not run |
-| Connector renamed to `memory` and the instruction added | works; one prompt measured so far (1 of 1) | not run |
+| Connector renamed to `memory` and the instruction added | works; one prompt measured (1 of 1) | not run |
+| Default name `claude-mnemonic` and the instruction | observed working in daily use; the full prompt set was not run | not run |
 
 What this tells us, and what it does not:
 
@@ -105,8 +106,8 @@ What this tells us, and what it does not:
   nothing. The instruction acts before that decision.
 - Naming the tools in the prompt always worked, so the tools themselves are fine.
 - The last row changed two things at once (the connector name and the instruction), so the effect of each is not
-  separated. The full set with the default connector name and the instruction is the number that matters; it is
-  recorded in issue #16 when measured.
+  separated. The final setup (default name plus the instruction) was judged by daily use and not measured with the
+  full set, so there is no number for it; run the prompts below to measure it on your own machine.
 - Chat is a model: no wording can force it to call a tool. The server enforces the rules that matter regardless
   (no project, no write; a shared name is never guessed).
 
