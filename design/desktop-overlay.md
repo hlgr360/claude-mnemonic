@@ -1,6 +1,9 @@
-# claude-mnemonic: Claude Desktop overlay (design sketch)
+# claude-mnemonic: Claude Desktop overlay (design)
 
-Status: proposal, 2026-10-03. Based on measured client behaviour (see "Evidence"), not on documentation.
+Status: **implemented** on branch `feat/desktop-overlay` (issues #2 to #7). This document keeps the
+measurements and decisions; the "What was built" section at the end records where the result differs
+from the first sketch. User-facing instructions are in `DESKTOP.md`.
+
 Goal: use one claude-mnemonic memory store from Claude Code (terminal and Desktop Code tab), Cowork and
 Desktop chat, with the same project layout, without changing Claude Code's native behaviour.
 
@@ -140,3 +143,54 @@ Points to get right:
 - Consider making the project list explicit (union of sessions and observations) so a project cannot linger or
   disappear depending on which table was cleaned.
 - Reuses the alias table from section 3, so build the two together (rollout step 1/5).
+
+## 10. What was built, and where it differs from the sketch
+
+Identity (#2)
+- Worktrees resolve to their main repository by reading the `.git` file and its `commondir` (no git
+  subprocess). A real-worktree end-to-end run showed git records symlink-resolved paths (macOS `/var` is
+  `/private/var`), which split one project in two; the main root is now translated back into the spelling
+  the caller used. Plain checkouts keep their ids, so nothing is migrated.
+- Alias table, resolver (`internal/projects`) and `/api/projects/{summary,resolve,aliases}` as planned.
+
+Desktop mode (#3, #4)
+- Mode is detected from `clientInfo.name`; the project default is computed (never mutated) and the client
+  name sits behind a lock, because the existing tests call initialize and tools/list concurrently.
+- `project_suggest` is served by the worker (`/api/projects/suggest`): it needs the vector index. With no
+  project chosen, `search` uses a new `/api/search/cross-project`, because the existing search endpoint
+  requires a project.
+- `remember` has its own endpoint (`/api/observations/remember`), not bulk-import: that has a 60-second
+  cooldown and a synthetic session per call. The project is mandatory and must exist unless it came from a
+  real folder path.
+- The protocol text is in the tool descriptions and repeated in tool results, because chat ignores
+  initialize instructions.
+
+Prune and merge (#5)
+- One transaction covers every table including the sqlite-vec rows. Merge updates the vectors' `project`
+  column in place (vec0 supports that; `INSERT OR REPLACE` it does not), so nothing is re-embedded.
+- Delete and merge preview first; the confirmation token is derived from the action, the project and its
+  current counts. A snapshot (`VACUUM INTO`) is taken first and a failed snapshot aborts the change.
+- These are read-then-write transactions. With the worker's asynchronous vector sync writing at the same
+  time, SQLite fails them with `SQLITE_BUSY_SNAPSHOT` (the busy timeout does not apply). They now take the
+  write lock up front (`immediateTx`). Found by a browser end-to-end run, reproduced by a unit test.
+- Dashboard: "Manage projects" in the project dropdown. `/api/projects` is cacheable for five minutes, so the
+  dropdown bypasses the cache on every open.
+- `project_manage` exposes the same to the model, accepting exact ids only and never resolving aliases or
+  names for a destructive action.
+
+Installer (#6)
+- `scripts/install-desktop.py` makes surgical text edits so the rest of the config is untouched, verifies
+  the result structurally, backs up with unique names, and supports `--dry-run`, `status` and `uninstall`.
+  Verified on a copy of a real Desktop config (install then uninstall restores it byte for byte).
+- A `.mcpb` bundle was not built; the installer covers the same need.
+
+Not done
+- The MCP Apps project picker for chat.
+- Windows and Linux paths are written but untested.
+- Issue #7 (the real `mcp-server` inside Desktop) needs the user's Desktop and is left for them to run:
+  `make install-desktop`, restart Desktop, ask a chat to search memory.
+
+Verification: unit tests in every touched package (race detector on), `npm test` for the dashboard client,
+installer tests, and end-to-end runs of the built binaries against an isolated worker: Desktop mode over
+stdio, a real worktree, real embeddings, merge and delete, the lazy worker start, and the dashboard in
+headless Chrome (30 checks, repeated on fresh data).
