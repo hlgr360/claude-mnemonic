@@ -138,13 +138,21 @@ class ReleaseWorkflowTest(unittest.TestCase):
         self.assertIn("name: archive-plugin", self.text)
         self.assertIn("sha256sum claude-mnemonic_* claude-mnemonic-plugin_*", self.text)
 
-    def test_upstreams_release_workflow_only_runs_in_upstreams_repository(self):
-        # It needs a GoReleaser Pro key. A fork of this fork does not inherit the repository setting that switched it
-        # off here, so the file itself must skip its jobs outside upstream's repository.
+    def test_upstreams_own_workflows_only_run_in_upstreams_repository(self):
+        # release.yaml needs a GoReleaser Pro key, autoupdate.yaml upstream's Renovate tokens and release pipeline,
+        # static.yml upstream's Pages site. A fork of this fork does not inherit the repository settings that switched
+        # them off here, so each file must skip its first job outside upstream's repository. Later jobs in the file
+        # depend on it, so they are skipped too.
+        guard = r"if: github\.repository == 'lukaszraczylo/claude-mnemonic'\n"
+        for name, job in (("release.yaml", "release"), ("autoupdate.yaml", "update"), ("static.yml", "build")):
+            with self.subTest(workflow=name):
+                with open(os.path.join(REPO_ROOT, ".github", "workflows", name), encoding="utf-8") as f:
+                    text = f.read()
+                self.assertRegex(text, r"\njobs:\n( +)" + job + r":\n(?:\1 +#.*\n)*\1 +" + guard)
         with open(os.path.join(REPO_ROOT, ".github", "workflows", "release.yaml"), encoding="utf-8") as f:
-            upstream = f.read()
-        self.assertRegex(upstream, r"jobs:\n    release:\n(?:        #.*\n)*        if: github\.repository == 'lukaszraczylo/claude-mnemonic'\n        uses: ")
-        self.assertRegex(upstream, r"commit-marketplace:\n        needs: release\n", "the second job depends on the guarded one, so it is skipped with it")
+            self.assertRegex(f.read(), r"commit-marketplace:\n +needs: release\n")
+        with open(os.path.join(REPO_ROOT, ".github", "workflows", "static.yml"), encoding="utf-8") as f:
+            self.assertRegex(f.read(), r"deploy:\n(?:.*\n)*? +needs: build\n")
 
     def test_does_not_use_the_upstream_shared_workflow(self):
         self.assertNotIn("lukaszraczylo", self.text)
