@@ -255,6 +255,29 @@ try {
   check('the sidebar shows the real graph numbers', true)
   check('the timeline note is not shown on the graph', await evaluate(`!document.querySelector('[data-testid=showing-note]')`))
 
+  console.log('== the Search Analytics popup shows what the worker counted, and does not fail')
+  for (const q of ['webhook retry backoff', 'webhook signing payloads', 'zzqx unrelated gibberish words']) {
+    await worker(`/api/context/search?project=${ids.main_proj}&query=${encodeURIComponent(q)}`)
+  }
+  const counted = await worker('/api/search/analytics')
+  check('the worker counted the searches and returns the keys the popup reads', counted.total_queries >= 3 && ['vector_searches', 'keyword_searches', 'avg_results', 'zero_result_rate', 'query_types', 'top_keywords'].every(k => k in counted), JSON.stringify(counted))
+  await waitFor(`!!document.querySelector('[title="View detailed analytics"]')`, 'the retrieval stats button')
+  await evaluate(`document.querySelector('[title="View detailed analytics"]').click()`)
+  await waitFor(`!!document.querySelector('[data-testid=search-analytics]') && (!!document.querySelector('[data-testid=stat-total]') || !!document.querySelector('[data-testid=search-analytics-error]'))`, 'the popup to load')
+  check('the popup opens without an error', await evaluate(`!document.querySelector('[data-testid=search-analytics-error]')`), await evaluate(`document.querySelector('[data-testid=search-analytics-error]')?.innerText ?? ''`))
+  const shown = (id) => evaluate(`document.querySelector('[data-testid=${id}]')?.innerText.trim() ?? ''`)
+  check('it shows the total the worker counted', Number((await shown('stat-total')).replace(/,/g, '')) === counted.total_queries, await shown('stat-total'))
+  check('and the split into vector and keyword searches, which add up', Number(await shown('stat-vector')) + Number(await shown('stat-keyword')) === counted.total_queries, `${await shown('stat-vector')} + ${await shown('stat-keyword')}`)
+  const pct = (n) => `${Math.min(100, Math.max(0, n)).toFixed(1)}%`
+  check('the share that found nothing and the share that used the vector index are the worker\'s own numbers', (await shown('rate-zero')) === pct(counted.zero_result_rate) && (await shown('rate-vector')) === pct(counted.vector_search_rate), `${await shown('rate-zero')} / ${await shown('rate-vector')} vs ${JSON.stringify([counted.zero_result_rate, counted.vector_search_rate])}`)
+  check('the most searched words are listed', await evaluate(`[...document.querySelectorAll('[data-testid=top-keyword]')].some(e => e.innerText.startsWith('webhook'))`))
+  check('the recent searches are listed, newest first', await evaluate(`(() => { const r = [...document.querySelectorAll('[data-testid=recent-search]')]; return r.length >= 3 && r[0].innerText.includes('gibberish') })()`))
+  const popupText = await evaluate(`document.querySelector('[data-testid=search-analytics]').innerText`)
+  check('nothing on it is NaN or undefined', !/NaN|undefined|null/.test(popupText), popupText.slice(0, 300))
+  await evaluate(`document.querySelector('[data-testid=search-analytics-close]').click()`)
+  await waitFor(`!document.querySelector('[data-testid=search-analytics]')`, 'the popup to close')
+  check('it closes', true)
+
   console.log('== scopes: the badge, the filter and the review dialog')
   const scopedRows = async () => { const r = await worker(`/api/observations?project=${ids.scoped}&limit=50`); return r.observations ?? r }
   const scopeOfTitle = async (title) => (await scopedRows()).find(o => o.title === title)?.scope
