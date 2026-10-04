@@ -29,7 +29,7 @@ All of these are run before pushing. The Go tests need the `fts5` build tag (`ma
 | Struct alignment (also on tests) | `GOFLAGS=-tags=fts5 go run golang.org/x/tools/go/analysis/passes/fieldalignment/cmd/fieldalignment@latest ./...` |
 | Go tests with the race detector | `go test -tags fts5 -race -count=1 ./...` |
 | UI types and tests | `cd ui && npx vue-tsc --noEmit && npm test` |
-| Python script tests | `make test-scripts` |
+| Python script tests (installers, release packer and workflow) | `make test-scripts` |
 | End-to-end | `scripts/e2e/run.sh` |
 
 Known baseline, so you do not chase it: `internal/update` `TestExtractTarGz_FilePermissionsPreserved` fails on an untouched `main` (shell umask), `internal/vector/sqlitevec` can abort at exit with an ONNX `recursive_mutex lock failed` although every test passed, and `TestRunBriefPass_RewritesInPlace…` compares millisecond timestamps and fails now and then in a full `internal/worker` run (it passes alone). Anything else failing is yours.
@@ -58,6 +58,16 @@ The in-app updater, the install and uninstall scripts and the release scripts ta
 | Signing identity the updater accepts | any workflow of that repository | `-X …/internal/update.CertificateIdentityRegexp=<regexp>` (for releases signed by a reusable workflow in another repository) |
 | `install.sh`, `install.ps1`, `register-plugin.sh`, `update-marketplace.sh` | `hlgr360/claude-mnemonic` | `MNEMONIC_REPO=owner/name` |
 | Marketplace name the install, register and uninstall scripts use | `claude-mnemonic` | `MNEMONIC_MARKETPLACE=name` |
+
+## Releasing
+
+Releases are built by `.github/workflows/release-native.yaml` ("Release (fork)"). Upstream's `release.yaml` (a shared reusable workflow that needs a GoReleaser Pro key) is disabled in this fork's settings and left untouched so upstream merges stay clean; do not enable it.
+
+- **What it does.** One job per native runner (macOS arm64, Linux amd64, Windows amd64: the build uses CGO) runs `scripts/build-release.sh <version>`, which builds the dashboard and the nine binaries and packs `claude-mnemonic_<version>_<os>_<arch>.tar.gz` (`.zip` on Windows) in the layout the updater and the install scripts unpack. A last job writes `checksums.txt`, signs it with cosign (keyless, so no key to keep), **verifies the signature with the same arguments the in-app updater uses**, and publishes the GitHub release with the archives, `checksums.txt` and `checksums.txt.sigstore.json`.
+- **Only a `v*` tag publishes.** A pull request that touches the release files, and a manual run (`gh workflow run release-native.yaml --repo hlgr360/claude-mnemonic`), only build and keep the archives as workflow artifacts for seven days.
+- **Cutting a release** (the maintainer's call, because it is public and cannot be taken back cleanly): `git tag vX.Y.Z && git push origin vX.Y.Z` on a merged `main`. The version number is the tag; it is stamped into the binaries and the plugin manifest.
+- **Build one locally** on a supported platform: `scripts/build-release.sh 0.0.1-local` (`DIST=<dir>` for the output, `SKIP_UI=1` to reuse an existing dashboard build). It rewrites `ui/package.json`, `ui/tsconfig.tsbuildinfo` and `internal/worker/static`; restore them with `git checkout --` before committing. Do not run the unpacked `worker` to read its version: it has no version flag and starts a real worker.
+- **`.goreleaser.yaml`** is no longer the release path. It is kept valid because the pull request check runs `goreleaser check` on it.
 
 ## Security scanning
 

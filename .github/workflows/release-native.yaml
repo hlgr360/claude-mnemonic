@@ -1,0 +1,169 @@
+name: Release (fork)
+
+# Builds the release on native runners (the build uses CGO), signs the checksums with cosign (keyless) and, for a version
+# tag, publishes the GitHub release. Pull requests and manual runs only build and upload the archives as workflow
+# artifacts; nothing is published without a v* tag. Upstream's release.yaml (shared reusable workflow, GoReleaser Pro) is
+# disabled in this fork and stays untouched, so upstream merges do not conflict with this file.
+#
+# The signature's certificate identity is this workflow's path at the tag, which is what the in-app updater accepts
+# (internal/update: any workflow of the release repository).
+
+on:
+    push:
+        tags:
+            - "v*"
+    pull_request:
+        paths:
+            - ".github/workflows/release-native.yaml"
+            - "scripts/build-release.sh"
+            - "scripts/package_release.py"
+            - "scripts/generate-plugin-config.sh"
+            - "scripts/download-onnx-libs.sh"
+            - "workflow-prepare.sh"
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+concurrency:
+    group: release-${{ github.ref }}
+    cancel-in-progress: false
+
+jobs:
+    version:
+        name: Version
+        runs-on: ubuntu-latest
+        outputs:
+            version: ${{ steps.v.outputs.version }}
+            publish: ${{ steps.v.outputs.publish }}
+        steps:
+            - name: Work out the version
+              id: v
+              shell: bash
+              run: |
+                  if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+                    version="${GITHUB_REF_NAME#v}"
+                    if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+                      echo "::error::tag $GITHUB_REF_NAME is not of the form vX.Y.Z"
+                      exit 1
+                    fi
+                    echo "publish=true" >> "$GITHUB_OUTPUT"
+                  else
+                    version="0.0.0-ci.${GITHUB_RUN_NUMBER}"
+                    echo "publish=false" >> "$GITHUB_OUTPUT"
+                  fi
+                  echo "version=$version" >> "$GITHUB_OUTPUT"
+                  echo "Version: $version"
+
+    build:
+        name: Build (${{ matrix.platform }})
+        needs: version
+        runs-on: ${{ matrix.os }}
+        timeout-minutes: 60
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - { os: macos-latest, platform: darwin-arm64, goos: darwin, goarch: arm64 }
+                    - { os: ubuntu-latest, platform: linux-amd64, goos: linux, goarch: amd64 }
+                    - { os: windows-latest, platform: windows-amd64, goos: windows, goarch: amd64 }
+        defaults:
+            run:
+                shell: bash
+        steps:
+            - uses: actions/checkout@v7
+
+            - uses: actions/setup-go@v7
+              with:
+                  go-version-file: go.mod
+                  cache: true
+
+            - uses: actions/setup-node@v7
+              with:
+                  node-version: "22"
+                  cache: npm
+                  cache-dependency-path: ui/package-lock.json
+
+            # Windows needs the SQLite headers for CGO; the test models are not needed to build.
+            - name: Prepare the toolchain
+              env:
+                  TARGET_GOOS: ${{ matrix.goos }}
+                  TARGET_GOARCH: ${{ matrix.goarch }}
+                  SKIP_MODELS: "1"
+              run: ./workflow-prepare.sh
+
+            - name: Build the archive
+              env:
+                  DIST: dist
+                  VERSION: ${{ needs.version.outputs.version }}
+              run: scripts/build-release.sh "$VERSION"
+
+            - uses: actions/upload-artifact@v7
+              with:
+                  name: archive-${{ matrix.platform }}
+                  path: dist/claude-mnemonic_*
+                  if-no-files-found: error
+                  retention-days: 7
+
+    publish:
+        name: Sign and publish
+        needs: [version, build]
+        if: needs.version.outputs.publish == 'true'
+        runs-on: ubuntu-latest
+        permissions:
+            contents: write
+            id-token: write
+        steps:
+            - uses: actions/download-artifact@v8
+              with:
+                  path: dist
+                  pattern: archive-*
+                  merge-multiple: true
+
+            - name: Checksums
+              working-directory: dist
+              run: |
+                  sha256sum claude-mnemonic_* | sort -k2 > checksums.txt
+                  cat checksums.txt
+                  test "$(wc -l < checksums.txt)" -eq 3
+
+            - uses: sigstore/cosign-installer@v4.1.2
+
+            - name: Sign the checksums (keyless)
+              working-directory: dist
+              run: cosign sign-blob --yes --bundle checksums.txt.sigstore.json checksums.txt
+
+            # The same check the in-app updater makes, so a release the updater would reject never gets published.
+            - name: Verify the signature the way the updater does
+              working-directory: dist
+              run: |
+                  cosign verify-blob \
+                    --bundle checksums.txt.sigstore.json \
+                    --certificate-identity-regexp "^https://github\.com/${GITHUB_REPOSITORY}/.*\$" \
+                    --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+                    checksums.txt
+
+            - name: Publish the release
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  VERSION: ${{ needs.version.outputs.version }}
+              run: |
+                  flags=()
+                  if [[ "$VERSION" == *-* ]]; then flags+=(--prerelease); fi
+                  {
+                    echo "## Claude Mnemonic v${VERSION}"
+                    echo
+                    echo "Persistent memory system for Claude Code and Claude Desktop."
+                    echo
+                    echo '```bash'
+                    echo "curl -sSL https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/scripts/install.sh | bash"
+                    echo '```'
+                    echo
+                  } > notes.md
+                  gh release create "$GITHUB_REF_NAME" dist/* \
+                    --repo "$GITHUB_REPOSITORY" \
+                    --verify-tag \
+                    --title "v${VERSION}" \
+                    --notes-file notes.md \
+                    --generate-notes \
+                    "${flags[@]}"
