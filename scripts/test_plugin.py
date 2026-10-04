@@ -275,7 +275,7 @@ class BuildPlugin(unittest.TestCase):
         files = sorted(os.path.relpath(os.path.join(r, n), f.tree) for r, _d, ns in os.walk(f.tree) for n in ns)
         self.assertEqual(
             files,
-            sorted([".claude-plugin/plugin.json", "LICENSE", "commands/dashboard.md", "commands/restart.md", "hooks/hooks.json", "lib/ensure-binaries.sh", "mcp-server", "skills/project-memory/SKILL.md"] + [f"hooks/{h}" for h in HOOKS]),
+            sorted([".claude-plugin/plugin.json", "LICENSE", "hooks/hooks.json", "lib/ensure-binaries.sh", "mcp-server", "skills/dashboard/SKILL.md", "skills/project-memory/SKILL.md", "skills/restart/SKILL.md"] + [f"hooks/{h}" for h in HOOKS]),
         )
         with open(os.path.join(f.tree, ".claude-plugin", "plugin.json"), encoding="utf-8") as fh:
             manifest = json.load(fh)
@@ -284,6 +284,8 @@ class BuildPlugin(unittest.TestCase):
         self.assertEqual(manifest["mcpServers"]["claude-mnemonic"]["command"], "${CLAUDE_PLUGIN_ROOT}/mcp-server")
         # A `commands` list in the manifest replaces the default commands/ scan, which hid /claude-mnemonic:dashboard.
         self.assertNotIn("commands", manifest)
+        # commands/ is the older format: the slash commands ship as skills, so there is no commands/ directory.
+        self.assertFalse(os.path.exists(os.path.join(f.tree, "commands")))
         for h in HOOKS:
             self.assertTrue(os.access(os.path.join(f.tree, "hooks", h), os.X_OK), h)
         # Cowork does not install a plugin that has a top-level bin/ directory.
@@ -350,6 +352,45 @@ class MemorySkill(unittest.TestCase):
         self.assertEqual(front.count("\n"), 3, "name and description, each on one line")
 
 
+class CommandsAsSkills(unittest.TestCase):
+    """The slash commands ship as skills (commands/ is the older format); /claude-mnemonic:<name> does not change."""
+
+    def front_and_body(self, text):
+        _, front, body = text.split("---\n", 2)
+        return dict(line.split(": ", 1) for line in front.strip().split("\n")), body
+
+    def test_every_command_becomes_a_user_only_skill_with_the_same_body(self):
+        f = Fixture(self)
+        names = sorted(n[:-3] for n in os.listdir(os.path.join(REPO_ROOT, "commands")) if n.endswith(".md"))
+        self.assertEqual(names, ["dashboard", "restart"])
+        for name in names:
+            with open(os.path.join(REPO_ROOT, "commands", name + ".md"), encoding="utf-8") as fh:
+                source_front, source_body = self.front_and_body(fh.read())
+            with open(os.path.join(f.tree, "skills", name, "SKILL.md"), encoding="utf-8") as fh:
+                front, body = self.front_and_body(fh.read())
+            self.assertEqual(front["name"], name, "the name is the directory, so the slash command is unchanged")
+            self.assertEqual(front["disable-model-invocation"], "true", f"{name}: the model must not run it on its own")
+            self.assertEqual(body, source_body)
+            for key, value in source_front.items():
+                self.assertEqual(front[key], value, f"{name}: {key} is kept")
+
+    def test_the_converter_refuses_a_command_it_would_change_the_meaning_of(self):
+        import commands_to_skills
+
+        for text in ("no front matter\n", "---\ndescription: x\nno closing line\n", "---\nname: other\ndescription: x\n---\nbody\n", "---\ndisable-model-invocation: false\n---\nbody\n"):
+            with self.subTest(text=text):
+                with self.assertRaises(ValueError):
+                    commands_to_skills.convert(text, "x")
+
+    def test_the_converter_command_line_writes_one_skill_per_command(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        write(os.path.join(tmp.name, "commands", "hello.md"), "---\ndescription: Say hello\n---\n\n# Hello\n", 0o644)
+        subprocess.run([sys.executable, os.path.join(HERE, "commands_to_skills.py"), os.path.join(tmp.name, "commands"), os.path.join(tmp.name, "skills")], check=True)
+        with open(os.path.join(tmp.name, "skills", "hello", "SKILL.md"), encoding="utf-8") as fh:
+            self.assertEqual(fh.read(), "---\nname: hello\ndisable-model-invocation: true\ndescription: Say hello\n---\n\n# Hello\n")
+
+
 class ValidationFilter(unittest.TestCase):
     """The build accepts the reserved-name error and nothing else (the claude CLI is replaced by a fake)."""
 
@@ -390,7 +431,7 @@ class ValidationFilter(unittest.TestCase):
         self.assertNotEqual(out.returncode, 0)
         self.assertIn("warning", out.stderr)
 
-    def test_a_problem_in_the_skill_or_commands_fails_the_build(self):
+    def test_a_problem_in_the_skills_fails_the_build(self):
         out = self.build_with({"manifest": {"errors": [self.NAME_ERROR], "warnings": []}, "contents": []}, component_exit=1)
         self.assertNotEqual(out.returncode, 0)
         self.assertIn("component problem", out.stderr)
