@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useConflictCount, useSSE, useStats, useTimeline, useTotals, useUpdate, useHealth } from '@/composables'
 import { showingText } from '@/utils/counts'
 import Header from '@/components/Header.vue'
@@ -8,6 +8,7 @@ import FilterTabs from '@/components/FilterTabs.vue'
 import Timeline from '@/components/Timeline.vue'
 import ConflictsPanel from '@/components/ConflictsPanel.vue'
 import GraphView from '@/components/GraphView.vue'
+import ScopeReview from '@/components/ScopeReview.vue'
 import Sidebar from '@/components/Sidebar.vue'
 
 // Composables
@@ -25,12 +26,15 @@ const {
   currentProject,
   currentTypeFilter,
   currentConceptFilter,
+  currentScopeFilter,
   refresh,
   setFilter,
   setProject,
   setTypeFilter,
-  setConceptFilter
+  setConceptFilter,
+  setScopeFilter
 } = useTimeline()
+const showScopeReview = ref(false)
 // Pass currentProject ref to useStats for project-specific retrieval stats
 const { stats } = useStats(currentProject)
 // The real totals; the timeline only holds the newest part of each list
@@ -106,12 +110,15 @@ function onConflictsChanged() {
             :current-filter="currentFilter"
             :current-type-filter="currentTypeFilter"
             :current-concept-filter="currentConceptFilter"
+            :current-scope-filter="currentScopeFilter"
             :observation-count="totals?.observations ?? observationCount"
             :prompt-count="totals?.prompts ?? promptCount"
             :conflict-count="conflictCount"
             @update:filter="setFilter"
             @update:type-filter="setTypeFilter"
             @update:concept-filter="setConceptFilter"
+            @update:scope-filter="setScopeFilter"
+            @review-scopes="showScopeReview = true"
           />
 
           <p v-if="showing && currentFilter !== 'conflicts' && currentFilter !== 'graph'" data-testid="showing-note" class="text-xs text-slate-500 -mt-2 mb-3 px-1">
@@ -140,6 +147,8 @@ function onConflictsChanged() {
         </section>
       </div>
     </main>
+
+    <ScopeReview v-if="showScopeReview" @close="showScopeReview = false" @applied="refresh" />
   </div>
 </template>
 

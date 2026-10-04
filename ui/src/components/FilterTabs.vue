@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import type { FilterType, ObservationType, ConceptType } from '@/types'
+import type { ScopeFilter } from '@/utils/scope'
 import { useTypes } from '@/composables/useTypes'
 
 defineProps<{
   currentFilter: FilterType
   currentTypeFilter: ObservationType | null
   currentConceptFilter: ConceptType | null
+  currentScopeFilter?: ScopeFilter
   observationCount: number
   promptCount: number
   conflictCount?: number
@@ -15,6 +17,8 @@ const emit = defineEmits<{
   'update:filter': [filter: FilterType]
   'update:typeFilter': [type: ObservationType | null]
   'update:conceptFilter': [concept: ConceptType | null]
+  'update:scopeFilter': [scope: ScopeFilter]
+  reviewScopes: []
 }>()
 
 // Fetch types from API (cached)
@@ -78,6 +82,29 @@ const tabs: { key: FilterType; label: string; icon: string }[] = [
               {{ type }}
             </option>
           </select>
+        </div>
+
+        <!-- Scope Filter -->
+        <div class="flex items-center gap-1">
+          <span class="text-xs text-slate-500 mr-1">Scope:</span>
+          <select
+            data-testid="scope-filter"
+            class="bg-white/5 border border-white/10 rounded px-2 py-1 text-xs text-slate-300 focus:outline-none focus:border-claude-500"
+            :value="currentScopeFilter || 'all'"
+            @change="emit('update:scopeFilter', ($event.target as HTMLSelectElement).value as ScopeFilter)"
+          >
+            <option value="all">All scopes</option>
+            <option value="project">Project</option>
+            <option value="global">Global</option>
+          </select>
+          <button
+            data-testid="scope-review-open"
+            class="ml-1 text-xs text-claude-300 hover:text-claude-200 underline decoration-dotted"
+            title="Check which notes are shown to every project, and fix them in one go"
+            @click="emit('reviewScopes')"
+          >
+            Review scopes…
+          </button>
         </div>
 
         <!-- Concept Filter -->

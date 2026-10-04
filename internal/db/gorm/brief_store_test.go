@@ -89,7 +89,7 @@ func TestBriefInputs_OnlyLiveProjectObservationsOldestFirstWithTheTotal(t *testi
 	archived := addObservation(t, obs, "p_aaaaaa", "archived", models.ScopeProject)
 	superseded := addObservation(t, obs, "p_aaaaaa", "superseded", models.ScopeProject)
 	last := addObservation(t, obs, "p_aaaaaa", "last", models.ScopeProject)
-	addObservation(t, obs, "p_aaaaaa", "global one", models.ScopeGlobal)
+	global := addObservation(t, obs, "p_aaaaaa", "global one", models.ScopeGlobal)
 	addObservation(t, obs, "q_bbbbbb", "other project", models.ScopeProject)
 	require.NoError(t, store.DB.Exec(`UPDATE observations SET is_archived = 1 WHERE id = ?`, archived).Error)
 	require.NoError(t, store.DB.Exec(`UPDATE observations SET is_superseded = 1 WHERE id = ?`, superseded).Error)
@@ -100,8 +100,8 @@ func TestBriefInputs_OnlyLiveProjectObservationsOldestFirstWithTheTotal(t *testi
 	for _, o := range got {
 		ids = append(ids, o.ID)
 	}
-	assert.Equal(t, []int64{first, last}, ids, "archived, superseded, global and other projects' observations are left out; oldest first")
-	assert.Equal(t, 2, total)
+	assert.Equal(t, []int64{first, last, global}, ids, "archived, superseded and other projects' observations are left out; the project's own global note is not; oldest first")
+	assert.Equal(t, 3, total)
 }
 
 func TestBriefInputs_LimitKeepsTheMostImportantAndStillReadsOldestFirst(t *testing.T) {
@@ -139,15 +139,15 @@ func TestCountLiveObservationsSince(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 	a := addObservation(t, obs, "p_aaaaaa", "new a", models.ScopeProject)
 	addObservation(t, obs, "p_aaaaaa", "new b", models.ScopeProject)
-	addObservation(t, obs, "p_aaaaaa", "new global", models.ScopeGlobal)
+	addObservation(t, obs, "p_aaaaaa", "new global", models.ScopeGlobal) // the project's own, so it counts
 	addObservation(t, obs, "q_bbbbbb", "new elsewhere", models.ScopeProject)
 	require.NoError(t, store.DB.Exec(`UPDATE observations SET is_archived = 1 WHERE id = ?`, a).Error)
 
 	n, err := obs.CountLiveObservationsSince(ctx, "p_aaaaaa", cutoff)
 	require.NoError(t, err)
-	assert.Equal(t, 1, n, "only the live, project-scoped, newer observation of this project")
+	assert.Equal(t, 2, n, "only the live, newer observations of this project, global ones included")
 
 	all, err := obs.CountLiveObservationsSince(ctx, "p_aaaaaa", 0)
 	require.NoError(t, err)
-	assert.Equal(t, 2, all)
+	assert.Equal(t, 3, all, "old, new b and the new global one; the archived one and another project's are not counted")
 }

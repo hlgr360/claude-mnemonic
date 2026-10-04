@@ -4,6 +4,7 @@ import { TYPE_CONFIG, CONCEPT_CONFIG } from '@/types/observation'
 import { RELATION_TYPE_CONFIG, DETECTION_SOURCE_CONFIG } from '@/types/relation'
 import { formatRelativeTime } from '@/utils/formatters'
 import { fetchObservationRelations } from '@/utils/api'
+import { otherScope, scopeHint, scopeLabel, setObservationScope, type Scope } from '@/utils/scope'
 import Card from './Card.vue'
 import IconBox from './IconBox.vue'
 import Badge from './Badge.vue'
@@ -20,6 +21,24 @@ const props = defineProps<{
 const emit = defineEmits<{
   navigateToObservation: [id: number]
 }>()
+
+// The scope, changed on the card (optimistic): a scope chosen here is never changed by a re-scope.
+const localScope = ref<Scope | null>(null)
+const scopeError = ref('')
+const currentScope = computed<Scope>(() => localScope.value ?? props.observation.scope ?? 'project')
+
+async function toggleScope() {
+  const next = otherScope(currentScope.value)
+  const before = localScope.value
+  localScope.value = next
+  scopeError.value = ''
+  try {
+    await setObservationScope(props.observation.id, next)
+  } catch (err) {
+    localScope.value = before
+    scopeError.value = err instanceof Error ? err.message : 'Could not change the scope'
+  }
+}
 
 // Local feedback and score state (optimistic updates)
 const localFeedback = ref<number | null>(null)
@@ -196,6 +215,18 @@ const splitPath = (path: string, components = 3) => {
           >
             SUPERSEDED
           </Badge>
+          <button
+            data-testid="scope-badge"
+            class="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full border transition-colors"
+            :class="currentScope === 'global'
+              ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/40 hover:bg-cyan-500/25'
+              : 'bg-white/5 text-slate-400 border-white/10 hover:bg-white/10'"
+            :title="scopeError || scopeHint(currentScope)"
+            @click.stop="toggleScope"
+          >
+            <i class="fas" :class="currentScope === 'global' ? 'fa-globe' : 'fa-folder'" />
+            {{ scopeLabel(currentScope) }}
+          </button>
           <span class="text-xs text-slate-500">{{ formatRelativeTime(observation.created_at) }}</span>
           <span v-if="observation.project" class="text-xs text-slate-500 flex items-center gap-1">
             <span class="text-slate-600">·</span>

@@ -32,19 +32,13 @@ const (
 	ScopeGlobal ObservationScope = "global"
 )
 
-// GlobalizableConcepts are concept tags that indicate an observation
-// should be considered for global scope (best practices, patterns, etc.)
+// GlobalizableConcepts are the concept tags that claim a lesson holds beyond its project: an explicit best
+// practice or anti-pattern. They used to be ten tags, including "architecture", "testing" and "workflow", which
+// nearly every note carries, so 90% of the notes of a real archive became global and were injected into every
+// project. A tag that is on most notes says nothing about a note being general.
 var GlobalizableConcepts = []string{
 	"best-practice",
-	"pattern",
 	"anti-pattern",
-	"architecture",
-	"security",
-	"performance",
-	"testing",
-	"debugging",
-	"workflow",
-	"tooling",
 }
 
 // JSONStringArray is a custom type for handling JSON string arrays in SQLite.
@@ -177,8 +171,18 @@ func (p *ParsedObservation) ToStoredObservation() *Observation {
 	}
 }
 
-// DetermineScope determines the appropriate scope based on observation concepts.
-// Returns ScopeGlobal if any concept matches globalizable patterns, else ScopeProject.
+// DetermineScopeFor decides the scope of a new observation: global only when it is tagged as a general lesson and
+// changed none of the project's files. A note that modified the project's own files is about that project, whatever
+// its tags say.
+func DetermineScopeFor(concepts, filesModified []string) ObservationScope {
+	if len(filesModified) > 0 {
+		return ScopeProject
+	}
+	return DetermineScope(concepts)
+}
+
+// DetermineScope determines the appropriate scope based on observation concepts alone.
+// Returns ScopeGlobal if any concept is one of GlobalizableConcepts, else ScopeProject.
 func DetermineScope(concepts []string) ObservationScope {
 	for _, concept := range concepts {
 		for _, globalConcept := range GlobalizableConcepts {
@@ -272,7 +276,7 @@ func NewObservation(sdkSessionID, project string, parsed *ParsedObservation, pro
 	// Determine scope: use parsed scope if set, otherwise auto-determine from concepts
 	scope := parsed.Scope
 	if scope == "" {
-		scope = DetermineScope(parsed.Concepts)
+		scope = DetermineScopeFor(parsed.Concepts, parsed.FilesModified)
 	}
 
 	return &Observation{

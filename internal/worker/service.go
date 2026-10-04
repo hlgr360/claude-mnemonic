@@ -1351,6 +1351,8 @@ func (s *Service) setupRoutes() {
 		r.Get("/api/prompts", s.handleGetPrompts)
 		r.Get("/api/projects", s.handleGetProjects)
 		r.Get("/api/counts", s.handleCounts)
+		r.Get("/api/scope/preview", s.handleScopePreview)
+		r.Post("/api/scope/apply", s.handleScopeApply)
 		r.Get("/api/llm/status", s.handleLLMStatus)
 		r.Get("/api/projects/summary", s.handleListProjectSummaries)
 		r.Get("/api/projects/resolve", s.handleResolveProject)

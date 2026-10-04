@@ -33,6 +33,16 @@ for i in range(52):
     tool("remember", path=d, title=f"Bulk note {i:02d} about the {topics[i % len(topics)]} {topics[(i * 5 + 3) % len(topics)]}",
          text=f"Entry {i}: the {topics[i % len(topics)]} notes mention the {topics[(i * 7 + 1) % len(topics)]} in passing, number {i * 31}.")
 
+# A project whose notes the old rule had made global: two of its three notes are global and decided by the rule
+# (scope_source auto, set below), the third was saved on purpose (explicit), for the scope dialog.
+d = os.path.join(base, "scoped"); os.makedirs(d)
+ids["scoped"] = json.loads(tool("project_resolve", path=d))["id"]
+legacy_titles = ("Legacy global note about queues", "Legacy global note about releases")
+for title, text in ((legacy_titles[0], "The scoped project keeps one queue per tenant."),
+                    (legacy_titles[1], "Releases of the scoped project are cut on Thursdays."),
+                    ("Note saved on purpose", "The scoped project's owner prefers short commit messages.")):
+    tool("remember", path=d, title=title, text=text)
+
 # A project with three notes about one setting and two proposals between them, for the conflict review panel.
 d = os.path.join(base, "reviewed"); os.makedirs(d)
 ids["reviewed"] = json.loads(tool("project_resolve", path=d))["id"]
@@ -63,6 +73,8 @@ now = int(time.time() * 1000)
 for i, title in enumerate(("First summary", "Second summary")):
     db.execute("INSERT INTO session_summaries (created_at, sdk_session_id, project, request, created_at_epoch) VALUES (?, ?, ?, ?, ?)",
                (time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), f"sdk-summ-only-{i}", ids["summ_only"], title, now + i))
+for t in legacy_titles:
+    db.execute("UPDATE observations SET scope = 'global', scope_source = 'auto' WHERE project = ? AND title = ?", (ids["scoped"], t))
 db.commit(); db.close()
 print(json.dumps(ids))
 p.stdin.close(); p.wait(timeout=10)

@@ -58,11 +58,12 @@ func (s *SummaryStore) GetBrief(ctx context.Context, project string) (*Brief, er
 	}, nil
 }
 
-// liveProjectObservations is the project's own observations that still count: not archived, not
-// superseded, and not global ones that merely apply to every project.
+// liveProjectObservations is the project's own observations that still count: not archived and not
+// superseded. A note's scope only decides where it is injected, so the project's global notes are its own too
+// (they used to be left out, and with most notes global a brief was written from one note in ten).
 func liveProjectObservations(db *gorm.DB, project string) *gorm.DB {
 	return db.Model(&Observation{}).
-		Where("project = ? AND (scope IS NULL OR scope = 'project')", project).
+		Where("project = ?", project).
 		Where("COALESCE(is_archived, 0) = 0 AND COALESCE(is_superseded, 0) = 0")
 }
 

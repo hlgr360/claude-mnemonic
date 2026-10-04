@@ -9,6 +9,7 @@
 #   scripts/e2e/run.sh            everything (the dashboard check needs ui/dist and Chrome)
 #   scripts/e2e/run.sh --no-ui    skip the dashboard check
 #   KEEP=1 scripts/e2e/run.sh     keep the work directory and logs
+#   E2E_ONLY=Dashboard scripts/e2e/run.sh   run only the suites whose name contains the text
 #
 # Needs: go (CGO), python3, curl, lsof; node and Chrome for the dashboard check.
 set -uo pipefail
@@ -41,7 +42,7 @@ export E2E_DIR="$WORK" E2E_PORT="$WORKER_PORT" DO_NOT_TRACK=1 CGO_ENABLED=1
 
 cleanup() {
   kill $(lsof -ti ":$WORKER_PORT") $(lsof -ti ":37998") $(lsof -ti ":${E2E_OLLAMA_PORT:-37996}") $(lsof -ti ":$UI_PORT") $(lsof -ti ":9333") 2>/dev/null
-  if [ "${KEEP:-0}" = "1" ]; then echo "kept: $WORK"; else rm -rf "$WORK" "${TMPDIR:-/tmp}"/e2e-* "${TMPDIR:-/tmp}"/e2e-admin-* "${TMPDIR:-/tmp}"/e2e-names-* "${TMPDIR:-/tmp}"/e2e-threads-* "${TMPDIR:-/tmp}"/e2e-brief-* "${TMPDIR:-/tmp}"/e2e-conflicts-* "${TMPDIR:-/tmp}"/e2e-relations-* "${TMPDIR:-/tmp}"/ui-e2e-* 2>/dev/null; fi
+  if [ "${KEEP:-0}" = "1" ]; then echo "kept: $WORK"; else rm -rf "$WORK" "${TMPDIR:-/tmp}"/e2e-* "${TMPDIR:-/tmp}"/e2e-admin-* "${TMPDIR:-/tmp}"/e2e-names-* "${TMPDIR:-/tmp}"/e2e-threads-* "${TMPDIR:-/tmp}"/e2e-brief-* "${TMPDIR:-/tmp}"/e2e-conflicts-* "${TMPDIR:-/tmp}"/e2e-relations-* "${TMPDIR:-/tmp}"/e2e-scope-* "${TMPDIR:-/tmp}"/ui-e2e-* 2>/dev/null; fi
 }
 trap cleanup EXIT
 
@@ -71,6 +72,8 @@ fresh_worker() {
 failed=0
 suite() { # name, command...
   local name="$1"; shift
+  # E2E_ONLY="graph" runs only the suites whose name contains it (the others still start a fresh worker).
+  if [ -n "${E2E_ONLY:-}" ] && [[ "$name" != *"$E2E_ONLY"* ]]; then return 0; fi
   echo; echo "######## $name"
   "$@" || { echo "######## $name: FAILED"; failed=$((failed + 1)); }
 }
@@ -155,6 +158,10 @@ base_settings
 # after the worker starts, so the suite seeds straight away and then waits for it.
 fresh_worker || exit 1
 suite "Knowledge graph: relations, filters, hiding, rebuild"           python3 "$HERE/drive_relations.py"
+
+# Scope: notes imported without a scope get the rule's; an archive written by the old rule is re-scoped through the API.
+fresh_worker || exit 1
+suite "Scope: the rule, the re-scope, notes chosen by hand"            python3 "$HERE/drive_scope.py"
 
 if [ "$RUN_UI" = "1" ]; then
   if [ ! -d "$ROOT/ui/dist" ] || ! command -v node >/dev/null; then

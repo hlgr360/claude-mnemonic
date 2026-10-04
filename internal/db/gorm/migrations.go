@@ -592,6 +592,18 @@ func runMigrations(db *gorm.DB, sqlDB *sql.DB) error {
 				return tx.Migrator().DropTable("relation_checks")
 			},
 		},
+		{
+			ID: "020_scope_source",
+			Migrate: func(tx *gorm.DB) error {
+				if !tx.Migrator().HasColumn(&Observation{}, "scope_source") {
+					if err := tx.Exec(`ALTER TABLE observations ADD COLUMN scope_source TEXT NOT NULL DEFAULT ''`).Error; err != nil {
+						return err
+					}
+				}
+				return backfillScopeSource(tx)
+			},
+			Rollback: func(tx *gorm.DB) error { return nil },
+		},
 	})
 
 	if err := m.Migrate(); err != nil {

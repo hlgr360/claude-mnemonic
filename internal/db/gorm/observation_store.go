@@ -143,16 +143,17 @@ func (s *ObservationStore) StoreObservation(ctx context.Context, sdkSessionID, p
 		return 0, 0, err
 	}
 
-	// Determine scope: use parsed scope if set, otherwise auto-determine from concepts
-	scope := obs.Scope
+	// Determine scope: use the scope that was set (it is then explicit), otherwise the rule decides.
+	scope, scopeSource := obs.Scope, ScopeSourceExplicit
 	if scope == "" {
-		scope = models.DetermineScope(obs.Concepts)
+		scope, scopeSource = models.DetermineScopeFor(obs.Concepts, obs.FilesModified), ScopeSourceAuto
 	}
 
 	dbObs := &Observation{
 		SDKSessionID:    sdkSessionID,
 		Project:         project,
 		Scope:           scope,
+		ScopeSource:     scopeSource,
 		Type:            obs.Type,
 		Title:           nullString(obs.Title),
 		Subtitle:        nullString(obs.Subtitle),
@@ -250,6 +251,7 @@ func (s *ObservationStore) UpdateObservation(ctx context.Context, id int64, upda
 	}
 	if update.Scope != nil {
 		updates["scope"] = sql.NullString{String: *update.Scope, Valid: true}
+		updates["scope_source"] = ScopeSourceExplicit // a person chose it: a re-scope leaves it alone
 	}
 
 	if len(updates) == 0 {

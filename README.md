@@ -282,14 +282,25 @@ All variables are prefixed with `CLAUDE_MNEMONIC_` in the config file.
 
 ## Project vs Global scope
 
-Observations are automatically scoped:
+Every observation has a scope that decides where it is shown to sessions:
 
-- **Project scope** (default) - stays within the project directory
-- **Global scope** - shared everywhere
+- **Project scope** (the usual one): shown only to sessions of its own project.
+- **Global scope**: shown to sessions of every project.
 
-Global scope triggers on tags like: `best-practice`, `security`, `architecture`, `pattern`, `performance`
+A note gets the scope **global only when it is tagged as a general lesson (`best-practice` or `anti-pattern`) and
+changed none of the project's files**. Everything else is project scope. Example: a bug fix in your auth module stays
+local; "Always validate JWT server-side", saved as a best practice, goes global. (An earlier version also globalized
+notes tagged `architecture`, `testing`, `workflow`, `pattern`, `tooling`, `debugging`, `security` or `performance`, which
+nearly every note carries: on a real archive 90% of the notes became global and were shown in every project.)
 
-Example: A bug fix in your auth module stays local. "Always validate JWT server-side" goes global.
+You can see and change this in the dashboard: each note shows a **Project** or **Global** badge, and clicking it switches
+the note. The **Scope** filter above the timeline lists one kind, and **Review scopes…** previews what the current rule
+would change across the whole archive (how many notes, a sample, how many are kept because you chose their scope) and
+applies it after a backup of the database. A scope you chose, by clicking, by editing the note or by saving it with
+`remember`, is never changed by a re-scope. The same is available as `GET /api/scope/preview` and
+`POST /api/scope/apply {"confirm": "<token of the preview>"}`.
+
+The project brief reads all of a project's own notes, whatever their scope.
 
 ## MCP Tools
 
