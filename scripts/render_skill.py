@@ -25,6 +25,10 @@ DESCRIPTION = (
     "\"remember\" about their projects. Not for general questions that do not refer to their own earlier work."
 )
 
+# The skill is background knowledge for the model, not something a person runs: `user-invocable: false` keeps it out of the
+# `/` menu (so the plugin's slash commands are only /claude-mnemonic:dashboard and :restart) and keeps its description in
+# the model's context, which is the part that matters.
+
 # In Claude Code the hooks already load the project's context and capture what happens, and the tools below that
 # belong to Claude Desktop (project_suggest, catch_up, checkpoint, ...) are not offered, so the skill steps aside.
 CLAUDE_CODE_NOTE = (
@@ -43,7 +47,7 @@ def load_installer():
 
 def render():
     body = load_installer().render_instructions()
-    return f"---\nname: {NAME}\ndescription: {json.dumps(DESCRIPTION)}\n---\n\n# Using the claude-mnemonic memory\n\n{CLAUDE_CODE_NOTE}{body}"
+    return f"---\nname: {NAME}\nuser-invocable: false\ndescription: {json.dumps(DESCRIPTION)}\n---\n\n# Using the claude-mnemonic memory\n\n{CLAUDE_CODE_NOTE}{body}"
 
 
 if __name__ == "__main__":

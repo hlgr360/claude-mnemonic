@@ -352,13 +352,30 @@ class MemorySkill(unittest.TestCase):
             self.assertIn(phrase, description)
         self.assertLess(len(description), 1024, "the description is read in every conversation: keep it short")
 
+    def test_the_skill_is_background_knowledge_not_a_slash_command(self):
+        # Without this a person could run /claude-mnemonic:project-memory by hand; the plugin's slash commands are only
+        # dashboard and restart. The model still sees the description (that is what makes it use the skill).
+        front = self.skill().split("---")[1]
+        self.assertIn("\nuser-invocable: false\n", front)
+        self.assertNotIn("disable-model-invocation", front, "that would take the description out of the model's context")
+
+    def test_only_dashboard_and_restart_can_be_run_by_hand(self):
+        f = Fixture(self)
+        runnable = []
+        for name in sorted(os.listdir(os.path.join(f.tree, "skills"))):
+            with open(os.path.join(f.tree, "skills", name, "SKILL.md"), encoding="utf-8") as fh:
+                front = fh.read().split("---")[1]
+            if "user-invocable: false" not in front:
+                runnable.append(name)
+        self.assertEqual(runnable, ["dashboard", "restart"])
+
     def test_claude_code_is_told_to_step_aside(self):
         text = self.skill()
         self.assertIn("no project_suggest tool, you are in Claude Code", text)
 
     def test_the_front_matter_is_valid_json_quoted_yaml(self):
         front = self.skill().split("---")[1]
-        self.assertEqual(front.count("\n"), 3, "name and description, each on one line")
+        self.assertEqual(front.count("\n"), 4, "name, user-invocable and description, each on one line")
 
 
 class Overview(unittest.TestCase):
