@@ -446,6 +446,32 @@ func TestUncheckedObservations_LiveProjectOnesNewestFirstUntilMarked(t *testing.
 	assert.Empty(t, limited, "a limit of zero asks for nothing")
 }
 
+// Most notes of a real archive are global (the scope only decides where a note is injected). They still belong to
+// the project they came from, so the proposer must look at them: a filter on the scope made it skip about 90%.
+func TestUncheckedObservations_GlobalScopeNotesAreLookedAtToo(t *testing.T) {
+	f := newReviewFixture(t)
+	ctx := context.Background()
+	project := f.add(t, "p_aaaaaa", "project scoped")
+	global := f.add(t, "p_aaaaaa", "global scoped")
+	untagged := f.add(t, "p_aaaaaa", "no scope")
+	elsewhere := f.add(t, "q_bbbbbb", "global of another project")
+	require.NoError(t, f.store.DB.Exec(`UPDATE observations SET scope = 'project' WHERE id = ?`, project).Error)
+	require.NoError(t, f.store.DB.Exec(`UPDATE observations SET scope = 'global' WHERE id IN (?, ?)`, global, elsewhere).Error)
+	require.NoError(t, f.store.DB.Exec(`UPDATE observations SET scope = NULL WHERE id = ?`, untagged).Error)
+
+	got, err := f.conflicts.UncheckedObservations(ctx, "p_aaaaaa", 10)
+	require.NoError(t, err)
+	var ids []int64
+	for _, o := range got {
+		ids = append(ids, o.ID)
+	}
+	assert.ElementsMatch(t, []int64{project, global, untagged}, ids, "every live note of the project, whatever its scope")
+
+	projects, err := f.conflicts.ProjectsWithUncheckedObservations(ctx)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"p_aaaaaa", "q_bbbbbb"}, projects, "q_bbbbbb has only a global note, and still counts")
+}
+
 func TestProjectsWithUncheckedObservations_MostRecentlyActiveFirst(t *testing.T) {
 	f := newReviewFixture(t)
 	ctx := context.Background()

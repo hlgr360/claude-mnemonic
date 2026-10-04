@@ -374,11 +374,12 @@ func (s *ConflictStore) CleanupSuperseded(ctx context.Context, retentionDays int
 }
 
 // UncheckedObservations returns up to limit live observations of the project that the proposer has not looked
-// at yet, newest first.
+// at yet, newest first. A note's scope only decides where it is injected; the note still belongs to the project it
+// came from, so global notes are looked at too.
 func (s *ConflictStore) UncheckedObservations(ctx context.Context, project string, limit int) ([]*models.Observation, error) {
 	var rows []Observation
 	err := s.db.WithContext(ctx).
-		Where("project = ? AND (scope IS NULL OR scope = 'project')", project).
+		Where("project = ?", project).
 		Where("COALESCE(is_archived, 0) = 0 AND COALESCE(is_superseded, 0) = 0").
 		Where("id NOT IN (SELECT observation_id FROM conflict_checks)").
 		Order("created_at_epoch DESC, id DESC").
@@ -402,7 +403,7 @@ func (s *ConflictStore) ProjectsWithUncheckedObservations(ctx context.Context) (
 	var projects []string
 	err := s.db.WithContext(ctx).Raw(`
 		SELECT project FROM observations
-		WHERE project IS NOT NULL AND project != '' AND (scope IS NULL OR scope = 'project')
+		WHERE project IS NOT NULL AND project != ''
 		  AND COALESCE(is_archived, 0) = 0 AND COALESCE(is_superseded, 0) = 0
 		  AND id NOT IN (SELECT observation_id FROM conflict_checks)
 		GROUP BY project ORDER BY MAX(created_at_epoch) DESC`).Scan(&projects).Error
