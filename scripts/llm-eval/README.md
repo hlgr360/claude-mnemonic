@@ -56,7 +56,28 @@ LLM_EVAL_NO_FORMAT=1 python3 scripts/llm-eval/conflicts.py run --out /tmp/conf -
 LLM_EVAL_NO_FORMAT=1 python3 scripts/llm-eval/summaries.py run --out /tmp/eval --model gemma4:e4b-mlx
 ```
 
-## What we found
+## Project briefs (`briefs.py`)
+
+Can a local model write the project brief (the rollup) the worker asks Haiku for? A brief condenses up to 100 of a
+project's observations and the developer's checkpoint notes into one dated orientation.
+
+```sh
+python3 scripts/llm-eval/briefs.py samples --db ~/.claude-mnemonic/claude-mnemonic.db --auto 4 --min-obs 5 --out /tmp/brief
+python3 scripts/llm-eval/briefs.py run --out /tmp/brief --model haiku
+python3 scripts/llm-eval/briefs.py run --out /tmp/brief --model gemma4:e4b-mlx
+python3 scripts/llm-eval/briefs.py score --out /tmp/brief --judge
+```
+
+`samples` builds each request exactly as the worker does (the live, project-scoped observations by importance, oldest
+first; the thread notes), `run` sends the worker's **current** brief prompt (read from `internal/worker/sdk/brief.go`)
+and keeps what the worker would store, and `score` prints mechanical checks (the four sections in order, the 300-word
+limit, invented citations, emails, an open-items section, specifics not in the notes, similarity to Haiku's brief) and a
+blind Haiku judge (faithfulness, currency, usefulness, concision). The worker leaves global-scope notes out of a brief,
+and most notes of a real archive are global, so its input can be small; `--include-global` (with `--num-ctx 32768`
+when running) also tries the models on the fuller 100-note input. A prompt that does not fit the context window loses
+its start, system prompt included, so mind `--num-ctx` (the worker's default is 16384).
+
+
 
 See the comments on issue #26. In short: no local model written for this yet is good enough to replace
 Haiku for summaries, and for conflict detection even the best local model wrongly replaced about a quarter
@@ -71,6 +92,15 @@ failure every local model shows, so conflicts must stay proposals. For summaries
 prompt gave faithfulness 4.4, specificity 4.6, usefulness 4.0 (Haiku 4.9, 4.8, 4.9), 8 of 10 with faithfulness 4 or more,
 and it is not good enough to replace Haiku; with the worker's current XML prompt 3 of 10 answers did not parse. It is slower
 than `gemma3:12b` on conflicts (about 12 s a pair, Haiku 8 s). The judge is Haiku and ten samples are few.
+
+Briefs, four of the largest projects of one archive, judged by Haiku (1 to 5): on the worker's own input (6 to 12
+notes) `gemma4:e4b-mlx` scored faithfulness 4.75, currency 5.0, usefulness 5.0 and concision 5.0 against Haiku's 4.50,
+5.0, 4.75 and 5.0, with 4 of 4 faithfulness 4 or better, in 18 s a brief (Haiku 21 s). On the fuller input (51 to 100
+notes) it scored 4.75, 4.75, 4.75 and 4.75 against Haiku's 4.00, 3.50, 4.75 and 5.00, in 38 s (Haiku 22 s), and `gemma3:12b`
+scored 4.50, 4.50, 4.25 and 4.75. So for this task a local model is competitive with Haiku, unlike for summaries. Caveats:
+four briefs per set, the judge is Haiku, gemma4 cites fewer notes (5 to 8 distinct against 8 to 20) and writes longer than the
+300 words it was asked for (all four on the fuller input; the worker caps what it stores), and a mistake here is a stale
+orientation, not a deleted memory.
 
 ## Tests
 
