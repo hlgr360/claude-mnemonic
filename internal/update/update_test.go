@@ -139,6 +139,56 @@ func TestIsNewerVersion(t *testing.T) {
 			current: "2.0.0",
 			want:    false,
 		},
+		// This fork's releases are the upstream version plus a fork number: 0.21.95.1, 0.21.95.2, ...
+		// (a letter suffix such as 0.21.95a would parse as patch 0 and break every one of these).
+		{
+			name:    "fork_number_next",
+			latest:  "0.21.95.2",
+			current: "0.21.95.1",
+			want:    true,
+		},
+		{
+			name:    "fork_number_two_digits_is_numeric_not_text",
+			latest:  "0.21.95.10",
+			current: "0.21.95.9",
+			want:    true,
+		},
+		{
+			name:    "fork_number_older_is_not_offered",
+			latest:  "0.21.95.9",
+			current: "0.21.95.10",
+			want:    false,
+		},
+		{
+			name:    "fork_release_on_top_of_upstream_plain",
+			latest:  "0.21.95.1",
+			current: "0.21.95",
+			want:    true,
+		},
+		{
+			name:    "upstream_plain_is_not_offered_to_a_fork_release",
+			latest:  "0.21.95",
+			current: "0.21.95.1",
+			want:    false,
+		},
+		{
+			name:    "next_upstream_version_after_a_fork_release",
+			latest:  "0.21.96.1",
+			current: "0.21.95.4",
+			want:    true,
+		},
+		{
+			name:    "fork_release_dev_build_same_release",
+			latest:  "0.21.95.1",
+			current: "0.21.95.1-3-g6fdf06b-dirty",
+			want:    false,
+		},
+		{
+			name:    "fork_release_dev_build_next_release",
+			latest:  "0.21.95.2",
+			current: "0.21.95.1-3-g6fdf06b-dirty",
+			want:    true,
+		},
 	}
 
 	for _, tc := range tests {
