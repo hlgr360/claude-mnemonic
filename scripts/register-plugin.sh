@@ -7,14 +7,16 @@ set -e
 PLUGINS_FILE="$HOME/.claude/plugins/installed_plugins.json"
 SETTINGS_FILE="$HOME/.claude/settings.json"
 MARKETPLACES_FILE="$HOME/.claude/plugins/known_marketplaces.json"
-PLUGIN_KEY="claude-mnemonic@claude-mnemonic"
-MARKETPLACE_NAME="claude-mnemonic"
-MARKETPLACE_PATH="$HOME/.claude/plugins/marketplaces/claude-mnemonic"
+# Where the plugin's marketplace comes from and what it is called. Override with MNEMONIC_REPO / MNEMONIC_MARKETPLACE.
+REPO="${MNEMONIC_REPO:-hlgr360/claude-mnemonic}"
+MARKETPLACE_NAME="${MNEMONIC_MARKETPLACE:-claude-mnemonic}"
+PLUGIN_KEY="claude-mnemonic@${MARKETPLACE_NAME}"
+MARKETPLACE_PATH="$HOME/.claude/plugins/marketplaces/${MARKETPLACE_NAME}"
 STABLE_BIN="$HOME/.claude-mnemonic/bin"
 
 # Get version from git tags (same as Makefile), or use argument if provided
 VERSION="${1:-$(git describe --tags --always --dirty 2>/dev/null || echo "dev")}"
-CACHE_BASE="$HOME/.claude/plugins/cache/claude-mnemonic/claude-mnemonic"
+CACHE_BASE="$HOME/.claude/plugins/cache/${MARKETPLACE_NAME}/claude-mnemonic"
 CACHE_PATH="$CACHE_BASE/$VERSION"
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")
 
@@ -113,12 +115,12 @@ STATUSLINE_CMD="\${CLAUDE_PLUGIN_ROOT}/hooks/statusline"
 register_with_python() {
     python3 - "$PLUGINS_FILE" "$SETTINGS_FILE" "$MARKETPLACES_FILE" \
         "$PLUGIN_KEY" "$CACHE_PATH" "$VERSION" "$TIMESTAMP" \
-        "$STATUSLINE_CMD" "$MARKETPLACE_NAME" "$MARKETPLACE_PATH" <<'PYEOF'
+        "$STATUSLINE_CMD" "$MARKETPLACE_NAME" "$MARKETPLACE_PATH" "$REPO" <<'PYEOF'
 import json, sys, os
 
 plugins_file, settings_file, marketplaces_file = sys.argv[1], sys.argv[2], sys.argv[3]
 plugin_key, cache_path, version, timestamp = sys.argv[4], sys.argv[5], sys.argv[6], sys.argv[7]
-statusline_cmd, marketplace_name, marketplace_path = sys.argv[8], sys.argv[9], sys.argv[10]
+statusline_cmd, marketplace_name, marketplace_path, repo = sys.argv[8], sys.argv[9], sys.argv[10], sys.argv[11]
 
 def load_json(path):
     try:
@@ -161,7 +163,7 @@ settings["statusLine"] = {
 settings.setdefault("extraKnownMarketplaces", {})
 settings["extraKnownMarketplaces"][marketplace_name] = {
     "source": {
-        "repo": "lukaszraczylo/claude-mnemonic",
+        "repo": repo,
         "source": "github"
     }
 }
@@ -175,7 +177,7 @@ marketplaces = load_json(marketplaces_file)
 marketplaces[marketplace_name] = {
     "source": {
         "source": "github",
-        "repo": "lukaszraczylo/claude-mnemonic"
+        "repo": repo
     },
     "installLocation": marketplace_path,
     "lastUpdated": timestamp
@@ -236,7 +238,7 @@ EOF
     MARKETPLACE_SOURCE=$(cat <<EOF
 {
     "source": {
-        "repo": "lukaszraczylo/claude-mnemonic",
+        "repo": "$REPO",
         "source": "github"
     }
 }
@@ -256,7 +258,7 @@ EOF
 {
     "source": {
         "source": "github",
-        "repo": "lukaszraczylo/claude-mnemonic"
+        "repo": "$REPO"
     },
     "installLocation": "$MARKETPLACE_PATH",
     "lastUpdated": "$TIMESTAMP"

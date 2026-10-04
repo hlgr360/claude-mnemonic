@@ -18,9 +18,10 @@ sleep 1
 PLUGINS_FILE="$HOME/.claude/plugins/installed_plugins.json"
 SETTINGS_FILE="$HOME/.claude/settings.json"
 MARKETPLACES_FILE="$HOME/.claude/plugins/known_marketplaces.json"
-CACHE_DIR="$HOME/.claude/plugins/cache/claude-mnemonic"
-PLUGIN_KEY="claude-mnemonic@claude-mnemonic"
-MARKETPLACE_NAME="claude-mnemonic"
+# The marketplace name register-plugin.sh used (MNEMONIC_MARKETPLACE, default claude-mnemonic)
+MARKETPLACE_NAME="${MNEMONIC_MARKETPLACE:-claude-mnemonic}"
+CACHE_DIR="$HOME/.claude/plugins/cache/${MARKETPLACE_NAME}"
+PLUGIN_KEY="claude-mnemonic@${MARKETPLACE_NAME}"
 
 # Check if jq is available
 if ! command -v jq &> /dev/null; then
