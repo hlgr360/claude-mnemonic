@@ -327,5 +327,12 @@ name alone.
 - **`search` across all projects needs the vector index.** Without it the call fails clearly
   instead of returning nothing.
 - **Windows and Linux Desktop** are supported by the installer but have not been tested.
+- **"Server disconnected" after the connector sat unused.** Up to this fix the MCP server shut itself down after 30
+  minutes without a message, and did it badly: it only closed its input, the read stayed blocked, and the next call from
+  Desktop failed with `scanner error: read /dev/stdin: file already closed`, which ended the connection in the middle of
+  the call (restart Desktop or toggle the connector to recover). The server now stays up for as long as Desktop keeps
+  it, and the idle shutdown is **off unless you ask for it**: set `CLAUDE_MNEMONIC_MCP_IDLE_TIMEOUT` (a Go duration such
+  as `2h`) in the environment the connector starts with. When it is on, the server ends cleanly; Desktop then has to
+  start it again, so a call after the shutdown still fails until it does.
 
 Design notes and the measurements behind these choices are in `design/desktop-overlay.md`.

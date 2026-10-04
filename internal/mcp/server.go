@@ -23,19 +23,24 @@ import (
 // Server is the MCP server that proxies tool calls to the worker HTTP API.
 // Field order optimized for memory alignment (fieldalignment).
 type Server struct {
-	stdin         io.Reader
-	stdout        io.Writer
-	client        *http.Client
-	bootstrap     *workerBootstrap
-	workerURL     string
-	project       string
-	version       string
-	mode          Mode
-	clientName    string
-	stateMu       sync.RWMutex
-	writeMu       sync.Mutex
-	lastActivity  atomic.Int64
-	projectPinned bool
+	stdin        io.Reader
+	stdout       io.Writer
+	client       *http.Client
+	bootstrap    *workerBootstrap
+	workerURL    string
+	project      string
+	version      string
+	mode         Mode
+	clientName   string
+	stateMu      sync.RWMutex
+	writeMu      sync.Mutex
+	lastActivity atomic.Int64
+	// idleTimeout ends the server after this long without a message; 0 (the default) never does. A stdio server lives
+	// as long as its client: ending it while the client is still connected makes the client's next call fail.
+	idleTimeout time.Duration
+	// monitorInterval is how often the parent and idle checks run (30s when 0).
+	monitorInterval time.Duration
+	projectPinned   bool
 }
 
 // NewServer creates a new MCP server that proxies to the worker HTTP API.
@@ -47,7 +52,22 @@ func NewServer(client *http.Client, workerURL, project, version string) *Server 
 		version:   version,
 		stdin:     os.Stdin,
 		stdout:    os.Stdout,
+
+		idleTimeout: idleTimeoutFromEnv(),
 	}
+}
+
+// IdleTimeoutEnv names the environment variable that turns the idle shutdown on, as a Go duration such as "2h".
+// It is off by default.
+const IdleTimeoutEnv = "CLAUDE_MNEMONIC_MCP_IDLE_TIMEOUT"
+
+// idleTimeoutFromEnv reads IdleTimeoutEnv; an unset, invalid or non-positive value means no idle shutdown.
+func idleTimeoutFromEnv() time.Duration {
+	d, err := time.ParseDuration(os.Getenv(IdleTimeoutEnv))
+	if err != nil || d <= 0 {
+		return 0
+	}
+	return d
 }
 
 // Request represents a JSON-RPC request.
@@ -88,6 +108,13 @@ type Tool struct {
 
 // Run starts the MCP server loop.
 func (s *Server) Run(ctx context.Context) error {
+	// An idle shutdown cancels this context. Closing stdin does not do it: on a real (blocking) stdin the read stays
+	// blocked, the server lived on with a closed stdin, and the client's next message woke the read with "file already
+	// closed", which killed the connection mid-call.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var idleStopped atomic.Bool
+
 	scanner := bufio.NewScanner(s.stdin)
 	buf := make([]byte, 0, 64*1024)
 	scanner.Buffer(buf, 1024*1024) // 1MB max message size
@@ -106,11 +133,15 @@ func (s *Server) Run(ctx context.Context) error {
 		scanErr <- scanner.Err()
 	}()
 
-	// Monitor parent process liveness and idle timeout.
-	// If the parent dies (ppid changes) or no messages arrive for 30 minutes, shut down.
+	// Monitor parent process liveness and, when one is set, the idle timeout.
+	// If the parent dies (ppid changes) or no messages arrive for idleTimeout, shut down.
 	parentPID := os.Getppid()
 	go func() {
-		ticker := time.NewTicker(30 * time.Second)
+		interval := s.monitorInterval
+		if interval <= 0 {
+			interval = 30 * time.Second
+		}
+		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		for {
 			select {
@@ -124,11 +155,10 @@ func (s *Server) Run(ctx context.Context) error {
 					}
 					return
 				}
-				if time.Since(time.Unix(s.lastActivity.Load(), 0)) > 30*time.Minute {
-					log.Info().Msg("MCP server idle timeout (30m), shutting down")
-					if closer, ok := s.stdin.(io.Closer); ok {
-						_ = closer.Close()
-					}
+				if s.idleTimeout > 0 && time.Since(time.Unix(s.lastActivity.Load(), 0)) > s.idleTimeout {
+					log.Info().Dur("idle", s.idleTimeout).Msg("MCP server idle timeout, shutting down")
+					idleStopped.Store(true)
+					cancel()
 					return
 				}
 			}
@@ -146,6 +176,9 @@ func (s *Server) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			// Drain in-flight requests before returning.
 			wg.Wait()
+			if idleStopped.Load() {
+				return nil // an idle shutdown the operator asked for is a clean exit
+			}
 			return ctx.Err()
 		case line, ok := <-lines:
 			if !ok {
