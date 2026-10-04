@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/lukaszraczylo/claude-mnemonic/internal/db/gorm"
 	"github.com/lukaszraczylo/claude-mnemonic/pkg/models"
 )
 
@@ -43,12 +44,24 @@ func (s *Service) handleGetRelationGraph(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Get depth parameter (default 2)
+	// Get depth parameter (default 2). The MCP tool sends max_depth, so both names are read.
 	depth := 2
-	if depthStr := r.URL.Query().Get("depth"); depthStr != "" {
-		if d, parseErr := strconv.Atoi(depthStr); parseErr == nil && d > 0 && d <= 5 {
-			depth = d
+	for _, name := range []string{"depth", "max_depth"} {
+		if depthStr := r.URL.Query().Get(name); depthStr != "" {
+			if d, parseErr := strconv.Atoi(depthStr); parseErr == nil && d > 0 && d <= 5 {
+				depth = d
+			}
 		}
+	}
+	types, err := parseRelationTypes(r.URL.Query().Get("types"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	minConfidence, err := parseMinConfidence(r, 0)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
 	}
 
 	graph, err := s.relationStore.GetRelationGraph(r.Context(), id, depth)
@@ -56,11 +69,30 @@ func (s *Service) handleGetRelationGraph(w http.ResponseWriter, r *http.Request)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	if len(types) > 0 || minConfidence > 0 {
+		graph.Relations = filterRelations(graph.Relations, types, minConfidence)
+	}
 
 	writeJSON(w, graph)
 }
 
-// handleGetRelatedObservations returns observations related to a given one.
+// filterRelations keeps the relations of the given types (any type when none are given) with at least minConfidence.
+func filterRelations(relations []*models.RelationWithDetails, types []models.RelationType, minConfidence float64) []*models.RelationWithDetails {
+	want := map[models.RelationType]bool{}
+	for _, t := range types {
+		want[t] = true
+	}
+	kept := make([]*models.RelationWithDetails, 0, len(relations))
+	for _, r := range relations {
+		if (len(want) == 0 || want[r.Relation.RelationType]) && r.Relation.Confidence >= minConfidence {
+			kept = append(kept, r)
+		}
+	}
+	return kept
+}
+
+// handleGetRelatedObservations returns observations related to a given one: only live ones (not superseded, not
+// archived), at most ?limit= (default 50), of the relation types in ?types= when given.
 func (s *Service) handleGetRelatedObservations(w http.ResponseWriter, r *http.Request) {
 	idStr := chi.URLParam(r, "id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
@@ -77,11 +109,31 @@ func (s *Service) handleGetRelatedObservations(w http.ResponseWriter, r *http.Re
 		}
 	}
 
-	// Get related observation IDs
-	relatedIDs, err := s.relationStore.GetRelatedObservationIDs(r.Context(), id, minConfidence)
+	types, err := parseRelationTypes(r.URL.Query().Get("types"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	limit := 50
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		if l, parseErr := strconv.Atoi(limitStr); parseErr == nil && l > 0 && l <= 100 {
+			limit = l
+		}
+	}
+
+	// The most certain relations first, live notes only
+	connections, _, err := s.relationStore.Connections(r.Context(), id, gorm.ConnectionFilter{Types: types, MinConfidence: minConfidence, Limit: limit})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+	relatedIDs := make([]int64, 0, len(connections))
+	seen := map[int64]bool{}
+	for _, c := range connections {
+		if !seen[c.Note.ID] {
+			seen[c.Note.ID] = true
+			relatedIDs = append(relatedIDs, c.Note.ID)
+		}
 	}
 
 	if len(relatedIDs) == 0 {
@@ -90,7 +142,7 @@ func (s *Service) handleGetRelatedObservations(w http.ResponseWriter, r *http.Re
 	}
 
 	// Fetch full observations
-	observations, err := s.observationStore.GetObservationsByIDs(r.Context(), relatedIDs, "importance", 50)
+	observations, err := s.observationStore.GetObservationsByIDs(r.Context(), relatedIDs, "importance", limit)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

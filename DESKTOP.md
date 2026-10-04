@@ -49,6 +49,8 @@ Desktop mode adds these tools (Claude Code's tool list is unchanged):
 | `remember` | Saves a decision, finding or fix to a chosen project |
 | `checkpoint` | Keeps one living note per line of work (goal, progress, decisions, next steps) in a chosen project; the same thread name updates the note |
 | `catch_up` | Returns the project's thread notes (most recently worked on first) and latest decisions, read-only |
+| `related` | How a note is connected to others: what it fixes, builds on or evolved from, and what came after it (by note id, or by a query and a project), read-only |
+| `relation_types` | The kinds of connection, what each means and how many there are, read-only |
 | `project_manage` | Stats, alias, merge and delete projects (previews first, see below) |
 
 `search` and the other existing tools keep working; with no project chosen, `search` covers
@@ -71,6 +73,7 @@ How to use it:
 3. If I decline, search and catch up read-only, and do not save anything and do not checkpoint.
 4. If two projects share a name, ask me which one.
 5. If this conversation has been compacted or summarised and you lose track of the project or of what we were doing, call catch_up for the project (ask me which one, as in 1, if you do not know) before carrying on, instead of asking me to repeat it.
+6. When I ask how something came about, what led to a decision or whether a problem was ever fixed, find the note with search, then call related with its id and follow the connections it lists.
 
 Do not use it for general questions that do not refer to my own earlier work.
 ```
@@ -159,6 +162,15 @@ With the instruction above, chat checkpoints as it goes once you have chosen a p
 continue earlier work (also in a new chat), and calls it again when it notices it has lost the thread after a
 compaction. Nothing is checkpointed in a chat where you declined to choose a project. To recover by hand, say
 "catch up on <project>".
+
+## Following how notes are connected
+
+The knowledge graph links notes that read alike (see the README). `related` shows the links of one note: the notes it
+fixes, builds on or evolved from (older) and the notes that came after it (newer), each with its id, how sure the
+graph is and why, so chat can answer "what led to this decision?" or "was this ever fixed?" and then follow the chain
+by passing a returned id back in. It takes a note id (search results show them) or, instead, a `query` and the project
+to find the note in. `relation_types` lists the kinds of relation with what each means and how many there are. Both
+are read-only and work in a chat where you declined to save anything. Notes you superseded or archived are not listed.
 
 ## Project briefs
 

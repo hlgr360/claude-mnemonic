@@ -4,11 +4,9 @@ import (
 	"context"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/lukaszraczylo/claude-mnemonic/internal/db/gorm"
-	"github.com/lukaszraczylo/claude-mnemonic/pkg/models"
 )
 
 const (
@@ -43,20 +41,12 @@ func (s *Service) handleGraph(w http.ResponseWriter, r *http.Request) {
 		}
 		filter.MaxNodes = n
 	}
-	if v := strings.TrimSpace(r.URL.Query().Get("types")); v != "" {
-		valid := map[string]bool{}
-		for _, t := range models.AllRelationTypes {
-			valid[string(t)] = true
-		}
-		for _, t := range strings.Split(v, ",") {
-			t = strings.TrimSpace(t)
-			if !valid[t] {
-				http.Error(w, "unknown relation type: "+t, http.StatusBadRequest)
-				return
-			}
-			filter.Types = append(filter.Types, models.RelationType(t))
-		}
+	types, err := parseRelationTypes(r.URL.Query().Get("types"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
 	}
+	filter.Types = types
 
 	graph, err := s.relationStore.Graph(ctx, filter)
 	if err != nil {

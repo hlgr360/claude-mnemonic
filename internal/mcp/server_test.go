@@ -736,7 +736,7 @@ func TestHandleFindRelatedObservations_Validation(t *testing.T) {
 			name:        "missing id",
 			args:        `{}`,
 			wantErr:     true,
-			errContains: "id is required",
+			errContains: "pass the id of a note",
 		},
 		{
 			name:        "invalid json",
@@ -749,7 +749,7 @@ func TestHandleFindRelatedObservations_Validation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			_, err := server.handleFindRelatedProxy(ctx, json.RawMessage(tt.args))
+			_, err := server.toolRelated(ctx, json.RawMessage(tt.args))
 			if tt.wantErr {
 				require.Error(t, err)
 				if tt.errContains != "" {

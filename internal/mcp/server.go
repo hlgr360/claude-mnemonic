@@ -311,13 +311,13 @@ func (s *Server) handleToolsList(req *Request) *Response {
 		},
 		{
 			Name:        "observation",
-			Description: "Manage individual observations. Set 'action' to choose the operation: get, edit, delete, supersede, boost, merge, related, similar, quality, relationships, scoring, tag, by_tag, batch_tag.",
+			Description: "Manage individual observations. Set 'action' to choose the operation: get, edit, delete, supersede, boost, merge, related (how a note is connected to others: what it fixes, builds on, evolved from), relation_types (the kinds of connection and how many there are), similar, quality, relationships (the wider graph around a note), scoring, tag, by_tag, batch_tag.",
 			InputSchema: map[string]any{
 				"type":     "object",
 				"required": []string{"action"},
 				"properties": map[string]any{
-					"action":         map[string]any{"type": "string", "enum": []string{"get", "edit", "delete", "supersede", "boost", "merge", "related", "similar", "quality", "relationships", "scoring", "tag", "by_tag", "batch_tag"}, "description": "Operation to perform"},
-					"id":             map[string]any{"type": "number", "description": "Observation ID (get, edit, quality, relationships, scoring, related)"},
+					"action":         map[string]any{"type": "string", "enum": []string{"get", "edit", "delete", "supersede", "boost", "merge", "related", "relation_types", "similar", "quality", "relationships", "scoring", "tag", "by_tag", "batch_tag"}, "description": "Operation to perform"},
+					"id":             map[string]any{"type": "number", "description": "Observation ID (get, edit, quality, relationships, scoring, related; relation_types: count the relations around this note)"},
 					"ids":            map[string]any{"type": "array", "items": map[string]any{"type": "number"}, "description": "Observation IDs (delete, supersede, boost)"},
 					"title":          map[string]any{"type": "string", "description": "edit: new title"},
 					"subtitle":       map[string]any{"type": "string", "description": "edit: new subtitle"},
@@ -328,15 +328,17 @@ func (s *Server) handleToolsList(req *Request) *Response {
 					"files_modified": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "edit: new files modified"},
 					"scope":          map[string]any{"type": "string", "enum": []string{"project", "global"}, "description": "edit: new scope"},
 					"query":          map[string]any{"type": "string", "description": "similar: text to find similar observations for"},
-					"project":        map[string]any{"type": "string", "description": "Filter by project (similar, by_tag, batch_tag)"},
-					"min_confidence": map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "related: minimum confidence (default 0.5)"},
+					"project":        map[string]any{"type": "string", "description": "Filter by project (similar, by_tag, batch_tag, relation_types); related: the project to search in when query is given"},
+					"min_confidence": map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "related, relationships: only relations the graph is at least this sure of (default: all)"},
 					"min_similarity": map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "similar: minimum similarity (default 0.7)"},
-					"limit":          map[string]any{"type": "number", "description": "Max results (related, similar, by_tag, batch_tag)"},
+					"limit":          map[string]any{"type": "number", "description": "Max results (related: default 20, at most 100; similar, by_tag, batch_tag)"},
 					"delete_vectors": map[string]any{"type": "boolean", "description": "delete: also delete vectors (default true)"},
 					"boost":          map[string]any{"type": "number", "minimum": -1.0, "maximum": 1.0, "description": "boost: amount; merge: target boost"},
 					"source_id":      map[string]any{"type": "number", "description": "merge: source observation ID (superseded)"},
 					"target_id":      map[string]any{"type": "number", "description": "merge: target observation ID (kept)"},
 					"max_depth":      map[string]any{"type": "number", "minimum": 1, "maximum": 5, "description": "relationships: traversal hops (default 2)"},
+					"types":          map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": []string{"relates_to", "fixes", "depends_on", "evolves_from", "supersedes", "causes"}}, "description": "related, relationships: only these kinds of relation (default: all; relation_types lists them)"},
+					"direction":      map[string]any{"type": "string", "enum": []string{"older", "newer"}, "description": "related: only notes older than this one (what it came from) or newer (what came after)"},
 					"tag":            map[string]any{"type": "string", "description": "by_tag: tag/concept to search for"},
 					"tags":           map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "tag/batch_tag: tags to apply"},
 					"mode":           map[string]any{"type": "string", "enum": []string{"add", "remove", "set"}, "description": "tag: add/remove/set (default add)"},
@@ -449,20 +451,21 @@ type searchArgs struct {
 
 // observationActions maps the 'observation' tool's action values to the internal tool name that implements them.
 var observationActions = map[string]string{
-	"get":           "get_observation",
-	"edit":          "edit_observation",
-	"delete":        "bulk_delete_observations",
-	"supersede":     "bulk_mark_superseded",
-	"boost":         "bulk_boost_observations",
-	"merge":         "merge_observations",
-	"related":       "find_related_observations",
-	"similar":       "find_similar_observations",
-	"quality":       "get_observation_quality",
-	"relationships": "get_observation_relationships",
-	"scoring":       "get_observation_scoring_breakdown",
-	"tag":           "tag_observation",
-	"by_tag":        "get_observations_by_tag",
-	"batch_tag":     "batch_tag_by_pattern",
+	"get":            "get_observation",
+	"edit":           "edit_observation",
+	"delete":         "bulk_delete_observations",
+	"supersede":      "bulk_mark_superseded",
+	"boost":          "bulk_boost_observations",
+	"merge":          "merge_observations",
+	"related":        "find_related_observations",
+	"relation_types": "list_relation_types",
+	"similar":        "find_similar_observations",
+	"quality":        "get_observation_quality",
+	"relationships":  "get_observation_relationships",
+	"scoring":        "get_observation_scoring_breakdown",
+	"tag":            "tag_observation",
+	"by_tag":         "get_observations_by_tag",
+	"batch_tag":      "batch_tag_by_pattern",
 }
 
 // adminActions maps the 'memory_admin' tool's action values to the internal tool name that implements them.
@@ -555,7 +558,9 @@ func (s *Server) callTool(ctx context.Context, name string, args json.RawMessage
 	case "edit_observation":
 		return s.handleEditObservationProxy(ctx, args)
 	case "find_related_observations":
-		return s.handleFindRelatedProxy(ctx, args)
+		return s.toolRelated(ctx, args)
+	case "list_relation_types":
+		return s.toolRelationTypes(ctx, args)
 	case "find_similar_observations":
 		return s.handleFindSimilarProxy(ctx, args)
 	case "get_observation_quality":
@@ -898,31 +903,6 @@ func (s *Server) handleEditObservationProxy(ctx context.Context, args json.RawMe
 	return s.proxyPutRaw(ctx, fmt.Sprintf("/api/observations/%d", params.ID), params)
 }
 
-// handleFindRelatedProxy proxies find related observations.
-func (s *Server) handleFindRelatedProxy(ctx context.Context, args json.RawMessage) (string, error) {
-	var params struct {
-		ID            int64   `json:"id"`
-		MinConfidence float64 `json:"min_confidence"`
-		Limit         int     `json:"limit"`
-	}
-	if err := json.Unmarshal(args, &params); err != nil {
-		return "", fmt.Errorf("invalid arguments: %w", err)
-	}
-	if params.ID == 0 {
-		return "", fmt.Errorf("id is required")
-	}
-
-	qp := map[string]string{}
-	if params.MinConfidence > 0 {
-		qp["min_confidence"] = strconv.FormatFloat(params.MinConfidence, 'f', -1, 64)
-	}
-	if params.Limit > 0 {
-		qp["limit"] = strconv.Itoa(params.Limit)
-	}
-
-	return s.proxyGetRaw(ctx, fmt.Sprintf("/api/observations/%d/related", params.ID), qp)
-}
-
 // handleFindSimilarProxy proxies find similar observations via context search.
 func (s *Server) handleFindSimilarProxy(ctx context.Context, args json.RawMessage) (string, error) {
 	var params struct {
@@ -1073,8 +1053,10 @@ func (s *Server) handleGetObservationQualityProxy(ctx context.Context, args json
 // handleGetRelationshipsProxy proxies observation relationship graph requests.
 func (s *Server) handleGetRelationshipsProxy(ctx context.Context, args json.RawMessage) (string, error) {
 	var params struct {
-		ID       int64 `json:"id"`
-		MaxDepth int   `json:"max_depth"`
+		Types         []string `json:"types"`
+		ID            int64    `json:"id"`
+		MaxDepth      int      `json:"max_depth"`
+		MinConfidence float64  `json:"min_confidence"`
 	}
 	if err := json.Unmarshal(args, &params); err != nil {
 		return "", fmt.Errorf("invalid params: %w", err)
@@ -1085,7 +1067,13 @@ func (s *Server) handleGetRelationshipsProxy(ctx context.Context, args json.RawM
 
 	qp := map[string]string{}
 	if params.MaxDepth > 0 {
-		qp["max_depth"] = strconv.Itoa(params.MaxDepth)
+		qp["depth"] = strconv.Itoa(params.MaxDepth) // the worker's parameter is depth (it reads max_depth too)
+	}
+	if len(params.Types) > 0 {
+		qp["types"] = strings.Join(params.Types, ",")
+	}
+	if params.MinConfidence > 0 {
+		qp["min_confidence"] = strconv.FormatFloat(params.MinConfidence, 'f', -1, 64)
 	}
 
 	return s.proxyGetRaw(ctx, fmt.Sprintf("/api/observations/%d/graph", params.ID), qp)

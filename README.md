@@ -250,6 +250,20 @@ After changing the thresholds, start over with `curl -s -X POST localhost:37777/
 button in the Graph tab does the same). `GET /api/graph?project=&min_confidence=&types=&max_nodes=` returns the nodes and
 relations as JSON.
 
+Your assistant can read the graph too, not only the dashboard:
+
+- `observation` with `action: related` answers "how is this note connected?": for one note it lists the notes it fixes,
+  builds on or evolved from and the notes that came after it, each with its id, the kind of relation, how sure the
+  graph is and why. Filter with `types`, `direction` (`older` = what it came from, `newer` = what came after),
+  `min_confidence` and `limit`; pass an id from any answer back in to follow the chain.
+- `action: relation_types` lists the kinds of relation with what each means and how many there are (in a project,
+  around one note, or everywhere); `action: relationships` returns the wider graph around a note (`max_depth`, `types`,
+  `min_confidence`).
+- In Claude Desktop the same two are tools of their own, `related` (also takes a `query` and a project instead of an id)
+  and `relation_types`; see [DESKTOP.md](DESKTOP.md).
+- Over HTTP: `GET /api/observations/{id}/connections?direction=&types=&min_confidence=&limit=` and
+  `GET /api/relations/types?project=&observation_id=`. Notes you superseded or archived are never listed.
+
 ### Local LLM Settings (Ollama, optional)
 
 Summaries, observation extraction and the stale-observation check run on the Claude CLI by default. Each of
@@ -311,8 +325,8 @@ Four tools are exposed via MCP:
   `files`, `type`) - these replace the old per-type shortcut tools.
 - `timeline` - browse observations around a point in time.
 - `observation` - manage individual observations. Set `action` to one of:
-  `get`, `edit`, `delete`, `supersede`, `boost`, `merge`, `related`, `similar`,
-  `quality`, `relationships`, `scoring`, `tag`, `by_tag`, `batch_tag`.
+  `get`, `edit`, `delete`, `supersede`, `boost`, `merge`, `related`, `relation_types`,
+  `similar`, `quality`, `relationships`, `scoring`, `tag`, `by_tag`, `batch_tag`.
 - `memory_admin` - administration and analytics. Set `action` to one of:
   `stats`, `health`, `maintenance_stats`, `run_maintenance`, `importance`,
   `search_patterns`, `explain_ranking`, `temporal_trends`, `data_quality`,
