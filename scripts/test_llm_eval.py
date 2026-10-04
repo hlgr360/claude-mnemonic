@@ -22,6 +22,7 @@ def load(name):
 ek = load("evalkit")
 sm = load("summaries")
 cf = load("conflicts")
+br = load("briefs")
 
 
 class Kit(unittest.TestCase):
@@ -284,6 +285,190 @@ class Conflicts(unittest.TestCase):
         self.assertEqual((s["high_replace_wrong"], s["high_replace"]), (1, 1))
         self.assertEqual(s["unanswered"], 1)
         self.assertIsNone(cf.summarise(pairs, answers, {}, "db"))
+
+
+
+class Briefs(unittest.TestCase):
+    def make_db(self):
+        path = os.path.join(tempfile.mkdtemp(), "t.db")
+        con = sqlite3.connect(path)
+        con.executescript("""
+            CREATE TABLE observations (id INTEGER PRIMARY KEY, project TEXT, type TEXT, title TEXT, subtitle TEXT, narrative TEXT,
+                scope TEXT, is_archived INTEGER, is_superseded INTEGER, importance_score REAL, created_at_epoch INTEGER);
+            CREATE TABLE session_summaries (id INTEGER PRIMARY KEY, project TEXT, sdk_session_id TEXT, request TEXT, notes TEXT,
+                completed TEXT, learned TEXT, created_at_epoch INTEGER);
+            CREATE TABLE project_aliases (alias TEXT PRIMARY KEY, canonical TEXT);
+        """)
+        rows = [  # id, project, type, title, sub, narrative, scope, archived, superseded, importance, epoch
+            (1, "app_aaaaaa", "decision", "Old decision", None, "We chose A.", "project", 0, 0, 1.0, 1_700_000_000_000),
+            (2, "app_aaaaaa", "bugfix", "Fixed the cache", "sub", "Cache lifetime was 60 minutes.", None, 0, 0, 2.0, 1_700_100_000_000),
+            (3, "app_aaaaaa", "feature", "Archived", None, "x", "project", 1, 0, 1.0, 1_700_200_000_000),
+            (4, "app_aaaaaa", "feature", "Superseded", None, "x", "project", 0, 1, 1.0, 1_700_300_000_000),
+            (5, "app_aaaaaa", "feature", "A global one", None, "x", "global", 0, 0, 1.0, 1_700_400_000_000),
+            (6, "app_aaaaaa", "discovery", "Newest", None, "Latest state.", "project", 0, 0, 1.0, 1_700_500_000_000),
+            (7, "other_bbbbbb", "discovery", "Other project", None, "y", "project", 0, 0, 1.0, 1_700_600_000_000),
+        ]
+        con.executemany("INSERT INTO observations VALUES (?,?,?,?,?,?,?,?,?,?,?)", rows)
+        con.executemany("INSERT INTO session_summaries VALUES (?,?,?,?,?,?,?,?)", [
+            (1, "app_aaaaaa", "thread-release", "Release work", "ship it", "tests written", "names not ids", 1_700_700_000_000),
+            (2, "app_aaaaaa", "thread-docs", "Docs", "", "", "", 1_700_800_000_000),
+            (3, "app_aaaaaa", "claude-session-1", "Not a thread note", "", "", "", 1_700_900_000_000),
+            (4, "app_aaaaaa", "brief-app_aaaaaa", "Project brief", "", "", "", 1_701_000_000_000),
+        ])
+        con.executemany("INSERT INTO project_aliases VALUES (?, ?)", [("old_cccccc", "app_aaaaaa")])
+        con.commit()
+        con.close()
+        return path
+
+    def sample(self, **extra):
+        s = br.read_project(self.make_db(), "app_aaaaaa")
+        s.update({"sid": "B01", "as_of": "2023-11-20"})
+        s.update(extra)
+        return s
+
+    def test_the_limits_and_the_system_prompt_agree_with_the_workers_source(self):
+        brief = open(os.path.join(ek.REPO, "internal", "worker", "sdk", "brief.go"), encoding="utf-8").read()
+        worker = open(os.path.join(ek.REPO, "internal", "worker", "brief.go"), encoding="utf-8").read()
+        const = lambda src, name: int(eval(__import__("re").search(rf"{name}\s*=\s*([0-9* ]+)", src).group(1)))  # noqa: S307 (digits and * only)
+        self.assertEqual(const(brief, "briefNarrativeChars"), br.NARRATIVE_CHARS)
+        self.assertEqual(const(brief, "briefTitleChars"), br.TITLE_CHARS)
+        self.assertEqual(const(brief, "briefThreadChars"), br.THREAD_CHARS)
+        self.assertEqual(const(brief, "briefMaxPromptBytes"), br.MAX_PROMPT_BYTES)
+        self.assertEqual(const(worker, "briefObservationLimit"), br.OBSERVATION_LIMIT)
+        self.assertEqual(const(worker, "briefThreadLimit"), br.THREAD_LIMIT)
+        system = br.worker_system_prompt()
+        for section in br.SECTIONS:
+            self.assertIn(f'"## {section}"', system)
+        self.assertIn("At most 300 words", system)
+
+    def test_the_input_is_what_the_worker_reads(self):
+        s = self.sample()
+        self.assertEqual([o["id"] for o in s["observations"]], [1, 2, 6], "live, project-scoped notes only, oldest first")
+        self.assertEqual(s["total"], 3)
+        self.assertEqual(s["name"], "app")
+        self.assertEqual([t["request"] for t in s["threads"]], ["Docs", "Release work"], "thread notes only, the latest first")
+        self.assertEqual(s["threads"][1]["goal"], "ship it")
+        self.assertEqual(s["threads"][1]["progress"], "tests written")
+
+    def test_the_most_important_notes_are_kept_when_there_are_too_many(self):
+        path = self.make_db()
+        con = sqlite3.connect(path)
+        for i in range(10, 10 + br.OBSERVATION_LIMIT + 5):
+            con.execute("INSERT INTO observations VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                        (i, "big_dddddd", "discovery", f"n{i}", None, "x", "project", 0, 0, 1.0 if i != 12 else 9.0, 1_700_000_000_000 + i))
+        con.commit()
+        con.close()
+        s = br.read_project(path, "big_dddddd")
+        self.assertEqual(len(s["observations"]), br.OBSERVATION_LIMIT)
+        self.assertEqual(s["total"], br.OBSERVATION_LIMIT + 5)
+        self.assertIn(12, [o["id"] for o in s["observations"]], "the important note survives the cut")
+        self.assertEqual([o["id"] for o in s["observations"]], sorted(o["id"] for o in s["observations"]), "and they read oldest first")
+
+    def test_global_notes_are_only_used_when_asked_for(self):
+        path = self.make_db()
+        self.assertEqual([o["id"] for o in br.read_project(path, "app_aaaaaa", include_global=True)["observations"]], [1, 2, 5, 6])
+        self.assertNotIn(5, [o["id"] for o in br.read_project(path, "app_aaaaaa")["observations"]])
+
+    def test_the_database_is_opened_read_only(self):
+        path = self.make_db()
+        br.read_project(path, "app_aaaaaa")
+        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        with self.assertRaises(sqlite3.OperationalError):
+            con.execute("DELETE FROM observations")
+
+    def test_largest_projects_skips_aliases_and_small_ones(self):
+        path = self.make_db()
+        con = sqlite3.connect(path)
+        con.execute("INSERT INTO observations VALUES (20,'old_cccccc','discovery','t',NULL,'x','project',0,0,1.0,1)")
+        con.commit()
+        con.close()
+        self.assertEqual(br.largest_projects(path, 5, 1)[0], "app_aaaaaa", "the largest comes first")
+        self.assertNotIn("old_cccccc", br.largest_projects(path, 5, 1), "an alias is not a project of its own")
+        self.assertEqual(br.largest_projects(path, 5, 2), ["app_aaaaaa"], "a project below the minimum is left out")
+
+    def test_the_prompt_is_the_workers_request(self):
+        system, prompt, used = br.build_prompt(self.sample())
+        self.assertEqual(system, br.worker_system_prompt())
+        self.assertTrue(prompt.startswith("PROJECT BRIEF REQUEST\nAS OF: 2023-11-20\nPROJECT: app\n\n"))
+        self.assertIn("CURRENT WORK (the developer's own checkpoint notes, most recent first):\n- Docs (updated 2023-11-", prompt)
+        self.assertIn("- Release work (updated 2023-11-", prompt)
+        self.assertIn("; goal: ship it; progress: tests written; decisions: names not ids\n", prompt)
+        self.assertIn("OBSERVATIONS (3 of 3, oldest first):\n\n[#1] (decision, 2023-11-14) Old decision\n  We chose A.\n\n", prompt)
+        self.assertIn("[#2] (bugfix, 2023-11-16) Fixed the cache\n  sub\n  Cache lifetime was 60 minutes.\n", prompt)
+        self.assertEqual([o["id"] for o in used], [1, 2, 6])
+
+    def test_text_is_clipped_like_the_worker_does(self):
+        self.assertEqual(br.clip_runes("a  b\n c", 10), "a b c", "whitespace is collapsed")
+        self.assertEqual(br.clip_runes("x" * 20, 10), "x" * 10 + "…")
+        s = self.sample()
+        s["observations"][0]["narrative"] = "n" * 1000
+        _, prompt, _ = br.build_prompt(s)
+        self.assertIn("n" * br.NARRATIVE_CHARS + "…", prompt)
+        self.assertNotIn("n" * (br.NARRATIVE_CHARS + 1), prompt)
+
+    def test_a_too_large_request_drops_the_oldest_notes(self):
+        s = self.sample()
+        s["observations"] = [dict(s["observations"][0], id=i, narrative="word " * 90, epoch=1_700_000_000_000 + i) for i in range(1, 400)]
+        s["total"] = 399
+        _, prompt, used = br.build_prompt(s)
+        self.assertLessEqual(len(prompt.encode()) + len(br.worker_system_prompt().encode()), br.MAX_PROMPT_BYTES)
+        self.assertLess(len(used), 399)
+        self.assertEqual(used[-1]["id"], 399, "the newest notes are kept")
+        self.assertIn(f"OBSERVATIONS ({len(used)} of 399, oldest first)", prompt)
+
+    def test_cleaning_matches_what_the_worker_stores(self):
+        raw = ("```markdown\n## What this is\nA tool [#1] with a made-up claim [#999] and a mix [#2, #998]. Mail dev@example.org.\n"
+               "<private>secret</private>\n## Open items\n- invented\n## Conventions and gotchas\nKeep it small [#6].\n```")
+        got = br.clean_body(raw, {1, 2, 6})
+        self.assertTrue(got.startswith("## What this is"), "no code fence")
+        self.assertIn("A tool [#1] with a made-up claim and a mix [#2].", got, "an unknown citation goes, with the space before it")
+        self.assertNotIn("dev@example.org", got)
+        self.assertIn("[email removed]", got)
+        self.assertNotIn("secret", got)
+        self.assertNotIn("Open items", got)
+        self.assertNotIn("invented", got)
+        self.assertIn("## Conventions and gotchas\nKeep it small [#6].", got)
+
+    def test_the_mechanical_checks(self):
+        s = self.sample()
+        good = ("## What this is\nA service [#1].\n## Current state\nWorks [#2, #6]. Port 8080 in `config.yml`.\n"
+                "## Key decisions (and why)\nChose A [#1].\n## Conventions and gotchas\nNone.")
+        m = br.metrics({"raw": good, "known": [1, 2, 6]}, s)
+        self.assertTrue(m["sections"] and not m["unwanted"] and not m["over_limit"])
+        self.assertEqual((m["cites"], m["invented"], m["distinct"], m["emails"]), (4, 0, 3, 0))
+        self.assertGreaterEqual(m["ungrounded"], 2, "8080 and config.yml are not in the notes")
+        bad = "## Current state\nx [#77] a@b.co\n## What this is\ny\n## Open items\n- z"
+        m = br.metrics({"raw": bad, "known": [1, 2, 6]}, s)
+        self.assertFalse(m["sections"], "sections out of order or missing")
+        self.assertTrue(m["unwanted"])
+        self.assertEqual((m["invented"], m["emails"]), (1, 1))
+        long = br.metrics({"raw": "## What this is\n" + "word " * 400, "known": []}, s)
+        self.assertTrue(long["over_limit"])
+        self.assertFalse(br.metrics({"raw": "  ", "known": []}, s)["ok"])
+
+    def test_specifics(self):
+        self.assertEqual(br.specifics("Port 8080, file main.go and `Foo` plus 7."), {"8080", "main.go", "foo"})
+
+    def test_result_paths_and_scoring_table(self):
+        import io
+        import contextlib
+
+        out = tempfile.mkdtemp()
+        s = self.sample()
+        json.dump([s], open(os.path.join(out, "samples.json"), "w"))
+        self.assertTrue(br.result_path(out, "gemma4:e4b-mlx").endswith("briefs__gemma4_e4b-mlx.json"))
+        os.makedirs(os.path.join(out, "results"))
+        good = "## What this is\nA [#1].\n## Current state\nB [#2].\n## Key decisions (and why)\nC.\n## Conventions and gotchas\nD."
+        json.dump([{"sid": "B01", "model": "haiku", "raw": good, "known": [1, 2, 6], "secs": 5.0}], open(br.result_path(out, "haiku"), "w"))
+        json.dump({"haiku|B01": {"faithfulness": 5, "currency": 4, "usefulness": 5, "concision": 5, "unsupported": []}},
+                  open(os.path.join(out, "results", "briefs_judge.json"), "w"))
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            br.cmd_score(type("A", (), {"out": out, "judge": False})())
+        table = buf.getvalue()
+        self.assertIn("haiku", table)
+        self.assertIn("1/1", table, "one valid brief of one")
+        self.assertIn("5.00", table, "the judged faithfulness")
 
 
 if __name__ == "__main__":
