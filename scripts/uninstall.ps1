@@ -2,8 +2,9 @@
 # Usage: irm https://raw.githubusercontent.com/hlgr360/claude-mnemonic/main/scripts/uninstall.ps1 | iex
 #
 # Options:
-#   -KeepData    Keep the data directory (~/.claude-mnemonic/)
-#   -Purge       Remove everything including data (default)
+# The data directory (~/.claude-mnemonic/: the database, settings and embeddings) is KEPT unless you ask for it to go:
+#   -Purge       Also delete the data directory
+#   -KeepData    Keep the data directory (this is the default; it wins over -Purge)
 
 param(
     [switch]$KeepData,
@@ -98,10 +99,11 @@ try {
 }
 
 # Handle data directory
+$RemoveData = $Purge -and -not $KeepData
 if (Test-Path $DataDir) {
-    if ($KeepData) {
+    if (-not $RemoveData) {
         Write-Warn "Keeping data directory: $DataDir"
-        Write-Warn "To remove it later, run: Remove-Item -Recurse -Force $DataDir"
+        Write-Warn "To remove it as well, run this script with -Purge (or: Remove-Item -Recurse -Force $DataDir)"
     } else {
         Write-Info "Removing data directory..."
         Remove-Item -Recurse -Force $DataDir -ErrorAction SilentlyContinue
@@ -115,7 +117,7 @@ Write-Host "                Uninstallation Complete!                        " -F
 Write-Host "================================================================" -ForegroundColor Green
 Write-Host ""
 
-if ($KeepData) {
+if (-not $RemoveData) {
     Write-Host "  Data preserved at: $DataDir" -ForegroundColor White
     Write-Host "  To reinstall: irm .../install.ps1 | iex" -ForegroundColor White
     Write-Host ""

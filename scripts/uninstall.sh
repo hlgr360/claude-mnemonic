@@ -2,9 +2,10 @@
 # Claude Mnemonic - Uninstallation Script
 # Usage: curl -sSL https://raw.githubusercontent.com/hlgr360/claude-mnemonic/main/scripts/uninstall.sh | bash
 #
-# Options:
-#   --keep-data    Keep the data directory (~/.claude-mnemonic/)
-#   --purge        Remove everything including data (default)
+# The data directory (~/.claude-mnemonic/: the database, settings and embeddings) is KEPT unless you ask for it to go:
+#   --purge        Also delete the data directory
+#   --keep-data    Keep the data directory (this is the default; it wins over --purge)
+# Through curl:  curl -sSL <url> | bash -s -- --purge
 
 set -e
 
@@ -31,6 +32,7 @@ success() { echo -e "${GREEN}[OK]${NC} $1"; }
 warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 
 # Parse arguments
+PURGE=false
 KEEP_DATA=false
 for arg in "$@"; do
     case $arg in
@@ -38,10 +40,16 @@ for arg in "$@"; do
             KEEP_DATA=true
             ;;
         --purge)
-            KEEP_DATA=false
+            PURGE=true
             ;;
     esac
 done
+# Keep unless --purge was given (and --keep-data was not).
+if [[ "$PURGE" == "true" && "$KEEP_DATA" != "true" ]]; then
+    KEEP_DATA=false
+else
+    KEEP_DATA=true
+fi
 
 echo ""
 echo "╔═══════════════════════════════════════════════════════════╗"
@@ -109,7 +117,7 @@ fi
 if [[ -d "$DATA_DIR" ]]; then
     if [[ "$KEEP_DATA" == "true" ]]; then
         warn "Keeping data directory: $DATA_DIR"
-        warn "To remove it later, run: rm -rf $DATA_DIR"
+        warn "To remove it as well, run this script with --purge (or: rm -rf $DATA_DIR)"
     else
         info "Removing data directory..."
         rm -rf "$DATA_DIR"

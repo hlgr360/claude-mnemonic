@@ -407,13 +407,19 @@ curl http://127.0.0.1:37777/api/selfcheck
 
 ## Uninstall
 
-```bash
-# Remove everything
-curl -sSL https://raw.githubusercontent.com/lukaszraczylo/claude-mnemonic/main/scripts/uninstall.sh | bash
+Your data (`~/.claude-mnemonic`: the database, settings and embeddings) is **kept** unless you ask for it to go. This
+fork's scripts do that; upstream's `uninstall.sh` deletes the data by default, so use the fork's:
 
-# Keep your data
-curl -sSL https://raw.githubusercontent.com/lukaszraczylo/claude-mnemonic/main/scripts/uninstall.sh | bash -s -- --keep-data
+```bash
+# Remove the plugin and the binaries, keep your data
+curl -sSL https://raw.githubusercontent.com/hlgr360/claude-mnemonic/main/scripts/uninstall.sh | bash
+
+# Remove everything, including your data (the database cannot be recovered)
+curl -sSL https://raw.githubusercontent.com/hlgr360/claude-mnemonic/main/scripts/uninstall.sh | bash -s -- --purge
 ```
+
+To only switch from one install route to another, use `claude plugin uninstall` (or `scripts/unregister-plugin.sh`,
+which keeps the data too) and never `--purge`.
 
 ## Architecture
 
