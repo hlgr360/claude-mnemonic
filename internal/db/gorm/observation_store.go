@@ -469,8 +469,45 @@ func (s *ObservationStore) GetAllRecentObservations(ctx context.Context, limit i
 	return toModelObservations(dbObservations), nil
 }
 
-// GetAllRecentObservationsPaginated retrieves recent observations with pagination.
+// ObservationOrder says how a list of observations is ordered.
+type ObservationOrder string
+
+const (
+	// OrderByImportance puts the highest importance score first, the newest first among equals. It is the default: the
+	// lists that feed a prompt want the most valuable notes.
+	OrderByImportance ObservationOrder = "importance"
+	// OrderByDate puts the newest observation first. A list meant for browsing what was saved wants this: with the
+	// importance order a note that has just been saved starts at importance 1 and is behind every older, higher-scored
+	// note, so it can be missing from the first page altogether.
+	OrderByDate ObservationOrder = "date"
+)
+
+// ParseObservationOrder reads the `sort` value of a request: "" is the default (importance), an unknown value is an error.
+func ParseObservationOrder(value string) (ObservationOrder, error) {
+	switch ObservationOrder(value) {
+	case "", OrderByImportance:
+		return OrderByImportance, nil
+	case OrderByDate:
+		return OrderByDate, nil
+	}
+	return "", fmt.Errorf("unknown sort %q (use %q or %q)", value, OrderByImportance, OrderByDate)
+}
+
+// scope is the query scope that applies the order; the id breaks ties so that pages do not overlap.
+func (o ObservationOrder) scope() func(*gorm.DB) *gorm.DB {
+	if o == OrderByDate {
+		return func(db *gorm.DB) *gorm.DB { return db.Order("created_at_epoch DESC, id DESC") }
+	}
+	return importanceOrdering()
+}
+
+// GetAllRecentObservationsPaginated retrieves observations of every project with pagination, most important first.
 func (s *ObservationStore) GetAllRecentObservationsPaginated(ctx context.Context, limit, offset int) ([]*models.Observation, int64, error) {
+	return s.GetAllRecentObservationsOrdered(ctx, limit, offset, OrderByImportance)
+}
+
+// GetAllRecentObservationsOrdered retrieves observations of every project with pagination, in the given order.
+func (s *ObservationStore) GetAllRecentObservationsOrdered(ctx context.Context, limit, offset int, order ObservationOrder) ([]*models.Observation, int64, error) {
 	var dbObservations []Observation
 	var total int64
 
@@ -481,7 +518,7 @@ func (s *ObservationStore) GetAllRecentObservationsPaginated(ctx context.Context
 
 	// Get paginated results
 	err := s.db.WithContext(ctx).
-		Scopes(importanceOrdering()).
+		Scopes(order.scope()).
 		Limit(limit).
 		Offset(offset).
 		Find(&dbObservations).Error
@@ -493,8 +530,13 @@ func (s *ObservationStore) GetAllRecentObservationsPaginated(ctx context.Context
 	return toModelObservations(dbObservations), total, nil
 }
 
-// GetObservationsByProjectStrictPaginated retrieves observations strictly from a project with pagination.
+// GetObservationsByProjectStrictPaginated retrieves observations strictly from a project with pagination, most important first.
 func (s *ObservationStore) GetObservationsByProjectStrictPaginated(ctx context.Context, project string, limit, offset int) ([]*models.Observation, int64, error) {
+	return s.GetObservationsByProjectStrictOrdered(ctx, project, limit, offset, OrderByImportance)
+}
+
+// GetObservationsByProjectStrictOrdered retrieves observations strictly from a project with pagination, in the given order.
+func (s *ObservationStore) GetObservationsByProjectStrictOrdered(ctx context.Context, project string, limit, offset int, order ObservationOrder) ([]*models.Observation, int64, error) {
 	var dbObservations []Observation
 	var total int64
 
@@ -506,7 +548,7 @@ func (s *ObservationStore) GetObservationsByProjectStrictPaginated(ctx context.C
 	// Get paginated results
 	err := s.db.WithContext(ctx).
 		Where("project = ?", project).
-		Scopes(importanceOrdering()).
+		Scopes(order.scope()).
 		Limit(limit).
 		Offset(offset).
 		Find(&dbObservations).Error

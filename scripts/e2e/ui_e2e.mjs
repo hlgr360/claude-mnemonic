@@ -68,6 +68,11 @@ try {
   const clickTab = async (key) => { await evaluate(`document.querySelector('[data-testid=tab-${key}]').click()`); await waitFor(`document.querySelector('[data-testid=tab-${key}]').getAttribute('aria-selected') === 'true'`, `the ${key} tab to be selected`) }
   await clickTab('observations')
   check('the other tabs are one click away', await waitFor(`document.querySelectorAll('[data-testid=scope-badge]').length > 0`, 'observation cards'))
+  // A note saved a moment ago starts at importance 1; 52 older notes have a higher score and fill the first 50 of the
+  // importance order. The timeline asks for the newest, so the fresh note is there, above the older ones.
+  check('a note saved just now is in the timeline for all projects, above the older notes',
+    await waitFor(`document.body.innerText.includes('Freshly saved note about the pantry')`, 'the freshly saved note') &&
+    await evaluate(`document.body.innerText.indexOf('Freshly saved note about the pantry') < document.body.innerText.indexOf('Bulk note')`))
   await clickTab('all')
   check('and All shows everything again', await tabSelected('all') && !(await tabSelected('observations')))
   await clickTab('summaries')
