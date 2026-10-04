@@ -224,7 +224,7 @@ uninstall-ollama:
 	@python3 scripts/setup-ollama.py disable
 
 test-scripts:
-	@python3 -m unittest scripts/test_install_desktop.py scripts/test_desktop_calls.py scripts/test_setup_ollama.py scripts/test_llm_eval.py scripts/test_register_plugin.py scripts/test_dashboard_command.py scripts/test_release_repo.py scripts/test_package_release.py scripts/test_release_version.py scripts/test_plugin.py scripts/test_data_safety.py scripts/test_update_catalogue.py
+	@python3 -m unittest scripts/test_install_desktop.py scripts/test_desktop_calls.py scripts/test_setup_ollama.py scripts/test_llm_eval.py scripts/test_register_plugin.py scripts/test_dashboard_command.py scripts/test_restart_command.py scripts/test_release_repo.py scripts/test_package_release.py scripts/test_release_version.py scripts/test_plugin.py scripts/test_data_safety.py scripts/test_update_catalogue.py
 
 # Uninstall
 uninstall: stop-worker

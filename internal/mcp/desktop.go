@@ -88,6 +88,7 @@ claude-mnemonic keeps memory per project. This client has no working directory, 
 - If project_suggest or project_resolve says projects are probably the same project (probably_same_as), tell the user and offer to merge them with project_manage (preview first, only with their approval); do not make them choose between copies of one project.
 - Pass the chosen project id to remember, checkpoint, catch_up and context on every call.
 - When the user asks to see, open or manage their memory in a browser, call dashboard and give them the link.
+- When the user asks to restart the memory, or the memory tools keep failing, call restart (a shell in this client may be a sandbox that cannot reach the worker).
 - Once a project is chosen, keep one checkpoint per thread of work current. If the conversation was compacted and you lost the thread, call catch_up.`
 
 // workerBootstrap starts the worker when it is not running.
@@ -246,6 +247,12 @@ func desktopTools() []Tool {
 			InputSchema: map[string]any{"type": "object", "properties": map[string]any{}},
 		},
 		{
+			Name: "restart",
+			Description: memoryPrefix + "restarts the memory worker on the user's computer and waits until it answers again (a few seconds, nothing is lost). " +
+				"Call it when the user asks to restart the memory, or when the memory tools keep failing and the worker looks stuck. Do not use a shell for this: it may run in a sandbox that cannot reach this computer.",
+			InputSchema: map[string]any{"type": "object", "properties": map[string]any{}},
+		},
+		{
 			Name:        "relation_types",
 			Description: memoryPrefix + "the kinds of connection between notes (relates_to, fixes, depends_on, evolves_from, supersedes, causes), what each means, and how many there are in a project, around one note, or everywhere. Read-only.",
 			InputSchema: map[string]any{
@@ -332,7 +339,7 @@ func desktopTools() []Tool {
 // isDesktopTool reports whether name is one of the tools added by Desktop mode.
 func isDesktopTool(name string) bool {
 	switch name {
-	case "project_suggest", "project_resolve", "project_list", "context", "remember", "project_manage", "checkpoint", "catch_up", "related", "relation_types", "dashboard":
+	case "project_suggest", "project_resolve", "project_list", "context", "remember", "project_manage", "checkpoint", "catch_up", "related", "relation_types", "dashboard", "restart":
 		return true
 	}
 	return false
@@ -359,6 +366,8 @@ func (s *Server) callDesktopTool(ctx context.Context, name string, args json.Raw
 		return s.toolCatchUp(ctx, args)
 	case "dashboard":
 		return s.toolDashboard(), nil
+	case "restart":
+		return s.toolRestart(ctx)
 	case "related":
 		return s.toolRelated(ctx, args)
 	case "relation_types":
@@ -375,6 +384,80 @@ func (s *Server) toolDashboard() string {
 	return fmt.Sprintf("The memory dashboard is at %s . Give the user this link: it opens in their browser on this computer. "+
 		"It shows their saved notes, session summaries, the knowledge graph, conflicts to review, scopes, and project management "+
 		"(merge, delete, possible duplicates). It is served by the local worker, so it only works on this computer.", url)
+}
+
+// How the restart tool waits. Variables so a test does not have to wait for real time.
+var (
+	restartPollInterval = 200 * time.Millisecond
+	// restartGoneWithin is how long the old worker may keep answering before the restart is called failed: the worker
+	// answers the request first and replaces itself a moment later.
+	restartGoneWithin  = 5 * time.Second
+	restartReadyWithin = 20 * time.Second
+)
+
+// workerHealth is the part of the worker's /health answer the restart tool reads.
+type workerHealth struct {
+	Version string `json:"version"`
+	Uptime  int    `json:"uptime_seconds"`
+	Ready   bool   `json:"ready"`
+}
+
+// health asks the worker how it is; ok is false when it does not answer (or answers that it is not ready).
+func (s *Server) health(ctx context.Context) (h workerHealth, answered bool) {
+	raw, err := s.proxyGetRaw(ctx, "/health", nil)
+	if err != nil {
+		// A not-ready worker answers 503 with the same body; read it so "starting" is told from "gone".
+		if i := strings.Index(err.Error(), "{"); i >= 0 && json.Unmarshal([]byte(err.Error()[i:]), &h) == nil {
+			return h, true
+		}
+		return h, false
+	}
+	if json.Unmarshal([]byte(raw), &h) != nil {
+		return h, false
+	}
+	return h, true
+}
+
+// toolRestart restarts the worker from this side of the sandbox: Desktop's chat and Cowork run commands in a sandbox
+// that cannot reach this computer's localhost, but this server runs here. The worker answers the request and replaces
+// itself a moment later, so the new worker is told from the old one by it having been gone, or by its uptime having
+// started over.
+func (s *Server) toolRestart(ctx context.Context) (string, error) {
+	before, ok := s.health(ctx)
+	if !ok {
+		return "", fmt.Errorf("the memory worker does not answer, so it cannot be asked to restart; call any other memory tool, which starts it")
+	}
+	if _, err := s.proxyPostRaw(ctx, "/api/restart", nil); err != nil {
+		return "", fmt.Errorf("restart: %w", err)
+	}
+	start := time.Now()
+	gone := false
+	for {
+		if err := ctx.Err(); err != nil {
+			return "", fmt.Errorf("restart: gave up waiting: %w", err)
+		}
+		h, answered := s.health(ctx)
+		switch {
+		case !answered:
+			gone = true
+		case h.Ready && (gone || h.Uptime < before.Uptime):
+			return fmt.Sprintf("The memory worker was restarted and is ready again (version %s, back after %.0f seconds). Memory tools work as before.",
+				h.Version, time.Since(start).Seconds()), nil
+		case !h.Ready:
+			gone = true // a worker that says it is starting is the new one
+		}
+		since := time.Since(start)
+		if !gone && since > restartGoneWithin {
+			return "", fmt.Errorf("restart: the worker answered the request but is still the same process after %.0f seconds; it could not start its replacement (the log is /tmp/claude-mnemonic-worker.log on this computer)", since.Seconds())
+		}
+		if since > restartReadyWithin {
+			return "The memory worker is restarting but is not ready yet. Wait a few seconds and use a memory tool again; it will answer once the worker is up.", nil
+		}
+		select {
+		case <-ctx.Done():
+		case <-time.After(restartPollInterval):
+		}
+	}
 }
 
 // resolution mirrors the worker's /api/projects/resolve answer.

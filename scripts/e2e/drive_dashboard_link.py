@@ -2,7 +2,7 @@
 """Where the dashboard is: the real session-start hook tells the user once per version (as a message for the user, never in
 the model's context), the real MCP server gives Desktop the link, and the link is the live worker's address. Claude Code's
 tool list is unchanged."""
-import json, os, subprocess, sys, tempfile, time, urllib.request
+import json, os, shutil, subprocess, sys, tempfile, time, urllib.request
 
 E2E = os.environ.get("E2E_DIR") or os.path.dirname(os.path.abspath(__file__))  # work dir holding bin/ and home/
 PORT = os.environ.get("E2E_PORT", "37999")
@@ -95,11 +95,26 @@ check("the dashboard tool answers with this worker's address", not is_err and f"
 health = json.load(urllib.request.urlopen(URL + "/health", timeout=15))
 check("that address is the live worker the tool talked to", health.get("ready") is True and health.get("version"), health)
 check("the tool is in Desktop's tool list", "dashboard" in desktop.names())
+
+print("== Claude Desktop restarts the worker through the server, outside its sandbox")
+check("the restart tool is in Desktop's tool list", "restart" in desktop.names())
+# A worker restarts itself from ~/.claude-mnemonic/bin (where an installation puts it), which this isolated home does not have.
+os.makedirs(f"{E2E}/home/.claude-mnemonic/bin", exist_ok=True)
+shutil.copy(f"{E2E}/bin/worker", f"{E2E}/home/.claude-mnemonic/bin/worker")
+before = json.load(urllib.request.urlopen(URL + "/health", timeout=15))
+t0 = time.time()
+is_err, text = desktop.tool("restart")
+check("the restart tool says the worker is back", not is_err and "ready again" in text, text)
+after = json.load(urllib.request.urlopen(URL + "/health", timeout=15))
+# The same process would have an uptime of before + everything that passed; a new one has been up for less than the wait.
+check("it is a new worker process: the uptime started over", after.get("ready") is True and after["uptime_seconds"] < before["uptime_seconds"] + (time.time() - t0) - 1, (before, after, time.time() - t0))
+is_err, text = desktop.tool("project_resolve", path=proj)
+check("the notes are still there after the restart", not is_err and json.loads(text)["id"] == pid, text)
 desktop.close()
 
 print("== Claude Code's tool list is unchanged")
 code_mode = Client("claude-code", "--mode", "code")
-check("Code mode has no dashboard tool (it has the slash command)", "dashboard" not in code_mode.names())
+check("Code mode has no dashboard or restart tool (it has the slash commands)", "dashboard" not in code_mode.names() and "restart" not in code_mode.names())
 is_err, text = code_mode.tool("dashboard")
 check("and calling it is an unknown tool", is_err and "unknown tool" in text, text)
 code_mode.close()
