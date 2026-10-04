@@ -5,7 +5,8 @@ the marketplace name they always used.
 
 Run: python3 -m unittest scripts/test_release_repo.py -v
 Everything runs against temporary directories; the real ~/.claude is never touched. unregister-plugin.sh is not run
-here: it kills whatever listens on the worker port, which would be a real worker on a developer machine.
+here: it kills whatever listens on the worker port, which would be a real worker on a developer machine. (The data-safety
+tests run it with the process-killing commands replaced by no-op shims: scripts/test_data_safety.py.)
 """
 import glob
 import json

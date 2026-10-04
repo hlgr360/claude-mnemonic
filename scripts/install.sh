@@ -544,7 +544,9 @@ fi
 
 # Handle --uninstall flag
 if [[ "${1:-}" == "--uninstall" ]]; then
-    KEEP_DATA=false
+    # The data directory (database, settings, embeddings) is kept unless --purge is given.
+    KEEP_DATA=true
+    [[ "${2:-}" == "--purge" ]] && KEEP_DATA=false
     [[ "${2:-}" == "--keep-data" ]] && KEEP_DATA=true
 
     echo ""
@@ -586,6 +588,7 @@ if [[ "${1:-}" == "--uninstall" ]]; then
     if [[ -d "$DATA_DIR" ]]; then
         if [[ "$KEEP_DATA" == "true" ]]; then
             warn "Keeping data directory: $DATA_DIR"
+            warn "To remove it as well, run: install.sh --uninstall --purge"
         else
             info "Removing data directory..."
             rm -rf "$DATA_DIR"

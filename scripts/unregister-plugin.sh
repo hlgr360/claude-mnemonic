@@ -1,7 +1,22 @@
 #!/bin/bash
 # Unregister claude-mnemonic plugin from Claude Code
+#
+# Usage: unregister-plugin.sh [--purge]
+#   --purge   also delete ~/.claude-mnemonic: the database, settings and embeddings. Without it your data is kept:
+#             unregistering the plugin (to switch to another install route, say) is not deleting your memory.
 
 set -e
+
+PURGE=false
+for arg in "$@"; do
+    case "$arg" in
+        --purge) PURGE=true ;;
+        *)
+            echo "Usage: $0 [--purge]   (--purge also deletes ~/.claude-mnemonic: the database, settings and embeddings)" >&2
+            exit 2
+            ;;
+    esac
+done
 
 # Stop running worker processes before removing binaries
 echo "Stopping worker processes..."
@@ -30,7 +45,7 @@ if ! command -v jq &> /dev/null; then
     echo "  - $SETTINGS_FILE (remove from enabledPlugins and statusLine)"
     echo "  - $MARKETPLACES_FILE (remove $MARKETPLACE_NAME)"
     echo "  - $CACHE_DIR (remove directory)"
-    echo "  - $HOME/.claude-mnemonic (remove data directory)"
+    echo "  - $HOME/.claude-mnemonic is your data (database, settings, embeddings): leave it unless you want it gone"
     exit 1
 fi
 
@@ -72,11 +87,15 @@ if [ -d "$CACHE_DIR" ]; then
     echo "Cache directory removed"
 fi
 
-# Remove data directory (database, embeddings, etc.)
+# The data directory (database, embeddings, settings) is kept unless --purge was given.
 DATA_DIR="$HOME/.claude-mnemonic"
 if [ -d "$DATA_DIR" ]; then
-    rm -rf "$DATA_DIR"
-    echo "Data directory removed ($DATA_DIR)"
+    if [ "$PURGE" = true ]; then
+        rm -rf "$DATA_DIR"
+        echo "Data directory removed ($DATA_DIR)"
+    else
+        echo "Data directory kept ($DATA_DIR); to delete it as well, run: $0 --purge"
+    fi
 fi
 
 echo "Plugin unregistered successfully"

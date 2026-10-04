@@ -6,7 +6,8 @@
 
 param(
     [string]$Version = $env:MNEMONIC_VERSION,
-    [switch]$Uninstall
+    [switch]$Uninstall,
+    [switch]$Purge   # with -Uninstall: also delete the data directory (the database, settings, embeddings)
 )
 
 $ErrorActionPreference = "Stop"
@@ -287,7 +288,7 @@ function Test-OptionalDependencies {
 }
 
 function Uninstall-ClaudeMnemonic {
-    param([switch]$KeepData)
+    param([switch]$Purge)
 
     Write-Info "Uninstalling Claude Mnemonic..."
 
@@ -331,8 +332,9 @@ function Uninstall-ClaudeMnemonic {
     # Handle data directory
     $DataDir = "$env:USERPROFILE\.claude-mnemonic"
     if (Test-Path $DataDir) {
-        if ($KeepData) {
+        if (-not $Purge) {
             Write-Warn "Keeping data directory: $DataDir"
+            Write-Warn "To remove it as well, run the installer with -Uninstall -Purge"
         } else {
             Remove-Item -Recurse -Force $DataDir -ErrorAction SilentlyContinue
             Write-Success "Data directory removed"
@@ -351,7 +353,7 @@ Write-Host "================================================================" -F
 Write-Host ""
 
 if ($Uninstall) {
-    Uninstall-ClaudeMnemonic
+    Uninstall-ClaudeMnemonic -Purge:$Purge
     exit 0
 }
 
