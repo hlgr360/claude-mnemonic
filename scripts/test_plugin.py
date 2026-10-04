@@ -275,7 +275,7 @@ class BuildPlugin(unittest.TestCase):
         files = sorted(os.path.relpath(os.path.join(r, n), f.tree) for r, _d, ns in os.walk(f.tree) for n in ns)
         self.assertEqual(
             files,
-            sorted([".claude-plugin/plugin.json", "LICENSE", "hooks/hooks.json", "lib/ensure-binaries.sh", "mcp-server", "skills/dashboard/SKILL.md", "skills/project-memory/SKILL.md", "skills/restart/SKILL.md"] + [f"hooks/{h}" for h in HOOKS]),
+            sorted([".claude-plugin/plugin.json", "LICENSE", "README.md", "hooks/hooks.json", "lib/ensure-binaries.sh", "mcp-server", "skills/dashboard/SKILL.md", "skills/project-memory/SKILL.md", "skills/restart/SKILL.md"] + [f"hooks/{h}" for h in HOOKS]),
         )
         with open(os.path.join(f.tree, ".claude-plugin", "plugin.json"), encoding="utf-8") as fh:
             manifest = json.load(fh)
@@ -284,6 +284,8 @@ class BuildPlugin(unittest.TestCase):
         self.assertEqual(manifest["mcpServers"]["claude-mnemonic"]["command"], "${CLAUDE_PLUGIN_ROOT}/mcp-server")
         # A `commands` list in the manifest replaces the default commands/ scan, which hid /claude-mnemonic:dashboard.
         self.assertNotIn("commands", manifest)
+        # hooks/hooks.json is the default location; declaring it as well made Desktop count the hooks twice (12 for 6).
+        self.assertNotIn("hooks", manifest)
         # commands/ is the older format: the slash commands ship as skills, so there is no commands/ directory.
         self.assertFalse(os.path.exists(os.path.join(f.tree, "commands")))
         for h in HOOKS:
@@ -315,6 +317,13 @@ class BuildPlugin(unittest.TestCase):
         f.build(VERSION, MNEMONIC_REPO="someone/else")
         with open(os.path.join(f.tree, "lib", "ensure-binaries.sh"), encoding="utf-8") as fh:
             self.assertIn('DEFAULT_REPO="someone/else"', fh.read())
+        with open(os.path.join(f.tree, ".claude-plugin", "plugin.json"), encoding="utf-8") as fh:
+            manifest = json.load(fh)
+        self.assertEqual((manifest["homepage"], manifest["repository"]), ("https://github.com/someone/else",) * 2)
+        with open(os.path.join(f.tree, "README.md"), encoding="utf-8") as fh:
+            readme = fh.read()
+        self.assertIn("https://github.com/someone/else.", readme)
+        self.assertIn("github.com/lukaszraczylo/claude-mnemonic", readme, "the credit to upstream is not rewritten")
         with open(os.path.join(REPO_ROOT, "plugin", "lib", "ensure-binaries.sh"), encoding="utf-8") as fh:
             self.assertIn('DEFAULT_REPO="hlgr360/claude-mnemonic"', fh.read(), "the source file is not changed")
 
@@ -350,6 +359,53 @@ class MemorySkill(unittest.TestCase):
     def test_the_front_matter_is_valid_json_quoted_yaml(self):
         front = self.skill().split("---")[1]
         self.assertEqual(front.count("\n"), 3, "name and description, each on one line")
+
+
+class Overview(unittest.TestCase):
+    """What Claude Desktop's plugin page shows: the manifest's description, author and links, and the README."""
+
+    def built(self):
+        f = Fixture(self)
+        with open(os.path.join(f.tree, ".claude-plugin", "plugin.json"), encoding="utf-8") as fh:
+            manifest = json.load(fh)
+        with open(os.path.join(f.tree, "README.md"), encoding="utf-8") as fh:
+            readme = fh.read()
+        return manifest, readme
+
+    def test_the_description_is_current_and_points_at_the_one_setting_chat_needs(self):
+        manifest, _ = self.built()
+        description = manifest["description"]
+        self.assertNotIn("ChromaDB", description)
+        for phrase in ("Claude Code and Claude Desktop", "README.md", "built-in memory", "lukaszraczylo/claude-mnemonic"):
+            self.assertIn(phrase, description)
+
+    def test_the_author_is_the_fork_and_upstream_stays_credited(self):
+        manifest, readme = self.built()
+        self.assertEqual(manifest["author"]["name"], "hlgr360")
+        self.assertEqual(manifest["license"], "MIT")
+        self.assertIn("fork of lukaszraczylo/claude-mnemonic", manifest["description"].replace("Fork of", "fork of"))
+        self.assertIn("(MIT)", readme)
+        with open(os.path.join(REPO_ROOT, "LICENSE"), encoding="utf-8") as fh:
+            self.assertIn("Lukasz Raczylo", fh.read(), "upstream's copyright notice is kept")
+
+    def test_the_readme_carries_the_pasted_instruction_word_for_word(self):
+        _, readme = self.built()
+        with open(os.path.join(HERE, "desktop-instructions.txt"), encoding="utf-8") as fh:
+            template = fh.read()
+        rendered = template.replace("{connector}", "claude-mnemonic").replace("{name}", "claude-mnemonic").rstrip("\n")
+        self.assertIn("```text\n" + rendered + "\n```", readme, "one source: the README shows exactly the text to paste")
+        self.assertNotIn("{{", readme, "no placeholder is left")
+
+    def test_the_readme_says_what_it_installs_and_what_chat_needs(self):
+        _, readme = self.built()
+        for phrase in ("carries no binaries", "cosign", "never replaced", "Apple silicon", "built-in memory", "once", "lukaszraczylo/claude-mnemonic"):
+            self.assertIn(phrase, readme)
+
+    def test_the_renderer_refuses_a_template_without_the_placeholder(self):
+        import render_readme
+
+        with self.assertRaises(ValueError):
+            render_readme.render("# no placeholder here\n")
 
 
 class CommandsAsSkills(unittest.TestCase):

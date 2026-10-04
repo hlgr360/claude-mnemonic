@@ -7,7 +7,7 @@
 #   SKIP_VALIDATE=1      do not run `claude plugin validate` (it needs the claude CLI)
 #
 # The tree holds the manifest (version stamped), the hook definitions and wrappers, the MCP server wrapper, the slash
-# commands as skills, the memory skill and lib/ensure-binaries.sh, which fetches and verifies the binaries of this release on first use (see that
+# commands as skills, the memory skill, a README and lib/ensure-binaries.sh, which fetches and verifies the binaries of this release on first use (see that
 # script for the rules). Try it without installing anything:  claude --plugin-dir dist/plugin
 # Note that the plugin runs the hooks: they start the worker and write to ~/.claude-mnemonic like any install.
 #
@@ -43,14 +43,17 @@ chmod 755 "$TREE/mcp-server"
 python3 scripts/commands_to_skills.py commands "$TREE/skills"
 # The memory skill: the instruction pasted into Claude Desktop, as a skill (one source: scripts/desktop-instructions.txt).
 python3 scripts/render_skill.py "$TREE/skills/project-memory/SKILL.md"
+# The README (shows in the plugin's Contents): what it is, and the instruction Claude Desktop chat needs, from the same source.
+python3 scripts/render_readme.py plugin/README.md.tpl "$TREE/README.md"
 cp plugin/lib/ensure-binaries.sh "$TREE/lib/ensure-binaries.sh"
 chmod 755 "$TREE/lib/ensure-binaries.sh"
 cp LICENSE "$TREE/LICENSE"
 
-# A fork of the fork downloads from its own releases.
+# A fork of the fork downloads from its own releases, and links to them.
 if [[ -n "${MNEMONIC_REPO:-}" ]]; then
     sed -i.bak "s|^DEFAULT_REPO=.*|DEFAULT_REPO=\"${MNEMONIC_REPO}\"|" "$TREE/lib/ensure-binaries.sh"
-    rm -f "$TREE/lib/ensure-binaries.sh.bak"
+    sed -i.bak "s|github.com/hlgr360/claude-mnemonic|github.com/${MNEMONIC_REPO}|g" "$TREE/.claude-plugin/plugin.json" "$TREE/README.md"
+    rm -f "$TREE/lib/ensure-binaries.sh.bak" "$TREE/.claude-plugin/plugin.json.bak" "$TREE/README.md.bak"
 fi
 
 if [[ "${SKIP_VALIDATE:-}" != "1" ]]; then
