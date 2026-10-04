@@ -7,7 +7,7 @@
 #   SKIP_VALIDATE=1      do not run `claude plugin validate` (it needs the claude CLI)
 #
 # The tree holds the manifest (version stamped), the hook definitions and wrappers, the MCP server wrapper, the slash
-# commands and lib/ensure-binaries.sh, which fetches and verifies the binaries of this release on first use (see that
+# commands, the memory skill and lib/ensure-binaries.sh, which fetches and verifies the binaries of this release on first use (see that
 # script for the rules). Try it without installing anything:  claude --plugin-dir dist/plugin
 # Note that the plugin runs the hooks: they start the worker and write to ~/.claude-mnemonic like any install.
 #
@@ -29,7 +29,7 @@ ZIP="${DIST}/claude-mnemonic-plugin_${VERSION}.zip"
 
 echo "==> Assembling the plugin ${VERSION} in ${TREE}"
 rm -rf "$TREE"
-mkdir -p "$TREE/.claude-plugin" "$TREE/hooks" "$TREE/commands" "$TREE/lib"
+mkdir -p "$TREE/.claude-plugin" "$TREE/hooks" "$TREE/commands" "$TREE/lib" "$TREE/skills/project-memory"
 
 sed "s/{{ .Version }}/${VERSION}/g; s/{{.Version}}/${VERSION}/g" plugin/.claude-plugin/plugin.json.tpl >"$TREE/.claude-plugin/plugin.json"
 cp plugin/hooks/hooks.json "$TREE/hooks/hooks.json"
@@ -40,6 +40,8 @@ done
 cp mcp-server "$TREE/mcp-server"
 chmod 755 "$TREE/mcp-server"
 cp commands/*.md "$TREE/commands/"
+# The memory skill: the instruction pasted into Claude Desktop, as a skill (one source: scripts/desktop-instructions.txt).
+python3 scripts/render_skill.py "$TREE/skills/project-memory/SKILL.md"
 cp plugin/lib/ensure-binaries.sh "$TREE/lib/ensure-binaries.sh"
 chmod 755 "$TREE/lib/ensure-binaries.sh"
 cp LICENSE "$TREE/LICENSE"
@@ -98,6 +100,15 @@ if problems:
     sys.exit(1)
 print("    ok (the reserved-name error for claude-mnemonic is accepted)")
 PY
+    # The skill and the commands are checked as components (the plugin report does not list them).
+    for component in skills commands; do
+        if ! claude plugin validate "$TREE/$component" --strict >"$REPORT" 2>&1; then
+            echo "Validation of $component failed:" >&2
+            cat "$REPORT" >&2
+            exit 1
+        fi
+    done
+    echo "    ok (skills and commands)"
 fi
 
 PYTHON="$(command -v python3 || command -v python)"

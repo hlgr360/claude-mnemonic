@@ -275,7 +275,7 @@ class BuildPlugin(unittest.TestCase):
         files = sorted(os.path.relpath(os.path.join(r, n), f.tree) for r, _d, ns in os.walk(f.tree) for n in ns)
         self.assertEqual(
             files,
-            sorted([".claude-plugin/plugin.json", "LICENSE", "commands/dashboard.md", "commands/restart.md", "hooks/hooks.json", "lib/ensure-binaries.sh", "mcp-server"] + [f"hooks/{h}" for h in HOOKS]),
+            sorted([".claude-plugin/plugin.json", "LICENSE", "commands/dashboard.md", "commands/restart.md", "hooks/hooks.json", "lib/ensure-binaries.sh", "mcp-server", "skills/project-memory/SKILL.md"] + [f"hooks/{h}" for h in HOOKS]),
         )
         with open(os.path.join(f.tree, ".claude-plugin", "plugin.json"), encoding="utf-8") as fh:
             manifest = json.load(fh)
@@ -317,17 +317,54 @@ class BuildPlugin(unittest.TestCase):
             self.assertIn('DEFAULT_REPO="hlgr360/claude-mnemonic"', fh.read(), "the source file is not changed")
 
 
+class MemorySkill(unittest.TestCase):
+    def skill(self):
+        f = Fixture(self)
+        with open(os.path.join(f.tree, "skills", "project-memory", "SKILL.md"), encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_the_skill_carries_the_instruction_that_is_pasted_into_desktop(self):
+        text = self.skill()
+        with open(os.path.join(HERE, "desktop-instructions.txt"), encoding="utf-8") as fh:
+            template = fh.read()
+        rendered = template.replace("{connector}", "claude-mnemonic").replace("{name}", "claude-mnemonic")
+        self.assertIn(rendered, text, "one source: the skill body contains the pasted instruction word for word")
+        for tool in ("project_suggest", "catch_up", "checkpoint", "related", "dashboard"):
+            self.assertIn(tool, text)
+
+    def test_the_description_triggers_on_the_users_own_work_and_the_words_that_select_built_in_memory(self):
+        text = self.skill()
+        front = text.split("---")[1]
+        self.assertTrue(front.startswith("\nname: project-memory\n"))
+        description = json.loads(front.split("description: ", 1)[1])
+        for phrase in ("past work", "earlier decisions", '"memory"', '"remember"', "claude-mnemonic", "Not for general questions"):
+            self.assertIn(phrase, description)
+        self.assertLess(len(description), 1024, "the description is read in every conversation: keep it short")
+
+    def test_claude_code_is_told_to_step_aside(self):
+        text = self.skill()
+        self.assertIn("no project_suggest tool, you are in Claude Code", text)
+
+    def test_the_front_matter_is_valid_json_quoted_yaml(self):
+        front = self.skill().split("---")[1]
+        self.assertEqual(front.count("\n"), 3, "name and description, each on one line")
+
+
 class ValidationFilter(unittest.TestCase):
     """The build accepts the reserved-name error and nothing else (the claude CLI is replaced by a fake)."""
 
     NAME_ERROR = {"path": "name", "message": 'Plugin name "claude-mnemonic" is reserved: it passes as one of Anthropic\'s own.', "code": None}
 
-    def build_with(self, report):
+    def build_with(self, report, component_exit=0):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         tools = os.path.join(tmp.name, "tools")
         body = report if isinstance(report, str) else json.dumps(report)
-        write(os.path.join(tools, "claude"), f"#!/bin/sh\ncat <<'EOF'\n{body}\nEOF\nexit 1\n")
+        # The plugin report is asked for with --json; the skills and commands are validated without it.
+        write(
+            os.path.join(tools, "claude"),
+            f"#!/bin/sh\ncase \"$*\" in *--json*) cat <<'EOF'\n{body}\nEOF\nexit 1;; *) echo 'component problem: bad frontmatter'; exit {component_exit};; esac\n",
+        )
         env = dict(os.environ, DIST=os.path.join(tmp.name, "dist"), PATH=tools + os.pathsep + os.environ["PATH"])
         env.pop("SKIP_VALIDATE", None)
         return subprocess.run(["bash", os.path.join(HERE, "build-plugin.sh"), VERSION], cwd=REPO_ROOT, env=env, capture_output=True, text=True)
@@ -352,6 +389,11 @@ class ValidationFilter(unittest.TestCase):
         out = self.build_with({"manifest": {"errors": [self.NAME_ERROR], "warnings": [{"path": "version", "message": "missing"}]}, "contents": []})
         self.assertNotEqual(out.returncode, 0)
         self.assertIn("warning", out.stderr)
+
+    def test_a_problem_in_the_skill_or_commands_fails_the_build(self):
+        out = self.build_with({"manifest": {"errors": [self.NAME_ERROR], "warnings": []}, "contents": []}, component_exit=1)
+        self.assertNotEqual(out.returncode, 0)
+        self.assertIn("component problem", out.stderr)
 
     def test_a_report_that_is_not_json_fails_the_build(self):
         out = self.build_with("this is not json")
