@@ -1,6 +1,11 @@
 #!/bin/bash
 # Point the plugin catalogue (hlgr360/agent-plugins) at a claude-mnemonic release, and open the pull request.
 #
+# The catalogue holds the plugin itself: the release's zip is unpacked into plugins/claude-mnemonic/ and the marketplace
+# entry is the in-repo source "./plugins/claude-mnemonic". It used to be an `archive` source (the zip's URL and sha256),
+# which Claude Desktop's marketplace sync did not accept; an in-repo source is the form every other marketplace uses.
+# The download is still verified (checksums.txt, signature) before anything is unpacked.
+#
 # Usage: scripts/update-catalogue.sh [<tag>] [--dry-run] [--skip-install-test] [--trailer TEXT] [--footer TEXT]
 #   <tag>                The release, e.g. v0.21.95.3. Without it the latest release is used.
 #   --dry-run            Do every check and show the change, but commit, push and open nothing.
@@ -31,7 +36,7 @@ while [[ $# -gt 0 ]]; do
         --skip-install-test) SKIP_INSTALL=true ;;
         --trailer) TRAILER="${2:?--trailer needs a value}"; shift ;;
         --footer) FOOTER="${2:?--footer needs a value}"; shift ;;
-        -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
         -*) echo "Unknown option: $1 (see --help)" >&2; exit 2 ;;
         *) [[ -z "$TAG" ]] || { echo "Only one tag can be given" >&2; exit 2; }; TAG="$1" ;;
     esac
@@ -112,32 +117,40 @@ say "plugin.json version $VERSION, within the upload form's limits"
 # 5. The catalogue
 gh repo clone "$CATALOGUE_REPO" "$WORK/cat" -- -q >/dev/null 2>&1 || fail "cannot clone $CATALOGUE_REPO"
 MANIFEST="$WORK/cat/.claude-plugin/marketplace.json"
-URL="https://github.com/${RELEASE_REPO}/releases/download/${TAG}/${ZIP}"
-CHANGE="$(python3 - "$MANIFEST" "$URL" "$SHA" "$PLUGIN" <<'PY'
-import json, re, sys
-path, url, sha, plugin = sys.argv[1:5]
+PLUGIN_DIR="plugins/${PLUGIN}"
+CHANGE="$(python3 - "$MANIFEST" "$WORK/cat" "$PLUGIN_DIR" "$VERSION" "$PLUGIN" <<'PY'
+import json, os, re, sys
+path, clone, plugin_dir, new_version, plugin = sys.argv[1:6]
 with open(path, encoding="utf-8") as f:
     catalogue = json.load(f)
 entry = next((p for p in catalogue["plugins"] if p["name"] == plugin), None)
 if entry is None:
     sys.exit(f"update-catalogue: the catalogue has no {plugin} entry to update")
-if entry["source"].get("source") != "archive":
-    sys.exit("update-catalogue: the entry is not an archive source")
-def version(u):
-    m = re.search(r"claude-mnemonic-plugin_(\d+(?:\.\d+){3})\.zip$", u)
-    return tuple(int(x) for x in m.group(1).split(".")) if m else None
-old, new = version(entry["source"]["url"]), version(url)
+def parse(v):
+    return tuple(int(x) for x in v.split("."))
+source = entry["source"]
+if isinstance(source, dict):
+    # The earlier form: an archive source; its version is in the file name of the zip.
+    if source.get("source") != "archive":
+        sys.exit("update-catalogue: the entry is neither an archive source nor the in-repo source")
+    m = re.search(r"claude-mnemonic-plugin_(\d+(?:\.\d+){3})\.zip$", source.get("url", ""))
+    old = m.group(1) if m else None
+elif source == "./" + plugin_dir:
+    manifest = os.path.join(clone, plugin_dir, ".claude-plugin", "plugin.json")
+    old = json.load(open(manifest, encoding="utf-8"))["version"] if os.path.isfile(manifest) else None
+else:
+    sys.exit(f"update-catalogue: the entry's source {source!r} is not the in-repo source ./{plugin_dir}")
 if old is None:
-    sys.exit("update-catalogue: cannot read the current version from the catalogue entry")
-if new == old:
+    sys.exit("update-catalogue: cannot read the current version from the catalogue")
+if parse(new_version) == parse(old) and source == "./" + plugin_dir:
     print("SAME")
     sys.exit(0)
-if new < old:
-    sys.exit(f"update-catalogue: {'.'.join(map(str, new))} is lower than the catalogue's {'.'.join(map(str, old))}; no downgrades")
-entry["source"]["url"], entry["source"]["sha256"] = url, sha
+if parse(new_version) < parse(old):
+    sys.exit(f"update-catalogue: {new_version} is lower than the catalogue's {old}; no downgrades")
+entry["source"] = "./" + plugin_dir
 with open(path, "w", encoding="utf-8") as f:
     f.write(json.dumps(catalogue, indent=2) + "\n")
-print("CHANGED " + ".".join(map(str, old)))
+print("CHANGED " + old)
 PY
 )" || exit 1
 if [[ "$CHANGE" == "SAME" ]]; then
@@ -145,9 +158,14 @@ if [[ "$CHANGE" == "SAME" ]]; then
     exit 0
 fi
 OLD_VERSION="${CHANGE#CHANGED }"
+# The plugin is the release's zip, as unpacked (and checked) above; files the release no longer has are removed.
+rm -rf "${WORK:?}/cat/${PLUGIN_DIR}"
+mkdir -p "$WORK/cat/${PLUGIN_DIR}"
+cp -R "$WORK/zip/." "$WORK/cat/${PLUGIN_DIR}/"
+git -C "$WORK/cat" add -A -- .claude-plugin/marketplace.json "$PLUGIN_DIR"
 MARKETPLACE="$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['name'])" "$MANIFEST")"
-say "Catalogue entry: $OLD_VERSION -> $VERSION"
-git -C "$WORK/cat" --no-pager diff --stat
+say "Catalogue entry: $OLD_VERSION -> $VERSION (plugin in ${PLUGIN_DIR}/)"
+git -C "$WORK/cat" --no-pager diff --cached --stat
 
 # 6. Install from the edited catalogue in an isolated Claude config
 INSTALL="not run (--skip-install-test)"
@@ -165,7 +183,7 @@ if [[ "$SKIP_INSTALL" != "true" ]]; then
 fi
 
 if [[ "$DRY_RUN" == "true" ]]; then
-    git -C "$WORK/cat" --no-pager diff
+    git -C "$WORK/cat" --no-pager diff --cached -- .claude-plugin/marketplace.json
     say "Dry run: nothing was committed, pushed or opened."
     exit 0
 fi
@@ -173,18 +191,17 @@ fi
 # 7. Commit, push, open the pull request
 BRANCH="chore/${PLUGIN}-${VERSION}"
 MESSAGE="Point ${PLUGIN} at ${TAG}"
-BODY_COMMIT="The entry now points at the plugin zip of the release ${TAG}, pinned by sha256.
+BODY_COMMIT="The plugin in ${PLUGIN_DIR}/ is the plugin zip of the release ${TAG} (sha256 ${SHA}), and the entry is the in-repo source ./${PLUGIN_DIR}.
 
 Checked by scripts/update-catalogue.sh: the sha256 equals the one in checksums.txt, ${SIGNATURE}, plugin.json says ${VERSION} and is within the upload form's limits, and the edited catalogue ${INSTALL}."
 [[ -z "$TRAILER" ]] || BODY_COMMIT="${BODY_COMMIT}
 
 ${TRAILER}"
 git -C "$WORK/cat" checkout -q -b "$BRANCH"
-git -C "$WORK/cat" add .claude-plugin/marketplace.json
 git -C "$WORK/cat" -c user.name="$GIT_NAME" -c user.email="$GIT_EMAIL" commit -q -m "$MESSAGE" -m "$BODY_COMMIT"
 git -C "$WORK/cat" push -q -u origin "$BRANCH"
 PR_BODY="## What changed
-The \`${PLUGIN}\` entry now points at the plugin zip of [\`${TAG}\`](https://github.com/${RELEASE_REPO}/releases/tag/${TAG}), sha256 \`${SHA}\` (was ${OLD_VERSION}).
+\`${PLUGIN_DIR}/\` now holds the plugin zip of [\`${TAG}\`](https://github.com/${RELEASE_REPO}/releases/tag/${TAG}) as unpacked (sha256 of the zip \`${SHA}\`; was ${OLD_VERSION}), and the \`${PLUGIN}\` entry is the in-repo source \`./${PLUGIN_DIR}\`.
 
 ## Checked by \`scripts/update-catalogue.sh\` before this PR was opened
 - The release is published (not a draft or a pre-release) and has the zip, \`checksums.txt\` and the signature bundle.

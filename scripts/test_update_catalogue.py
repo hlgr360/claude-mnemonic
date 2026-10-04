@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """scripts/update-catalogue.sh points the plugin catalogue at a release and opens the pull request, but only when every
-check passes: a wrong sha256 in the catalogue breaks the install for everyone who adds it.
+check passes: a wrong plugin in the catalogue breaks the install for everyone who adds it. The catalogue holds the
+plugin itself (the release's zip, unpacked into plugins/claude-mnemonic/, with the in-repo source "./plugins/...");
+an entry that is still an `archive` source is migrated by the next update.
 
 Run: python3 -m unittest scripts/test_update_catalogue.py -v
 Nothing real is touched: gh, cosign and claude are replaced by shims on PATH, the catalogue's origin is a local bare
@@ -107,19 +109,34 @@ class UpdateCatalogue(unittest.TestCase):
         self.git(self.repo, "init", "-q", "-b", "main")
         self.git(self.repo, "config", "user.name", IDENTITY[0])
         self.git(self.repo, "config", "user.email", IDENTITY[1])
-        # The catalogue's origin: a bare repository with the entry at the old version.
+        # The catalogue's origin: a bare repository with the entry at the old version, still an archive source.
         self.origin = os.path.join(self.fixture, "origin.git")
-        seed = os.path.join(root, "seed")
-        os.makedirs(os.path.join(seed, ".claude-plugin"))
-        write(os.path.join(seed, ".claude-plugin", "marketplace.json"), json.dumps(catalogue(OLD), indent=2) + "\n", 0o644)
-        self.git(seed, "init", "-q", "-b", "main")
-        self.git(seed, "-c", "user.name=Seed", "-c", "user.email=seed@example.org", "add", "-A")
-        self.git(seed, "-c", "user.name=Seed", "-c", "user.email=seed@example.org", "commit", "-q", "-m", "seed")
-        subprocess.run(["git", "clone", "-q", "--bare", seed, self.origin], check=True, capture_output=True)
+        self.seed_origin()
         write(os.path.join(self.tools, "gh"), GH_SHIM)
         write(os.path.join(self.tools, "claude"), CLAUDE_SHIM)
         write(os.path.join(self.tools, "cosign"), '#!/bin/sh\nexit "${FAKE_COSIGN:-0}"\n')
         self.make_release()
+
+    def seed_origin(self, in_repo=False, version=OLD, stale=False):
+        """(Re)create the catalogue's origin: an archive entry (the earlier form) or the plugin unpacked in the repository."""
+        root = self.tmp.name
+        seed = os.path.join(root, "seed")
+        shutil.rmtree(seed, ignore_errors=True)
+        shutil.rmtree(self.origin, ignore_errors=True)
+        data = catalogue(version)
+        os.makedirs(os.path.join(seed, ".claude-plugin"))
+        if in_repo:
+            data["plugins"][0]["source"] = "./plugins/claude-mnemonic"
+            write(os.path.join(seed, "plugins", "claude-mnemonic", ".claude-plugin", "plugin.json"),
+                  json.dumps({"name": "claude-mnemonic", "version": version, "description": "old"}), 0o644)
+            write(os.path.join(seed, "plugins", "claude-mnemonic", "hooks", "stop"), "#!/bin/sh\n# old\n")
+            if stale:
+                write(os.path.join(seed, "plugins", "claude-mnemonic", "hooks", "gone-in-the-release"), "#!/bin/sh\n")
+        write(os.path.join(seed, ".claude-plugin", "marketplace.json"), json.dumps(data, indent=2) + "\n", 0o644)
+        self.git(seed, "init", "-q", "-b", "main")
+        self.git(seed, "-c", "user.name=Seed", "-c", "user.email=seed@example.org", "add", "-A")
+        self.git(seed, "-c", "user.name=Seed", "-c", "user.email=seed@example.org", "commit", "-q", "-m", "seed")
+        subprocess.run(["git", "clone", "-q", "--bare", seed, self.origin], check=True, capture_output=True)
 
     def git(self, cwd, *args):
         os.makedirs(cwd, exist_ok=True)
@@ -157,6 +174,9 @@ class UpdateCatalogue(unittest.TestCase):
     def origin_file(self, branch):
         return json.loads(self.git(self.origin, "show", f"{branch}:.claude-plugin/marketplace.json"))
 
+    def origin_paths(self, branch):
+        return self.git(self.origin, "ls-tree", "-r", "--name-only", branch).split()
+
     # ---- the happy path
 
     def test_it_updates_the_entry_commits_with_this_checkouts_identity_and_opens_the_pr(self):
@@ -165,9 +185,12 @@ class UpdateCatalogue(unittest.TestCase):
         branch = f"chore/claude-mnemonic-{VERSION}"
         self.assertIn(branch, self.origin_branches())
         entry = self.origin_file(branch)["plugins"][0]
-        self.assertEqual(entry["source"]["url"], f"https://github.com/hlgr360/claude-mnemonic/releases/download/{TAG}/{ZIP}")
-        self.assertEqual(entry["source"]["sha256"], self.zip_sha, "the sha256 is computed from the downloaded zip")
+        self.assertEqual(entry["source"], "./plugins/claude-mnemonic", "an in-repo source, not an archive")
         self.assertEqual(entry["category"], "productivity", "the rest of the entry is untouched")
+        manifest = json.loads(self.git(self.origin, "show", f"{branch}:plugins/claude-mnemonic/.claude-plugin/plugin.json"))
+        self.assertEqual(manifest["version"], VERSION, "the plugin in the repository is the release's zip, unpacked")
+        self.assertIn("plugins/claude-mnemonic/hooks/stop", self.origin_paths(branch))
+        self.assertIn("100755", self.git(self.origin, "ls-tree", branch, "plugins/claude-mnemonic/hooks/stop"), "the executable bit survives")
         self.assertEqual(self.origin_file(branch)["owner"], {"name": "hlgr360"})
         log = self.git(self.origin, "log", "-1", "--format=%an <%ae>|%s|%b", branch)
         self.assertTrue(log.startswith(f"{IDENTITY[0]} <{IDENTITY[1]}>|Point claude-mnemonic at {TAG}|"), log)
@@ -175,6 +198,7 @@ class UpdateCatalogue(unittest.TestCase):
         pr = json.loads(open(os.path.join(self.fixture, "pr.log"), encoding="utf-8").read().strip())
         body = pr[pr.index("--body") + 1]
         self.assertIn(self.zip_sha, body)
+        self.assertIn("plugins/claude-mnemonic", body)
         self.assertIn("Footer line", body)
         self.assertIn("installed as claude-mnemonic@hlgr360 0.21.95.3", body)
         self.assertEqual(pr[pr.index("--repo") + 1], "hlgr360/agent-plugins")
@@ -189,7 +213,8 @@ class UpdateCatalogue(unittest.TestCase):
         out = self.run_script(TAG, "--dry-run")
         self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
         self.assertIn("Dry run", out.stdout)
-        self.assertIn(self.zip_sha, out.stdout, "the diff is shown")
+        self.assertIn("plugins/claude-mnemonic/.claude-plugin/plugin.json", out.stdout, "the files that would change are listed")
+        self.assertIn('"source": "./plugins/claude-mnemonic"', out.stdout, "and the entry's change is shown")
         self.assertEqual(self.origin_branches(), ["main"])
         self.assertFalse(os.path.exists(os.path.join(self.fixture, "pr.log")))
 
@@ -245,12 +270,44 @@ class UpdateCatalogue(unittest.TestCase):
     def test_a_lower_version_is_refused_and_the_same_version_is_a_no_op(self):
         self.make_release(version="0.21.95.1")
         self.refuses("v0.21.95.1", message="no downgrades")
-        # The catalogue already at the release: nothing to do.
+        # The catalogue already holds the release: nothing to do.
+        self.seed_origin(in_repo=True, version=OLD)
         self.make_release(version=OLD)
         out = self.run_script(f"v{OLD}")
         self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
         self.assertIn("nothing to do", out.stdout)
         self.assertEqual(self.origin_branches(), ["main"])
+        self.make_release(version="0.21.95.1")
+        self.refuses("v0.21.95.1", message="no downgrades")
+
+    def test_an_archive_entry_at_the_same_version_is_migrated_not_skipped(self):
+        # The earlier form (setUp seeds it at OLD): the release of the same version still changes the layout.
+        self.make_release(version=OLD)
+        out = self.run_script(f"v{OLD}", FAKE_CLAUDE_VERSION=OLD)
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        branch = f"chore/claude-mnemonic-{OLD}"
+        self.assertIn(branch, self.origin_branches())
+        self.assertEqual(self.origin_file(branch)["plugins"][0]["source"], "./plugins/claude-mnemonic")
+
+    def test_updating_a_catalogue_that_already_holds_the_plugin_replaces_it_and_drops_files_the_release_no_longer_has(self):
+        self.seed_origin(in_repo=True, version=OLD, stale=True)
+        out = self.run_script(TAG)
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        branch = f"chore/claude-mnemonic-{VERSION}"
+        paths = self.origin_paths(branch)
+        self.assertNotIn("plugins/claude-mnemonic/hooks/gone-in-the-release", paths)
+        self.assertEqual(self.git(self.origin, "show", f"{branch}:plugins/claude-mnemonic/hooks/stop"), "#!/bin/sh\n", "the release's file, not the old one")
+        self.assertEqual(json.loads(self.git(self.origin, "show", f"{branch}:plugins/claude-mnemonic/.claude-plugin/plugin.json"))["version"], VERSION)
+
+    def test_an_entry_with_a_source_nobody_wrote_is_refused(self):
+        seed = os.path.join(self.tmp.name, "seed")
+        self.seed_origin()
+        data = catalogue(OLD)
+        data["plugins"][0]["source"] = "./somewhere/else"
+        write(os.path.join(seed, ".claude-plugin", "marketplace.json"), json.dumps(data, indent=2) + "\n", 0o644)
+        self.git(seed, "-c", "user.name=Seed", "-c", "user.email=seed@example.org", "commit", "-q", "-a", "-m", "odd")
+        self.git(seed, "push", "-q", self.origin, "main")
+        self.refuses(TAG, message="is not the in-repo source")
 
     def test_two_digit_fork_numbers_compare_as_numbers(self):
         self.make_release(version="0.21.95.10")
