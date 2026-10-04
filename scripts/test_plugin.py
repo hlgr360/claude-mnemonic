@@ -203,6 +203,26 @@ class EnsureBinaries(unittest.TestCase):
         out = f.ensure(base="file:///nonexistent")
         self.assertEqual(out.returncode, 0, out.stderr)
 
+    def test_fork_numbers_compare_numerically_and_upgrade_from_the_plain_upstream_version(self):
+        # This fork's releases are the upstream version plus a number: 0.21.95.1, 0.21.95.2, ... (installed, plugin, reinstall?)
+        for installed, plugin, reinstall in (
+            ("0.21.95.9", "0.21.95.10", True),   # 10 is higher than 9, as numbers
+            ("0.21.95", "0.21.95.1", True),      # the first fork release is above upstream's plain version
+            ("0.21.95.1", "0.21.95.2", True),
+            ("0.21.95.10", "0.21.95.9", False),  # never a downgrade
+            ("0.21.95.1", "0.21.95", False),
+            ("0.21.95.4", "0.21.95.4", False),
+            ("0.21.95.4", "0.21.96.1", True),    # a new upstream version starts again at .1
+        ):
+            with self.subTest(installed=installed, plugin=plugin):
+                f = Fixture(self, version=plugin)
+                f.make_release(version=plugin)
+                f.preinstall(marker=installed)
+                out = f.ensure() if reinstall else f.ensure(base="file:///nonexistent")
+                self.assertEqual(out.returncode, 0, out.stderr)
+                with open(os.path.join(f.bin, ".plugin-version"), encoding="utf-8") as fh:
+                    self.assertEqual(fh.read().strip(), plugin if reinstall else installed)
+
     def test_two_installers_at_once_install_once_and_both_succeed(self):
         f = Fixture(self)
         f.make_release()
@@ -513,6 +533,18 @@ class ValidationFilter(unittest.TestCase):
         out = self.build_with("this is not json")
         self.assertNotEqual(out.returncode, 0)
         self.assertIn("did not return a JSON report", out.stderr)
+
+    @unittest.skipUnless(shutil.which("claude"), "needs the claude CLI")
+    def test_the_real_validator_accepts_a_fork_release_version(self):
+        # The plugin's version is not checked against semver (the docs say so); a four-part version must not warn.
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        env = dict(os.environ, DIST=tmp.name)
+        env.pop("SKIP_VALIDATE", None)
+        out = subprocess.run(["bash", os.path.join(HERE, "build-plugin.sh"), "0.21.95.1"], cwd=REPO_ROOT, env=env, capture_output=True, text=True)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        with open(os.path.join(tmp.name, "plugin", ".claude-plugin", "plugin.json"), encoding="utf-8") as fh:
+            self.assertEqual(json.load(fh)["version"], "0.21.95.1")
 
     @unittest.skipUnless(shutil.which("claude"), "needs the claude CLI")
     def test_the_real_validator_accepts_the_built_tree(self):

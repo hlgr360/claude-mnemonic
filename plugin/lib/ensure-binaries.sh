@@ -40,9 +40,10 @@ if [ -z "$VERSION" ]; then
     exit 1
 fi
 
-# true when $1 is a higher dotted version than $2
+# true when $1 is a higher dotted version than $2. Up to four numeric parts: the upstream version and this fork's number
+# (0.21.95.10 is higher than 0.21.95.9, and 0.21.95.1 is higher than 0.21.95).
 version_gt() {
-    [ "$1" != "$2" ] && [ "$(printf '%s\n%s\n' "$1" "$2" | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1)" = "$1" ]
+    [ "$1" != "$2" ] && [ "$(printf '%s\n%s\n' "$1" "$2" | sort -t. -k1,1n -k2,2n -k3,3n -k4,4n | tail -n 1)" = "$1" ]
 }
 
 needs_install() {

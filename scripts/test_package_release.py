@@ -127,6 +127,18 @@ class ReleaseWorkflowTest(unittest.TestCase):
         self.assertIn("--certificate-identity-regexp", self.text)
         self.assertIn("https://token.actions.githubusercontent.com", self.text)
 
+    def test_a_release_tag_is_the_upstream_version_plus_the_fork_number(self):
+        # The check in the version job, applied to real tag names: the fork's releases are vX.Y.Z.N (v0.21.95.1); a plain
+        # vX.Y.Z is upstream's own tag name and a letter suffix is mis-read by the in-app updater.
+        match = re.search(r'\[\[ "\$version" =~ (\^.*\$) \]\]', self.text)
+        self.assertIsNotNone(match, "the version check is in the workflow")
+        check = re.compile(match.group(1))
+        for ok in ("0.21.95.1", "0.21.95.10", "0.21.96.1", "0.21.95.1-rc1"):
+            self.assertRegex(ok, check, ok)
+        for bad in ("0.21.95", "0.21.95a", "0.21.95.a", "0.21.95.1.2", "v0.21.95.1", "0.21.95.", "", "1.2"):
+            self.assertNotRegex(bad, check, bad)
+        self.assertIn("vX.Y.Z.N", self.text, "the error message names the form")
+
     def test_covers_the_three_platforms_with_native_runners(self):
         for platform in ("darwin-arm64", "linux-amd64", "windows-amd64"):
             self.assertIn(f"platform: {platform}", self.text)
