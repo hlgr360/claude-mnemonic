@@ -125,9 +125,15 @@ func (s *Service) handleSuggestProjects(w http.ResponseWriter, r *http.Request) 
 	}
 
 	out := projects.Suggest(query, hits, activity, aliases, time.Now().UnixMilli(), limit)
+	ids := make([]string, 0, len(out.Suggestions))
+	for _, sg := range out.Suggestions {
+		ids = append(ids, sg.Project)
+	}
+	same := s.probablySame(r.Context(), ids)
 	for i := range out.Suggestions {
 		l := view.labels[out.Suggestions[i].Project]
 		out.Suggestions[i].Label, out.Suggestions[i].Use = l.Label, l.Use
+		out.Suggestions[i].ProbablySameAs = same[out.Suggestions[i].Project]
 	}
 	noStore(w)
 	writeJSON(w, map[string]any{

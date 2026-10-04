@@ -1,6 +1,6 @@
 // Client for the project management API. Free of Vue and of path aliases so it
 // can be exercised directly with `node --test` (see tests/).
-import type { ProjectActionResult, ProjectAlias, ProjectSummary } from '../types/project.ts'
+import type { DuplicatesReply, ProjectActionResult, ProjectAlias, ProjectSummary } from '../types/project.ts'
 
 type FetchFn = typeof fetch
 
@@ -56,6 +56,21 @@ export function deleteProject(id: string, confirm?: string, fetchFn: FetchFn = d
 /** Without a confirm token the worker only previews and returns the token to send back. */
 export function mergeProject(id: string, into: string, confirm?: string, fetchFn: FetchFn = defaultFetch): Promise<ProjectActionResult> {
   return request(fetchFn, `${projectUrl(id)}/merge`, jsonPost({ into, confirm: confirm ?? '' }))
+}
+
+/** The pairs of projects that are probably one, with the evidence, and the pairs already dismissed. */
+export function listDuplicates(fetchFn: FetchFn = defaultFetch): Promise<DuplicatesReply> {
+  return request(fetchFn, '/api/projects/duplicates', { cache: 'no-store' })
+}
+
+/** Says that two projects are not the same, so the pair is not suggested again. */
+export function dismissDuplicate(a: string, b: string, fetchFn: FetchFn = defaultFetch): Promise<void> {
+  return request(fetchFn, '/api/projects/duplicates/dismiss', jsonPost({ a, b }))
+}
+
+/** Takes a dismissal back, so the pair can be suggested again. */
+export function restoreDuplicate(a: string, b: string, fetchFn: FetchFn = defaultFetch): Promise<void> {
+  return request(fetchFn, '/api/projects/duplicates/restore', jsonPost({ a, b }))
 }
 
 /** Turns a worker error into a sentence for the person using the dashboard. */

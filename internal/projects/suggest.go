@@ -24,10 +24,12 @@ type Activity struct {
 
 // Suggestion is one ranked candidate project.
 type Suggestion struct {
-	Project         string   `json:"project"`
-	DisplayName     string   `json:"display_name"`
-	Label           string   `json:"label,omitempty"`
-	Use             string   `json:"use,omitempty"`
+	Project     string `json:"project"`
+	DisplayName string `json:"display_name"`
+	Label       string `json:"label,omitempty"`
+	Use         string `json:"use,omitempty"`
+	// ProbablySameAs lists other suggested projects this one is probably the same project as (see SuggestDuplicates).
+	ProbablySameAs  []string `json:"probably_same_as,omitempty"`
 	Reason          string   `json:"reason"`
 	TopTitles       []string `json:"top_titles,omitempty"`
 	Score           float64  `json:"score"`

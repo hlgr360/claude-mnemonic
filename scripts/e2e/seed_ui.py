@@ -43,6 +43,21 @@ for title, text in ((legacy_titles[0], "The scoped project keeps one queue per t
                     ("Note saved on purpose", "The scoped project's owner prefers short commit messages.")):
     tool("remember", path=d, title=title, text=text)
 
+# Two clones of one repository under different folder names (the second was renamed), for the "Possible duplicates"
+# section of the project manager: the worker learns the remote when the folder's path reaches it.
+def clone(parent, name, remote):
+    d = os.path.join(base, parent, name); os.makedirs(d)
+    subprocess.run(["git", "-C", d, "init", "-q"], check=True)
+    subprocess.run(["git", "-C", d, "remote", "add", "origin", remote], check=True)
+    return d
+d = clone("clones-a", "inventory", "https://someone:token-1234@git.example.org/team/inventory.git")
+ids["dup_main"] = json.loads(tool("project_resolve", path=d))["id"]
+for i in range(3):
+    tool("remember", path=d, title=f"Inventory count rule {i}", text=f"The inventory counts stock in lots, rule {i}.")
+d = clone("clones-b", "stockroom", "git@git.example.org:team/inventory.git")
+ids["dup_other"] = json.loads(tool("project_resolve", path=d))["id"]
+tool("remember", path=d, title="Stockroom shelf labels", text="The stockroom prints shelf labels on Fridays.")
+
 # A project with three notes about one setting and two proposals between them, for the conflict review panel.
 d = os.path.join(base, "reviewed"); os.makedirs(d)
 ids["reviewed"] = json.loads(tool("project_resolve", path=d))["id"]

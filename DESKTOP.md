@@ -71,7 +71,7 @@ How to use it:
 1. Call the project_suggest tool of the claude-mnemonic connector with my message and show me the projects it returns by name. Ask me which one I mean, or whether to continue without one. Never pick a project for me.
 2. If I choose one, load its context before answering. If I am continuing earlier work, also call catch_up for it. While we work, keep one short checkpoint per thread of work with the checkpoint tool (goal, progress, decisions, next steps) after meaningful progress. Save anything else with remember only when I ask you to.
 3. If I decline, search and catch up read-only, and do not save anything and do not checkpoint.
-4. If two projects share a name, ask me which one.
+4. If two projects share a name, ask me which one. If the connector says they are probably the same project, tell me and offer to merge them; do not make me choose between copies of one project.
 5. If this conversation has been compacted or summarised and you lose track of the project or of what we were doing, call catch_up for the project (ask me which one, as in 1, if you do not know) before carrying on, instead of asking me to repeat it.
 6. When I ask how something came about, what led to a decision or whether a problem was ever fixed, find the note with search, then call related with its id and follow the connections it lists.
 
@@ -240,6 +240,34 @@ owns, including its search vectors.
 To restore from a backup: stop the worker (`make stop-worker`), replace
 `~/.claude-mnemonic/claude-mnemonic.db` with the snapshot (and delete the `-wal`/`-shm` files
 next to it), then `make start-worker`.
+
+## Projects that are really one
+
+A project's id is the folder name plus a hash of the full path, so the same work can show up under two ids: a folder
+that was moved or renamed, a second clone, a checkout somewhere else. Its memory is then split. The project manager
+finds such pairs and helps you merge them, always with the merge above (preview, backup, alias). It never merges on a
+name alone.
+
+- **What is recorded.** When a folder path reaches the worker (Claude Code's session start and prompt search, or a path
+  resolved by Desktop) the worker asks git, read-only, for the folder's remote (`origin`, otherwise the first by
+  name) and the checkout's root, and keeps them per project. The remote is normalised, so the ssh, scp-like and https
+  forms of one repository are the same, and credentials in a URL are dropped before anything is stored. Nothing is sent
+  anywhere. A project gets this the next time it is used.
+- **What is suggested.** The same name or the same remote finds candidate pairs; evidence confirms them. *Same remote*
+  is strong. *The same notes* (the same titles) or *a folder that no longer exists* is medium. *One side holds only a
+  few notes* is only a hint. Two projects that share just a name are not suggested, and two with different remotes
+  are real namesakes and never are.
+- **Where.** In the dashboard, **Manage projects…** has a **Possible duplicates** section: the evidence, a merge button
+  (bigger project survives; **Keep … instead** reverses it) that opens the usual preview, and **Not the same**. A
+  dismissal applies to that pair only, is remembered, and can be taken back ("Suggest again"). In Desktop,
+  `project_manage` with `action: duplicates` lists the pairs and `dismiss` records that two are not the same;
+  `project_suggest` and `project_resolve` say "probably the same project" for candidates that are, so you are not
+  asked to choose between copies of one project.
+- **Automatic merge (off by default).** With `CLAUDE_MNEMONIC_PROJECT_AUTO_MERGE_ENABLED` set to `true` in
+  `~/.claude-mnemonic/settings.json`, the worker merges by itself only the pairs with the strongest evidence: the same
+  remote **and** every recorded folder of the smaller project gone (a checkout that moved or was deleted, not a second
+  live clone). It takes a backup first, leaves an alias marked `auto-merge`, and announces the merge in the dashboard
+  with the backup's path. To undo one, restore that backup (see Managing projects above). Anything less certain is only suggested.
 
 ## Troubleshooting and limits
 

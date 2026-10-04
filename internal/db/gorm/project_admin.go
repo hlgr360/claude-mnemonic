@@ -167,6 +167,9 @@ func (s *ProjectAdminStore) Delete(ctx context.Context, project string) (Project
 				return fmt.Errorf("delete step %q: %w", st.sql, err)
 			}
 		}
+		if err := dropProjectIdentity(tx, project); err != nil {
+			return err
+		}
 		return detachPatterns(tx, project, "")
 	})
 	return removed, err
@@ -216,6 +219,9 @@ func (s *ProjectAdminStore) Merge(ctx context.Context, from, into, source string
 			}
 		}
 		if err := detachPatterns(tx, from, into); err != nil {
+			return err
+		}
+		if err := moveProjectIdentity(tx, from, into); err != nil {
 			return err
 		}
 		return setAliasIn(tx, from, into, source)

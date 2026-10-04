@@ -35,6 +35,7 @@ func (s *Service) handleSearchByPrompt(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "project and query required", http.StatusBadRequest)
 		return
 	}
+	s.noteProjectPath(project, cwd)
 
 	// Validate project name to prevent path traversal
 	if err := ValidateProjectName(project); err != nil {
@@ -592,6 +593,7 @@ func (s *Service) handleContextInject(w http.ResponseWriter, r *http.Request) {
 	if cwd == "" {
 		cwd = "/"
 	}
+	s.noteProjectPath(project, cwd)
 
 	// Limit observations for fast startup (configurable, default 100)
 	limit := s.config.ContextObservations

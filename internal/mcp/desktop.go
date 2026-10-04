@@ -85,6 +85,7 @@ claude-mnemonic keeps memory per project. This client has no working directory, 
 - If a project folder is open, call project_resolve with its absolute path, then context with the returned id.
 - Otherwise call project_suggest with the user's first message, offer the user the candidates (plus "none"), and wait for their choice.
 - If the user declines, stay read-only: use search and catch_up without saving, and never call remember or checkpoint.
+- If project_suggest or project_resolve says projects are probably the same project (probably_same_as), tell the user and offer to merge them with project_manage (preview first, only with their approval); do not make them choose between copies of one project.
 - Pass the chosen project id to remember, checkpoint, catch_up and context on every call.
 - Once a project is chosen, keep one checkpoint per thread of work current. If the conversation was compacted and you lost the thread, call catch_up.`
 
@@ -178,6 +179,7 @@ func desktopTools() []Tool {
 			Description: memoryBlurb + " START HERE for any such memory question in a conversation that has no project folder. Pass the user's first message; returns candidate projects ranked by content, name and recency. " +
 				"Then ASK the user which project to use or whether to continue WITHOUT one (read-only). Do not pick for them; if confident is true you may propose the top one for confirmation. " +
 				"Show projects to the user by their label and pass the matching use value in later calls (the project's name, or its id when two projects share a name). " +
+				"If a project has probably_same_as, it is probably the same project as those (say so, and offer to merge them with project_manage); do not make the user choose between copies of one project. " +
 				"If they decline, never call remember.",
 			InputSchema: map[string]any{
 				"type":     "object",
@@ -191,7 +193,7 @@ func desktopTools() []Tool {
 		{
 			Name: "project_resolve",
 			Description: memoryPrefix + "map a project reference to its canonical project id. When a project folder is open, pass its absolute path (from your session context): this reproduces the id Claude Code uses for the same folder. " +
-				"Also accepts a name or an id; ambiguous names return candidates instead of guessing.",
+				"Also accepts a name or an id; ambiguous names return candidates instead of guessing. Candidates with probably_same_as are probably one project: tell the user and offer to merge them with project_manage.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -249,7 +251,7 @@ func desktopTools() []Tool {
 		},
 		{
 			Name: "project_manage",
-			Description: "Inspect, alias, merge or delete projects. stats is read-only. delete and merge are DESTRUCTIVE: first call WITHOUT confirm to get a preview (nothing changes), " +
+			Description: "Inspect, alias, merge or delete projects. stats and duplicates (pairs of projects that are probably one project, with the evidence) are read-only; dismiss records that two projects are not the same. delete and merge are DESTRUCTIVE: first call WITHOUT confirm to get a preview (nothing changes), " +
 				"show the user exactly what would be removed or moved and get their explicit approval, then repeat the same call with the confirm token from the preview. " +
 				"Never invent or reuse a token, and never confirm without asking the user. A backup of the database is taken automatically before any change. " +
 				"Pass a project's `use` value from project_list: its name when that is unique, its id when two projects share a name. Names must match exactly; a name shared by several projects is refused, " +
@@ -258,7 +260,7 @@ func desktopTools() []Tool {
 				"type":     "object",
 				"required": []string{"action"},
 				"properties": map[string]any{
-					"action":  map[string]any{"type": "string", "enum": []string{"stats", "delete", "merge", "alias", "unalias"}, "description": "stats: counts for a project. delete: remove a project and all its data. merge: move a project's data into another and keep its id as an alias. alias: declare an id to be another project. unalias: remove an alias."},
+					"action":  map[string]any{"type": "string", "enum": []string{"stats", "duplicates", "dismiss", "delete", "merge", "alias", "unalias"}, "description": "stats: counts for a project. duplicates: list pairs of projects that are probably one project (read-only; merge them with merge, after the preview and the user's approval). dismiss: say that project and into are NOT the same project, so the pair is not suggested again. delete: remove a project and all its data. merge: move a project's data into another and keep its id as an alias. alias: declare an id to be another project. unalias: remove an alias."},
 					"project": map[string]any{"type": "string", "description": "Exact project id (stats, delete, merge); the surviving project for alias"},
 					"into":    map[string]any{"type": "string", "description": "merge: the project to move the data into (an id or alias that already exists)"},
 					"alias":   map[string]any{"type": "string", "description": "alias / unalias: the alias id"},
@@ -371,6 +373,8 @@ type candidateDetail struct {
 	Project string `json:"project"`
 	Label   string `json:"label"`
 	Detail  string `json:"detail"`
+	// ProbablySameAs are the other candidates this one is probably the same project as.
+	ProbablySameAs []string `json:"probably_same_as"`
 }
 
 // describeCandidates lists projects with their ids and what distinguishes them.
@@ -380,7 +384,11 @@ func describeCandidates(details []candidateDetail, fallbackIDs []string) string 
 	}
 	parts := make([]string, 0, len(details))
 	for i, d := range details {
-		parts = append(parts, fmt.Sprintf("(%c) %s: %s", 'a'+i, d.Project, d.Detail))
+		part := fmt.Sprintf("(%c) %s: %s", 'a'+i, d.Project, d.Detail)
+		if len(d.ProbablySameAs) > 0 {
+			part += " [probably the same project as " + strings.Join(d.ProbablySameAs, ", ") + "]"
+		}
+		parts = append(parts, part)
 	}
 	return strings.Join(parts, "; ")
 }
@@ -842,6 +850,33 @@ func (s *Server) toolProjectManage(ctx context.Context, args json.RawMessage) (s
 		}
 		return s.proxyPostRaw(ctx, "/api/projects/aliases", map[string]string{"alias": a.Alias, "canonical": a.Project, "source": "mcp"})
 
+	case "duplicates":
+		raw, err := s.proxyGetRaw(ctx, "/api/projects/duplicates", nil)
+		if err != nil {
+			return "", err
+		}
+		return renderDuplicates(raw)
+
+	case "dismiss":
+		if err := need("project", a.Project); err != nil {
+			return "", err
+		}
+		if err := need("into", a.Into); err != nil {
+			return "", err
+		}
+		x, err := s.manageRef(ctx, "dismiss", a.Project)
+		if err != nil {
+			return "", err
+		}
+		y, err := s.manageRef(ctx, "dismiss", a.Into)
+		if err != nil {
+			return "", err
+		}
+		if _, err := s.proxyPostRaw(ctx, "/api/projects/duplicates/dismiss", map[string]string{"a": x, "b": y}); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("Noted: %s and %s are not the same project; they will not be suggested for merging again.", x, y), nil
+
 	case "unalias":
 		if err := need("alias", a.Alias); err != nil {
 			return "", err
@@ -851,7 +886,7 @@ func (s *Server) toolProjectManage(ctx context.Context, args json.RawMessage) (s
 		}
 		return fmt.Sprintf("Removed alias %s.", a.Alias), nil
 	}
-	return "", fmt.Errorf("project_manage: unknown action %q (use stats, delete, merge, alias or unalias)", a.Action)
+	return "", fmt.Errorf("project_manage: unknown action %q (use stats, duplicates, dismiss, delete, merge, alias or unalias)", a.Action)
 }
 
 // describeAdminResult turns the worker's delete/merge answer into text for the
@@ -918,4 +953,46 @@ func (s *Server) manageRef(ctx context.Context, action, ref string) (string, err
 	}
 	return "", fmt.Errorf("%s", unresolvedMessage("project_manage "+action, ref,
 		resolution{Ambiguous: true, Candidates: ids, CandidateDetails: named}))
+}
+
+// renderDuplicates turns the worker's list of probably-duplicate projects into text for the model.
+func renderDuplicates(raw string) (string, error) {
+	var r struct {
+		Suggestions []struct {
+			Survivor struct {
+				Project      string `json:"project"`
+				Label        string `json:"label"`
+				Observations int64  `json:"observations"`
+			} `json:"survivor"`
+			Other struct {
+				Project      string `json:"project"`
+				Label        string `json:"label"`
+				Observations int64  `json:"observations"`
+			} `json:"other"`
+			Strength string `json:"strength"`
+			Reasons  []struct {
+				Text string `json:"text"`
+			} `json:"reasons"`
+			AutoMergeable bool `json:"auto_mergeable"`
+		} `json:"suggestions"`
+	}
+	if err := json.Unmarshal([]byte(raw), &r); err != nil {
+		return "", fmt.Errorf("project_manage duplicates: unexpected answer from the worker: %w", err)
+	}
+	if len(r.Suggestions) == 0 {
+		return "No projects look like duplicates of each other. (Two projects with the same name are not suggested unless something else shows they are one: the same git remote, the same notes, or a folder that is gone.)", nil
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "%d pair(s) of projects are probably the same project, strongest evidence first:\n", len(r.Suggestions))
+	for i, s := range r.Suggestions {
+		var why []string
+		for _, reason := range s.Reasons {
+			why = append(why, reason.Text)
+		}
+		fmt.Fprintf(&b, "%d. [%s] %s (%s, %d notes) and %s (%s, %d notes): %s. Merging would move %s into %s.\n", i+1, s.Strength,
+			s.Survivor.Label, s.Survivor.Project, s.Survivor.Observations, s.Other.Label, s.Other.Project, s.Other.Observations,
+			strings.Join(why, "; "), s.Other.Project, s.Survivor.Project)
+	}
+	b.WriteString("Show these to the user. Merge a pair only if the user agrees: call project_manage merge with project=<the one to move> and into=<the one to keep>, show the preview, and wait for approval before confirming. If the user says a pair is not the same, call project_manage dismiss with both ids.")
+	return b.String(), nil
 }

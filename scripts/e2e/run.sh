@@ -163,6 +163,17 @@ suite "Knowledge graph: relations, filters, hiding, rebuild"           python3 "
 fresh_worker || exit 1
 suite "Scope: the rule, the re-scope, notes chosen by hand"            python3 "$HERE/drive_scope.py"
 
+# Projects that are really one: the git remote recorded per project (real repositories), suggestions, dismissals, and the
+# existing safe merge. Automatic merging is off here, as by default.
+fresh_worker || exit 1
+suite "Duplicate projects: identity, suggestions, dismissals, merge"   python3 "$HERE/drive_duplicates.py"
+
+# Automatic merging switched on: its first pass runs 45 s after the worker starts, then every minute.
+printf '{"CLAUDE_MNEMONIC_PROJECT_AUTO_MERGE_ENABLED": true, "CLAUDE_MNEMONIC_PROJECT_AUTO_MERGE_INTERVAL_MINUTES": 1, %s}\n' "$NO_PROPOSALS" > "$WORK/home/.claude-mnemonic/settings.json"
+fresh_worker || exit 1
+suite "Automatic project merge (switched on)"                          python3 "$HERE/drive_automerge.py"
+base_settings
+
 if [ "$RUN_UI" = "1" ]; then
   if [ ! -d "$ROOT/ui/dist" ] || ! command -v node >/dev/null; then
     echo; echo "######## dashboard: skipped (needs ui/dist from 'npm run build' in ui/, and node)"

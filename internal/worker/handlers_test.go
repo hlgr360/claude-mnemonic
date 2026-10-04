@@ -60,6 +60,8 @@ func testService(t *testing.T) (*Service, func()) {
 		observationStore: observationStore,
 		summaryStore:     summaryStore,
 		promptStore:      promptStore,
+		identityStore:    gorm.NewProjectIdentityStore(store),
+		identitySlots:    make(chan struct{}, 4),
 		sessionManager:   sessionManager,
 		sseBroadcaster:   sseBroadcaster,
 		updater:          testUpdater,
