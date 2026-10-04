@@ -138,6 +138,14 @@ class ReleaseWorkflowTest(unittest.TestCase):
         self.assertIn("name: archive-plugin", self.text)
         self.assertIn("sha256sum claude-mnemonic_* claude-mnemonic-plugin_*", self.text)
 
+    def test_upstreams_release_workflow_only_runs_in_upstreams_repository(self):
+        # It needs a GoReleaser Pro key. A fork of this fork does not inherit the repository setting that switched it
+        # off here, so the file itself must skip its jobs outside upstream's repository.
+        with open(os.path.join(REPO_ROOT, ".github", "workflows", "release.yaml"), encoding="utf-8") as f:
+            upstream = f.read()
+        self.assertRegex(upstream, r"jobs:\n    release:\n(?:        #.*\n)*        if: github\.repository == 'lukaszraczylo/claude-mnemonic'\n        uses: ")
+        self.assertRegex(upstream, r"commit-marketplace:\n        needs: release\n", "the second job depends on the guarded one, so it is skipped with it")
+
     def test_does_not_use_the_upstream_shared_workflow(self):
         self.assertNotIn("lukaszraczylo", self.text)
         self.assertNotIn("GORELEASER", self.text)
