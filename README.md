@@ -75,7 +75,7 @@ make build && make install
 Requires: Go 1.24+, Node.js 18+, CGO-compatible compiler
 </details>
 
-After install, open **http://localhost:37777** to see the dashboard. Start a new Claude Code session - memory is now active.
+After install, open **http://localhost:37777** to see the dashboard (it opens on the **Summaries** tab; **All**, Observations, Prompts, Graph and Conflicts are one click away). Start a new Claude Code session - memory is now active.
 
 ### Verifying Release Signatures
 

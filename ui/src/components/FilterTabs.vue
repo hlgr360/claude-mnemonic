@@ -2,6 +2,7 @@
 import type { FilterType, ObservationType, ConceptType } from '@/types'
 import type { ScopeFilter } from '@/utils/scope'
 import { useTypes } from '@/composables/useTypes'
+import { FILTER_TABS } from '@/utils/tabs'
 
 defineProps<{
   currentFilter: FilterType
@@ -24,14 +25,7 @@ const emit = defineEmits<{
 // Fetch types from API (cached)
 const { observationTypes, conceptTypes } = useTypes()
 
-const tabs: { key: FilterType; label: string; icon: string }[] = [
-  { key: 'all', label: 'All', icon: 'fa-layer-group' },
-  { key: 'observations', label: 'Observations', icon: 'fa-brain' },
-  { key: 'summaries', label: 'Summaries', icon: 'fa-clipboard-list' },
-  { key: 'prompts', label: 'Prompts', icon: 'fa-comment' },
-  { key: 'graph', label: 'Graph', icon: 'fa-diagram-project' },
-  { key: 'conflicts', label: 'Conflicts', icon: 'fa-code-compare' }
-]
+const tabs = FILTER_TABS
 </script>
 
 <template>
@@ -41,6 +35,9 @@ const tabs: { key: FilterType; label: string; icon: string }[] = [
       <button
         v-for="tab in tabs"
         :key="tab.key"
+        role="tab"
+        :data-testid="`tab-${tab.key}`"
+        :aria-selected="currentFilter === tab.key"
         class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
         :class="[
           currentFilter === tab.key
