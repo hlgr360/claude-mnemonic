@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, watch, computed } from 'vue'
 import { fetchSearchAnalytics, fetchRecentSearches, type SearchAnalytics, type RecentQuery } from '@/utils/api'
+import { count, percent, timeAgo } from '@/utils/searchAnalytics'
 import Card from './Card.vue'
 
 const props = defineProps<{
@@ -45,43 +46,10 @@ watch(() => props.show, (newVal) => {
   if (newVal) loadData()
 })
 
-// Computed stats
-const cacheHitRate = computed(() => {
-  if (!analytics.value || analytics.value.total_searches === 0) return 0
-  return (analytics.value.cache_hits / analytics.value.total_searches) * 100
-})
-
-const coalescedRate = computed(() => {
-  if (!analytics.value || analytics.value.total_searches === 0) return 0
-  return (analytics.value.coalesced_requests / analytics.value.total_searches) * 100
-})
-
-const errorRate = computed(() => {
-  if (!analytics.value || analytics.value.total_searches === 0) return 0
-  return (analytics.value.search_errors / analytics.value.total_searches) * 100
-})
-
-// Helper for latency color
-const getLatencyColor = (ms: number) => {
-  if (ms < 10) return 'text-green-400'
-  if (ms < 50) return 'text-amber-400'
-  return 'text-red-400'
-}
-
-// Helper for formatting time ago
-const formatTimeAgo = (isoDate: string) => {
-  const date = new Date(isoDate)
-  const now = new Date()
-  const diffMs = now.getTime() - date.getTime()
-  const diffMins = Math.floor(diffMs / 60000)
-  const diffHours = Math.floor(diffMs / 3600000)
-  const diffDays = Math.floor(diffMs / 86400000)
-
-  if (diffMins < 1) return 'just now'
-  if (diffMins < 60) return `${diffMins}m ago`
-  if (diffHours < 24) return `${diffHours}h ago`
-  return `${diffDays}d ago`
-}
+// The kinds of search, most used first
+const queryTypes = computed(() =>
+  Object.entries(analytics.value?.query_types ?? {}).sort((a, b) => b[1] - a[1])
+)
 </script>
 
 <template>
@@ -89,6 +57,7 @@ const formatTimeAgo = (isoDate: string) => {
   <Teleport to="body">
     <div
       v-if="show"
+      data-testid="search-analytics"
       class="fixed inset-0 z-50 flex items-center justify-center"
     >
       <!-- Backdrop -->
@@ -110,6 +79,8 @@ const formatTimeAgo = (isoDate: string) => {
               <h3 class="text-lg font-semibold text-cyan-100">Search Analytics</h3>
             </div>
             <button
+              aria-label="Close"
+              data-testid="search-analytics-close"
               @click="emit('close')"
               class="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-700/50 rounded-lg transition-colors"
             >
@@ -123,126 +94,100 @@ const formatTimeAgo = (isoDate: string) => {
           </div>
 
           <!-- Error State -->
-          <div v-else-if="error" class="text-center py-8">
+          <div v-else-if="error" data-testid="search-analytics-error" class="text-center py-8">
             <i class="fas fa-exclamation-triangle text-2xl text-red-400 mb-2" />
             <p class="text-red-300">{{ error }}</p>
           </div>
 
           <!-- Content -->
           <div v-else-if="analytics" class="space-y-6">
+            <p class="text-xs text-slate-500" data-testid="search-analytics-scope">
+              The last {{ count(analytics.total_queries) }} searches served since the worker started (at most 100)<span v-if="analytics.project"> for {{ analytics.project }}</span>.
+            </p>
+
             <!-- Overview Stats Grid -->
             <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <!-- Total Searches -->
               <div class="p-3 bg-slate-800/50 rounded-lg text-center">
-                <div class="text-2xl font-bold text-cyan-300">{{ analytics.total_searches.toLocaleString() }}</div>
+                <div class="text-2xl font-bold text-cyan-300" data-testid="stat-total">{{ count(analytics.total_queries) }}</div>
                 <div class="text-xs text-slate-500 uppercase tracking-wide">Total Searches</div>
               </div>
 
-              <!-- Vector Searches -->
               <div class="p-3 bg-slate-800/50 rounded-lg text-center">
-                <div class="text-2xl font-bold text-purple-300">{{ analytics.vector_searches.toLocaleString() }}</div>
+                <div class="text-2xl font-bold text-purple-300" data-testid="stat-vector">{{ count(analytics.vector_searches) }}</div>
                 <div class="text-xs text-slate-500 uppercase tracking-wide">Vector Searches</div>
               </div>
 
-              <!-- Filter Searches -->
               <div class="p-3 bg-slate-800/50 rounded-lg text-center">
-                <div class="text-2xl font-bold text-blue-300">{{ analytics.filter_searches.toLocaleString() }}</div>
-                <div class="text-xs text-slate-500 uppercase tracking-wide">Filter Searches</div>
+                <div class="text-2xl font-bold text-blue-300" data-testid="stat-keyword">{{ count(analytics.keyword_searches) }}</div>
+                <div class="text-xs text-slate-500 uppercase tracking-wide">Keyword Searches</div>
               </div>
 
-              <!-- Cache Hits -->
               <div class="p-3 bg-slate-800/50 rounded-lg text-center">
-                <div class="text-2xl font-bold text-green-300">{{ analytics.cache_hits.toLocaleString() }}</div>
-                <div class="text-xs text-slate-500 uppercase tracking-wide">Cache Hits</div>
+                <div class="text-2xl font-bold text-green-300" data-testid="stat-average">{{ analytics.avg_results.toFixed(1) }}</div>
+                <div class="text-xs text-slate-500 uppercase tracking-wide">Avg Results</div>
               </div>
             </div>
 
-            <!-- Performance Metrics -->
+            <!-- Rates -->
             <div class="space-y-3">
-              <div class="text-xs text-slate-500 uppercase tracking-wide">Performance Metrics</div>
+              <div class="text-xs text-slate-500 uppercase tracking-wide">How searches went</div>
 
-              <!-- Cache Hit Rate -->
               <div class="flex items-center justify-between p-3 bg-slate-800/30 rounded-lg">
                 <div class="flex items-center gap-2">
-                  <i class="fas fa-database text-green-400 w-5" />
-                  <span class="text-slate-300">Cache Hit Rate</span>
+                  <i class="fas fa-project-diagram text-purple-400 w-5" />
+                  <span class="text-slate-300">Used the vector index</span>
                 </div>
                 <div class="flex items-center gap-2">
                   <div class="w-24 h-2 bg-slate-700 rounded-full overflow-hidden">
-                    <div
-                      class="h-full bg-green-500 transition-all"
-                      :style="{ width: `${cacheHitRate}%` }"
-                    />
+                    <div class="h-full bg-purple-500 transition-all" :style="{ width: `${Math.min(100, Math.max(0, analytics.vector_search_rate))}%` }" />
                   </div>
-                  <span class="font-mono text-green-300 w-16 text-right">{{ cacheHitRate.toFixed(1) }}%</span>
+                  <span class="font-mono text-purple-300 w-16 text-right" data-testid="rate-vector">{{ percent(analytics.vector_search_rate) }}</span>
                 </div>
               </div>
 
-              <!-- Coalesced Rate -->
               <div class="flex items-center justify-between p-3 bg-slate-800/30 rounded-lg">
                 <div class="flex items-center gap-2">
-                  <i class="fas fa-compress-arrows-alt text-amber-400 w-5" />
-                  <span class="text-slate-300">Coalesced Requests</span>
+                  <i class="fas fa-ban text-amber-400 w-5" />
+                  <span class="text-slate-300">Found nothing</span>
                 </div>
                 <div class="flex items-center gap-2">
                   <div class="w-24 h-2 bg-slate-700 rounded-full overflow-hidden">
-                    <div
-                      class="h-full bg-amber-500 transition-all"
-                      :style="{ width: `${coalescedRate}%` }"
-                    />
+                    <div class="h-full bg-amber-500 transition-all" :style="{ width: `${Math.min(100, Math.max(0, analytics.zero_result_rate))}%` }" />
                   </div>
-                  <span class="font-mono text-amber-300 w-16 text-right">{{ coalescedRate.toFixed(1) }}%</span>
-                </div>
-              </div>
-
-              <!-- Error Rate -->
-              <div class="flex items-center justify-between p-3 bg-slate-800/30 rounded-lg">
-                <div class="flex items-center gap-2">
-                  <i class="fas fa-exclamation-circle text-red-400 w-5" />
-                  <span class="text-slate-300">Error Rate</span>
-                </div>
-                <div class="flex items-center gap-2">
-                  <div class="w-24 h-2 bg-slate-700 rounded-full overflow-hidden">
-                    <div
-                      class="h-full bg-red-500 transition-all"
-                      :style="{ width: `${Math.min(100, errorRate)}%` }"
-                    />
-                  </div>
-                  <span class="font-mono text-red-300 w-16 text-right">{{ errorRate.toFixed(2) }}%</span>
+                  <span class="font-mono text-amber-300 w-16 text-right" data-testid="rate-zero">{{ percent(analytics.zero_result_rate) }}</span>
                 </div>
               </div>
             </div>
 
-            <!-- Latency Stats -->
-            <div class="space-y-3">
-              <div class="text-xs text-slate-500 uppercase tracking-wide">Latency</div>
-
-              <div class="grid grid-cols-3 gap-3">
-                <!-- Average Latency -->
-                <div class="p-3 bg-slate-800/50 rounded-lg text-center">
-                  <div class="text-xl font-bold font-mono" :class="getLatencyColor(analytics.avg_latency_ms)">
-                    {{ analytics.avg_latency_ms.toFixed(1) }}ms
-                  </div>
-                  <div class="text-xs text-slate-500">Average</div>
-                </div>
-
-                <!-- Vector Latency -->
-                <div class="p-3 bg-slate-800/50 rounded-lg text-center">
-                  <div class="text-xl font-bold font-mono" :class="getLatencyColor(analytics.avg_vector_latency_ms)">
-                    {{ analytics.avg_vector_latency_ms.toFixed(1) }}ms
-                  </div>
-                  <div class="text-xs text-slate-500">Vector</div>
-                </div>
-
-                <!-- Filter Latency -->
-                <div class="p-3 bg-slate-800/50 rounded-lg text-center">
-                  <div class="text-xl font-bold font-mono" :class="getLatencyColor(analytics.avg_filter_latency_ms)">
-                    {{ analytics.avg_filter_latency_ms.toFixed(1) }}ms
-                  </div>
-                  <div class="text-xs text-slate-500">Filter</div>
-                </div>
+            <!-- Kinds of search -->
+            <div v-if="queryTypes.length" class="space-y-3">
+              <div class="text-xs text-slate-500 uppercase tracking-wide">Kinds of search</div>
+              <div class="flex flex-wrap gap-2">
+                <span
+                  v-for="[type, n] in queryTypes"
+                  :key="type"
+                  data-testid="query-type"
+                  class="text-xs text-cyan-300 bg-cyan-500/10 px-2 py-1 rounded"
+                >{{ type }} <span class="font-mono text-cyan-500">×{{ count(n) }}</span></span>
               </div>
             </div>
+
+            <!-- Top words -->
+            <div v-if="analytics.top_keywords.length" class="space-y-3">
+              <div class="text-xs text-slate-500 uppercase tracking-wide">Most searched words</div>
+              <div class="flex flex-wrap gap-2">
+                <span
+                  v-for="k in analytics.top_keywords"
+                  :key="k.keyword"
+                  data-testid="top-keyword"
+                  class="text-xs text-slate-300 bg-slate-700/50 px-2 py-1 rounded"
+                >{{ k.keyword }} <span class="font-mono text-slate-500">×{{ count(k.count) }}</span></span>
+              </div>
+            </div>
+
+            <p v-if="analytics.total_queries === 0" data-testid="search-analytics-empty" class="text-sm text-slate-500 text-center">
+              Nothing has been searched since the worker started.
+            </p>
 
             <!-- Recent Searches -->
             <div v-if="recentSearches.length > 0" class="space-y-3">
@@ -252,14 +197,16 @@ const formatTimeAgo = (isoDate: string) => {
                 <div
                   v-for="(search, index) in recentSearches"
                   :key="index"
+                  data-testid="recent-search"
                   class="flex items-center gap-3 p-2 bg-slate-800/30 rounded-lg text-sm"
                 >
                   <i class="fas fa-search text-slate-500 text-xs" />
                   <span class="flex-1 text-slate-300 truncate" :title="search.query">{{ search.query }}</span>
                   <span v-if="search.project" class="text-xs text-amber-600/80 font-mono">{{ search.project.split('/').pop() }}</span>
                   <span v-if="search.type" class="text-xs text-cyan-500 bg-cyan-500/10 px-1.5 py-0.5 rounded">{{ search.type }}</span>
-                  <span class="text-xs text-slate-500 font-mono">×{{ search.count }}</span>
-                  <span class="text-xs text-slate-600">{{ formatTimeAgo(search.last_used) }}</span>
+                  <span v-if="search.used_vector" class="text-xs text-purple-400">vector</span>
+                  <span class="text-xs text-slate-500 font-mono">{{ search.results }} found</span>
+                  <span class="text-xs text-slate-600">{{ timeAgo(search.timestamp) }}</span>
                 </div>
               </div>
             </div>

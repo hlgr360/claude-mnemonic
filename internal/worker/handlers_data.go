@@ -363,7 +363,10 @@ func (s *Service) handleGetRecentQueries(w http.ResponseWriter, r *http.Request)
 	})
 }
 
-// handleGetSearchAnalytics returns comprehensive search analytics and statistics.
+// handleGetSearchAnalytics returns what the worker knows about the searches it has served: it counts the last
+// maxRecentQueries searches (since the worker started), how many used the vector index, how many found nothing, the
+// kinds of search and the most used words. The dashboard's Search Analytics popup reads exactly these keys.
+// It does not measure latency or cache hits; the worker does not record them.
 func (s *Service) handleGetSearchAnalytics(w http.ResponseWriter, r *http.Request) {
 	project := r.URL.Query().Get("project")
 
@@ -424,6 +427,8 @@ func (s *Service) handleGetSearchAnalytics(w http.ResponseWriter, r *http.Reques
 
 	writeJSON(w, map[string]any{
 		"total_queries":      totalQueries,
+		"vector_searches":    vectorSearches,
+		"keyword_searches":   totalQueries - vectorSearches,
 		"vector_search_rate": vectorSearchRate,
 		"avg_results":        avgResults,
 		"zero_result_rate":   zeroResultRate,
