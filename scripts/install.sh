@@ -1,22 +1,25 @@
 #!/bin/bash
 # Claude Mnemonic - Remote Installation Script
-# Usage: curl -sSL https://raw.githubusercontent.com/lukaszraczylo/claude-mnemonic/main/scripts/install.sh | bash
+# Usage: curl -sSL https://raw.githubusercontent.com/hlgr360/claude-mnemonic/main/scripts/install.sh | bash
 #
 # Or with a specific version:
-# curl -sSL https://raw.githubusercontent.com/lukaszraczylo/claude-mnemonic/main/scripts/install.sh | bash -s -- v1.0.0
+# curl -sSL https://raw.githubusercontent.com/hlgr360/claude-mnemonic/main/scripts/install.sh | bash -s -- v1.0.0
 
 set -e
 
 INSTALLER_VERSION="1.1.0"
 
 # Configuration
-GITHUB_REPO="lukaszraczylo/claude-mnemonic"
-INSTALL_DIR="$HOME/.claude/plugins/marketplaces/claude-mnemonic"
-CACHE_DIR="$HOME/.claude/plugins/cache/claude-mnemonic/claude-mnemonic"
+# The repository releases come from and the marketplace name the plugin is registered under.
+# Override with MNEMONIC_REPO / MNEMONIC_MARKETPLACE.
+GITHUB_REPO="${MNEMONIC_REPO:-hlgr360/claude-mnemonic}"
+MARKETPLACE_NAME="${MNEMONIC_MARKETPLACE:-claude-mnemonic}"
+INSTALL_DIR="$HOME/.claude/plugins/marketplaces/${MARKETPLACE_NAME}"
+CACHE_DIR="$HOME/.claude/plugins/cache/${MARKETPLACE_NAME}/claude-mnemonic"
 PLUGINS_FILE="$HOME/.claude/plugins/installed_plugins.json"
 SETTINGS_FILE="$HOME/.claude/settings.json"
 MARKETPLACES_FILE="$HOME/.claude/plugins/known_marketplaces.json"
-PLUGIN_KEY="claude-mnemonic@claude-mnemonic"
+PLUGIN_KEY="claude-mnemonic@${MARKETPLACE_NAME}"
 
 # Colors for output
 RED='\033[0;31m'
@@ -366,7 +369,7 @@ EOF
 EOF
 )
 
-    jq --arg key "claude-mnemonic" --argjson entry "$marketplace_entry" \
+    jq --arg key "$MARKETPLACE_NAME" --argjson entry "$marketplace_entry" \
         '.[$key] = $entry' "$MARKETPLACES_FILE" > "${MARKETPLACES_FILE}.tmp" \
         && mv "${MARKETPLACES_FILE}.tmp" "$MARKETPLACES_FILE"
 
@@ -569,7 +572,7 @@ if [[ "${1:-}" == "--uninstall" ]]; then
                 del(.mcpServers["claude-mnemonic"])' "$SETTINGS_FILE" > "${SETTINGS_FILE}.tmp" && mv "${SETTINGS_FILE}.tmp" "$SETTINGS_FILE"
         fi
         if [[ -f "$MARKETPLACES_FILE" ]]; then
-            jq 'del(.["claude-mnemonic"])' "$MARKETPLACES_FILE" > "${MARKETPLACES_FILE}.tmp" && mv "${MARKETPLACES_FILE}.tmp" "$MARKETPLACES_FILE"
+            jq --arg key "$MARKETPLACE_NAME" 'del(.[$key])' "$MARKETPLACES_FILE" > "${MARKETPLACES_FILE}.tmp" && mv "${MARKETPLACES_FILE}.tmp" "$MARKETPLACES_FILE"
         fi
         success "Configuration cleaned up"
     else

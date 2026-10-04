@@ -1,8 +1,8 @@
 # Claude Mnemonic - Windows Installation Script
-# Usage: irm https://raw.githubusercontent.com/lukaszraczylo/claude-mnemonic/main/scripts/install.ps1 | iex
+# Usage: irm https://raw.githubusercontent.com/hlgr360/claude-mnemonic/main/scripts/install.ps1 | iex
 #
 # Or with a specific version:
-# $env:MNEMONIC_VERSION = "v1.0.0"; irm https://raw.githubusercontent.com/lukaszraczylo/claude-mnemonic/main/scripts/install.ps1 | iex
+# $env:MNEMONIC_VERSION = "v1.0.0"; irm https://raw.githubusercontent.com/hlgr360/claude-mnemonic/main/scripts/install.ps1 | iex
 
 param(
     [string]$Version = $env:MNEMONIC_VERSION,
@@ -12,13 +12,16 @@ param(
 $ErrorActionPreference = "Stop"
 
 # Configuration
-$GitHubRepo = "lukaszraczylo/claude-mnemonic"
-$InstallDir = "$env:USERPROFILE\.claude\plugins\marketplaces\claude-mnemonic"
-$CacheDir = "$env:USERPROFILE\.claude\plugins\cache\claude-mnemonic\claude-mnemonic"
+# The repository releases come from and the marketplace name the plugin is registered under.
+# Override with $env:MNEMONIC_REPO / $env:MNEMONIC_MARKETPLACE.
+$GitHubRepo = if ($env:MNEMONIC_REPO) { $env:MNEMONIC_REPO } else { "hlgr360/claude-mnemonic" }
+$MarketplaceName = if ($env:MNEMONIC_MARKETPLACE) { $env:MNEMONIC_MARKETPLACE } else { "claude-mnemonic" }
+$InstallDir = "$env:USERPROFILE\.claude\plugins\marketplaces\$MarketplaceName"
+$CacheDir = "$env:USERPROFILE\.claude\plugins\cache\$MarketplaceName\claude-mnemonic"
 $PluginsFile = "$env:USERPROFILE\.claude\plugins\installed_plugins.json"
 $SettingsFile = "$env:USERPROFILE\.claude\settings.json"
 $MarketplacesFile = "$env:USERPROFILE\.claude\plugins\known_marketplaces.json"
-$PluginKey = "claude-mnemonic@claude-mnemonic"
+$PluginKey = "claude-mnemonic@$MarketplaceName"
 
 function Write-Info { param($Message) Write-Host "[INFO] $Message" -ForegroundColor Blue }
 function Write-Success { param($Message) Write-Host "[OK] $Message" -ForegroundColor Green }
@@ -183,7 +186,7 @@ function Register-Plugin {
             installLocation = $InstallDir
             lastUpdated = $Timestamp
         }
-        $Marketplaces | Add-Member -NotePropertyName "claude-mnemonic" -NotePropertyValue $MarketplaceEntry -Force
+        $Marketplaces | Add-Member -NotePropertyName $MarketplaceName -NotePropertyValue $MarketplaceEntry -Force
         $Marketplaces | ConvertTo-Json -Depth 10 | Out-File -Encoding UTF8 $MarketplacesFile
         Write-Success "Marketplace registered in known_marketplaces.json"
 
@@ -318,7 +321,7 @@ function Uninstall-ClaudeMnemonic {
         }
         if (Test-Path $MarketplacesFile) {
             $Marketplaces = Get-Content $MarketplacesFile -Raw | ConvertFrom-Json
-            $Marketplaces.PSObject.Properties.Remove("claude-mnemonic")
+            $Marketplaces.PSObject.Properties.Remove($MarketplaceName)
             $Marketplaces | ConvertTo-Json -Depth 10 | Out-File -Encoding UTF8 $MarketplacesFile
         }
     } catch {

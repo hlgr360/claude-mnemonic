@@ -1,6 +1,6 @@
 #!/bin/bash
 # Claude Mnemonic - Uninstallation Script
-# Usage: curl -sSL https://raw.githubusercontent.com/lukaszraczylo/claude-mnemonic/main/scripts/uninstall.sh | bash
+# Usage: curl -sSL https://raw.githubusercontent.com/hlgr360/claude-mnemonic/main/scripts/uninstall.sh | bash
 #
 # Options:
 #   --keep-data    Keep the data directory (~/.claude-mnemonic/)
@@ -9,13 +9,15 @@
 set -e
 
 # Configuration
-INSTALL_DIR="$HOME/.claude/plugins/marketplaces/claude-mnemonic"
-CACHE_DIR="$HOME/.claude/plugins/cache/claude-mnemonic"
+# The marketplace name the plugin was registered under (MNEMONIC_MARKETPLACE, default claude-mnemonic)
+MARKETPLACE_NAME="${MNEMONIC_MARKETPLACE:-claude-mnemonic}"
+INSTALL_DIR="$HOME/.claude/plugins/marketplaces/${MARKETPLACE_NAME}"
+CACHE_DIR="$HOME/.claude/plugins/cache/${MARKETPLACE_NAME}"
 DATA_DIR="$HOME/.claude-mnemonic"
 PLUGINS_FILE="$HOME/.claude/plugins/installed_plugins.json"
 SETTINGS_FILE="$HOME/.claude/settings.json"
 MARKETPLACES_FILE="$HOME/.claude/plugins/known_marketplaces.json"
-PLUGIN_KEY="claude-mnemonic@claude-mnemonic"
+PLUGIN_KEY="claude-mnemonic@${MARKETPLACE_NAME}"
 
 # Colors for output
 RED='\033[0;31m'
@@ -92,7 +94,7 @@ if command -v jq &> /dev/null; then
     fi
 
     if [[ -f "$MARKETPLACES_FILE" ]]; then
-        jq 'del(.["claude-mnemonic"])' "$MARKETPLACES_FILE" > "${MARKETPLACES_FILE}.tmp" && mv "${MARKETPLACES_FILE}.tmp" "$MARKETPLACES_FILE"
+        jq --arg key "$MARKETPLACE_NAME" 'del(.[$key])' "$MARKETPLACES_FILE" > "${MARKETPLACES_FILE}.tmp" && mv "${MARKETPLACES_FILE}.tmp" "$MARKETPLACES_FILE"
         success "Removed from known_marketplaces.json"
     fi
 else

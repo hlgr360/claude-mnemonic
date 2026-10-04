@@ -48,6 +48,17 @@ KEEP=1 scripts/e2e/run.sh                   # keep the work directory and logs
 - Use `data-testid` attributes for dashboard checks. Clicking a button by its visible text can hit a different button that happens to contain the same word.
 - When you add a check for a bug, make sure it fails against the old code.
 
+## Which repository releases come from
+
+The in-app updater, the install and uninstall scripts and the release scripts take the release repository and the marketplace name from one place each, so a fork or a rename needs no code change:
+
+| What | Default | Override |
+|---|---|---|
+| Updater (Go) | `hlgr360/claude-mnemonic` | `go build -ldflags "-X github.com/lukaszraczylo/claude-mnemonic/internal/update.GitHubRepo=owner/name"` |
+| Signing identity the updater accepts | any workflow of that repository | `-X …/internal/update.CertificateIdentityRegexp=<regexp>` (for releases signed by a reusable workflow in another repository) |
+| `install.sh`, `install.ps1`, `register-plugin.sh`, `update-marketplace.sh` | `hlgr360/claude-mnemonic` | `MNEMONIC_REPO=owner/name` |
+| Marketplace name the install, register and uninstall scripts use | `claude-mnemonic` | `MNEMONIC_MARKETPLACE=name` |
+
 ## Security scanning
 
 Every PR runs `gosec` and CodeQL, and both comment on the PR. Run `gosec` locally before pushing:

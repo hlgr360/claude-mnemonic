@@ -1,5 +1,5 @@
 # Claude Mnemonic - Windows Uninstallation Script
-# Usage: irm https://raw.githubusercontent.com/lukaszraczylo/claude-mnemonic/main/scripts/uninstall.ps1 | iex
+# Usage: irm https://raw.githubusercontent.com/hlgr360/claude-mnemonic/main/scripts/uninstall.ps1 | iex
 #
 # Options:
 #   -KeepData    Keep the data directory (~/.claude-mnemonic/)
@@ -13,13 +13,15 @@ param(
 $ErrorActionPreference = "Stop"
 
 # Configuration
-$InstallDir = "$env:USERPROFILE\.claude\plugins\marketplaces\claude-mnemonic"
-$CacheDir = "$env:USERPROFILE\.claude\plugins\cache\claude-mnemonic"
+# The marketplace name the plugin was registered under ($env:MNEMONIC_MARKETPLACE, default claude-mnemonic)
+$MarketplaceName = if ($env:MNEMONIC_MARKETPLACE) { $env:MNEMONIC_MARKETPLACE } else { "claude-mnemonic" }
+$InstallDir = "$env:USERPROFILE\.claude\plugins\marketplaces\$MarketplaceName"
+$CacheDir = "$env:USERPROFILE\.claude\plugins\cache\$MarketplaceName"
 $DataDir = "$env:USERPROFILE\.claude-mnemonic"
 $PluginsFile = "$env:USERPROFILE\.claude\plugins\installed_plugins.json"
 $SettingsFile = "$env:USERPROFILE\.claude\settings.json"
 $MarketplacesFile = "$env:USERPROFILE\.claude\plugins\known_marketplaces.json"
-$PluginKey = "claude-mnemonic@claude-mnemonic"
+$PluginKey = "claude-mnemonic@$MarketplaceName"
 
 function Write-Info { param($Message) Write-Host "[INFO] $Message" -ForegroundColor Blue }
 function Write-Success { param($Message) Write-Host "[OK] $Message" -ForegroundColor Green }
@@ -85,8 +87,8 @@ try {
 
     if (Test-Path $MarketplacesFile) {
         $Marketplaces = Get-Content $MarketplacesFile -Raw | ConvertFrom-Json
-        if ($Marketplaces.PSObject.Properties["claude-mnemonic"]) {
-            $Marketplaces.PSObject.Properties.Remove("claude-mnemonic")
+        if ($Marketplaces.PSObject.Properties[$MarketplaceName]) {
+            $Marketplaces.PSObject.Properties.Remove($MarketplaceName)
             $Marketplaces | ConvertTo-Json -Depth 10 | Out-File -Encoding UTF8 $MarketplacesFile
             Write-Success "Removed from known_marketplaces.json"
         }

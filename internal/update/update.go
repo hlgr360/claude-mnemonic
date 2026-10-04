@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -23,9 +24,23 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+// GitHubRepo ("owner/name") is where releases are fetched from and whose workflows must have signed them. It is a
+// variable so a build can name its own repository without a code change:
+//
+//	go build -ldflags "-X github.com/lukaszraczylo/claude-mnemonic/internal/update.GitHubRepo=owner/name"
+//
+// The default is this fork's repository.
+var GitHubRepo = "hlgr360/claude-mnemonic"
+
+// CertificateIdentityRegexp is the signing identity a release must carry (cosign --certificate-identity-regexp). Left
+// empty it is derived from GitHubRepo: any workflow in that repository. Set it with -ldflags -X when releases are
+// signed by a workflow in another repository (a reusable workflow's identity is the called workflow, not the caller).
+var CertificateIdentityRegexp = ""
+
+// CertificateOIDCIssuer is the issuer of the keyless signing certificates (GitHub Actions).
+const CertificateOIDCIssuer = "https://token.actions.githubusercontent.com"
+
 const (
-	GitHubRepo       = "lukaszraczylo/claude-mnemonic"
-	ReleasesAPI      = "https://api.github.com/repos/" + GitHubRepo + "/releases/latest"
 	CheckInterval    = 24 * time.Hour
 	MaxExtractedSize = 250 * 1024 * 1024 // 250MB max per extracted file
 	RestartDelay     = 500 * time.Millisecond
@@ -60,16 +75,43 @@ type UpdateInfo struct {
 	Available           bool      `json:"available"`
 }
 
+// ReleasesAPI is the URL of the latest release of GitHubRepo.
+func ReleasesAPI() string {
+	return "https://api.github.com/repos/" + GitHubRepo + "/releases/latest"
+}
+
 // InstallScriptURL is the URL to the remote installation script.
-const InstallScriptURL = "https://raw.githubusercontent.com/" + GitHubRepo + "/main/scripts/install.sh"
+func InstallScriptURL() string {
+	return "https://raw.githubusercontent.com/" + GitHubRepo + "/main/scripts/install.sh"
+}
+
+// certificateIdentityRegexp returns the identity pattern a release's signature must match, anchored: the configured
+// CertificateIdentityRegexp, or any workflow of GitHubRepo.
+func certificateIdentityRegexp() string {
+	if CertificateIdentityRegexp != "" {
+		return CertificateIdentityRegexp
+	}
+	return "^https://github\\.com/" + regexp.QuoteMeta(GitHubRepo) + "/.*$"
+}
+
+// cosignVerifyArgs are the arguments of the cosign call that verifies the checksums file against its bundle.
+func cosignVerifyArgs(bundlePath, checksumsPath string) []string {
+	return []string{
+		"verify-blob",
+		"--bundle", bundlePath,
+		"--certificate-identity-regexp", certificateIdentityRegexp(),
+		"--certificate-oidc-issuer", CertificateOIDCIssuer,
+		checksumsPath,
+	}
+}
 
 // GetManualUpdateCommand returns the curl command for manual update.
 // If version is empty, it installs the latest version.
 func GetManualUpdateCommand(version string) string {
 	if version == "" {
-		return fmt.Sprintf("curl -sSL %s | bash", InstallScriptURL)
+		return fmt.Sprintf("curl -sSL %s | bash", InstallScriptURL())
 	}
-	return fmt.Sprintf("curl -sSL %s | bash -s -- %s", InstallScriptURL, version)
+	return fmt.Sprintf("curl -sSL %s | bash -s -- %s", InstallScriptURL(), version)
 }
 
 // UpdateStatus represents the current update status.
@@ -146,7 +188,7 @@ func (u *Updater) CheckForUpdate(ctx context.Context) (*UpdateInfo, error) {
 	}
 	u.mu.RUnlock()
 
-	req, err := http.NewRequestWithContext(ctx, "GET", ReleasesAPI, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", ReleasesAPI(), nil)
 	if err != nil {
 		u.setError(err)
 		return nil, err
@@ -350,13 +392,8 @@ func (u *Updater) verifySigstoreBundle(ctx context.Context, checksumsPath, bundl
 
 	// Verify sigstore bundle - uses keyless verification with certificate identity
 	// The bundle contains the signature, certificate, and transparency log entry
-	// Certificate identity matches GitHub Actions workflow for this repo
-	cmd := exec.CommandContext(ctx, "cosign", "verify-blob",
-		"--bundle", bundlePath,
-		"--certificate-identity-regexp", "https://github.com/lukaszraczylo/claude-mnemonic/.*",
-		"--certificate-oidc-issuer", "https://token.actions.githubusercontent.com",
-		checksumsPath,
-	)
+	// Certificate identity matches the GitHub Actions workflow of the configured repository (see GitHubRepo)
+	cmd := exec.CommandContext(ctx, "cosign", cosignVerifyArgs(bundlePath, checksumsPath)...) // #nosec G204 -- constant binary; the arguments are built from this package's configuration and temp paths
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("cosign verification failed: %w, output: %s", err, string(output))

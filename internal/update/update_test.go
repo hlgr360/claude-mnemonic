@@ -184,13 +184,13 @@ func TestGetManualUpdateCommand(t *testing.T) {
 		{
 			name:            "empty_version_returns_latest",
 			version:         "",
-			wantContains:    []string{"curl -sSL", InstallScriptURL, "| bash"},
+			wantContains:    []string{"curl -sSL", InstallScriptURL(), "| bash"},
 			wantNotContains: []string{"bash -s --"},
 		},
 		{
 			name:         "specific_version_appended",
 			version:      "v1.2.3",
-			wantContains: []string{"curl -sSL", InstallScriptURL, "| bash -s --", "v1.2.3"},
+			wantContains: []string{"curl -sSL", InstallScriptURL(), "| bash -s --", "v1.2.3"},
 		},
 		{
 			name:         "version_without_v_prefix",
@@ -778,7 +778,7 @@ func TestCheckForUpdate_UpdateAvailable(t *testing.T) {
 	u.httpClient = srv.Client()
 
 	// Override the API URL by swapping the updater's client transport to point at test server.
-	// Since ReleasesAPI is a package-level const we need to make the request go to srv.
+	// Since ReleasesAPI() is built from GitHubRepo we need to make the request go to srv.
 	// Use a custom RoundTripper that rewrites the URL host.
 	origTransport := srv.Client().Transport
 	u.httpClient.Transport = &rewriteHostTransport{
