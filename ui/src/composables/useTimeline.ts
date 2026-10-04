@@ -2,6 +2,7 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import type { FeedItem, FilterType, ObservationType, ConceptType } from '@/types'
 import { fetchObservations, fetchPrompts, fetchSummaries, combineTimeline } from '@/utils/api'
 import { filterByScope, type ScopeFilter } from '@/utils/scope'
+import { DEFAULT_FILTER } from '@/utils/tabs'
 import { useSSE } from './useSSE'
 
 // Debounce utility
@@ -27,7 +28,7 @@ export function useTimeline() {
   const error = ref<string | null>(null)
 
   // Filters
-  const currentFilter = ref<FilterType>('all')
+  const currentFilter = ref<FilterType>(DEFAULT_FILTER)
   const currentProject = ref<string | null>(null)
   const currentTypeFilter = ref<ObservationType | null>(null)
   const currentConceptFilter = ref<ConceptType | null>(null)

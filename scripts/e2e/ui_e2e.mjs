@@ -58,6 +58,21 @@ try {
   await send('Page.navigate', { url: uiUrl })
   await waitFor(`!!document.querySelector('.project-filter button')`, 'project filter')
 
+  console.log('== the dashboard opens on the Summaries tab')
+  await waitFor(`!!document.querySelector('[data-testid=tab-summaries]')`, 'the tabs')
+  const tabSelected = (key) => evaluate(`document.querySelector('[data-testid=tab-${key}]')?.getAttribute('aria-selected') === 'true'`)
+  check('Summaries is the selected tab', await tabSelected('summaries'))
+  check('All is still a tab, and not the selected one', (await evaluate(`!!document.querySelector('[data-testid=tab-all]')`)) && !(await tabSelected('all')))
+  await waitFor(`document.body.innerText.includes('First summary')`, 'the seeded session summaries')
+  check('the timeline shows session summaries and no observation cards', await evaluate(`document.querySelectorAll('[data-testid=scope-badge]').length === 0`))
+  const clickTab = async (key) => { await evaluate(`document.querySelector('[data-testid=tab-${key}]').click()`); await waitFor(`document.querySelector('[data-testid=tab-${key}]').getAttribute('aria-selected') === 'true'`, `the ${key} tab to be selected`) }
+  await clickTab('observations')
+  check('the other tabs are one click away', await waitFor(`document.querySelectorAll('[data-testid=scope-badge]').length > 0`, 'observation cards'))
+  await clickTab('all')
+  check('and All shows everything again', await tabSelected('all') && !(await tabSelected('observations')))
+  await clickTab('summaries')
+  check('Summaries brings the summaries back', await tabSelected('summaries'))
+
   console.log('== the dropdown lists every project that has data, by name')
   await evaluate(`document.querySelector('.project-filter button').click()`)
   await waitFor(`document.body.innerText.includes('Manage projects…') && document.querySelectorAll('.project-filter button[title]').length >= ${Object.keys(ids).length}`, 'dropdown items')
