@@ -177,6 +177,8 @@ install: mark-clean build stop-worker
 	@chmod +x $(HOME)/.claude/plugins/marketplaces/claude-mnemonic/hooks/*
 	@cp mcp-server $(HOME)/.claude/plugins/marketplaces/claude-mnemonic/
 	@chmod +x $(HOME)/.claude/plugins/marketplaces/claude-mnemonic/mcp-server
+	@# The commands were called dashboard and restart; remove the old files so an install over an old one does not show both
+	@rm -f $(HOME)/.claude/plugins/marketplaces/claude-mnemonic/commands/dashboard.md $(HOME)/.claude/plugins/marketplaces/claude-mnemonic/commands/restart.md
 	@cp commands/*.md $(HOME)/.claude/plugins/marketplaces/claude-mnemonic/commands/
 	@echo "Registering plugin with Claude Code..."
 	@./scripts/register-plugin.sh "$(VERSION)"

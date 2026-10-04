@@ -1,7 +1,7 @@
 # Claude Mnemonic
 
 Persistent memory for Claude Code and Claude Desktop. It keeps the decisions, findings and fixes from your earlier
-sessions, searchable and shared by both, and has a web dashboard (`/claude-mnemonic:dashboard`). This is a fork of
+sessions, searchable and shared by both, and has a web dashboard (`/memory-dashboard`). This is a fork of
 [lukaszraczylo/claude-mnemonic](https://github.com/lukaszraczylo/claude-mnemonic) (MIT); its releases are at
 https://github.com/hlgr360/claude-mnemonic.
 
@@ -9,7 +9,7 @@ https://github.com/hlgr360/claude-mnemonic.
 
 - **In Claude Code**, hooks save what happens in a session and load the project's memory at the start, and the MCP
   server gives Claude the search and related tools.
-- **Skills:** `/claude-mnemonic:dashboard` opens the dashboard, `/claude-mnemonic:restart` restarts the local worker,
+- **Skills:** `/memory-dashboard` opens the dashboard, `/memory-restart` restarts the local worker,
   and `project-memory` carries the instruction below.
 - **The memory is stored on your computer** (`~/.claude-mnemonic`), by a local worker that the hooks and the MCP server
   start when needed.

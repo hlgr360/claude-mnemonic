@@ -29,7 +29,7 @@ It captures what Claude learns during your coding sessions - bug fixes, architec
 <summary>Previous: v0.6</summary>
 
 - **Auto-Updates** - Automatically stays up-to-date with the latest version
-- **Slash Command: `/restart`** - Restart the worker directly from Claude Code
+- **Slash Commands: `/memory-dashboard` and `/memory-restart`** - Open the dashboard, or restart the worker, directly from Claude Code
 - **Local Embeddings** - All semantic search runs locally via ONNX Runtime (no external API calls)
 - **Async Queue Processing** - Non-blocking observation capture for faster sessions
 - **Smarter Storage** - Filters out system/agent summaries to keep knowledge relevant
@@ -79,7 +79,7 @@ After install, open **http://localhost:37777** to see the dashboard (it opens on
 
 You do not have to remember the address:
 
-- **Claude Code:** run **`/claude-mnemonic:dashboard`**. It opens the dashboard in your browser (it finds a custom `WORKER_PORT` itself) and says so if the worker is not running. The first session after an install or an update also shows you a one-line message with the address (for you only; it is not added to what the model sees).
+- **Claude Code:** run **`/memory-dashboard`**. It opens the dashboard in your browser (it finds a custom `WORKER_PORT` itself) and says so if the worker is not running. The first session after an install or an update also shows you a one-line message with the address (for you only; it is not added to what the model sees).
 - **Claude Desktop:** ask for your memory dashboard; the `dashboard` tool gives chat the link to click. `scripts/install-desktop.py` and `make install` print the address at the end too.
 
 ### Verifying Release Signatures
@@ -362,10 +362,10 @@ Available commands within Claude Code:
 
 | Command | Description |
 |---------|-------------|
-| `/claude-mnemonic:dashboard` | Open the web dashboard in your browser |
-| `/claude-mnemonic:restart` | Restart the worker process when experiencing issues |
+| `/memory-dashboard` | Open the web dashboard in your browser |
+| `/memory-restart` | Restart the worker process when experiencing issues |
 
-Plugin commands are namespaced with the plugin's name (`/claude-mnemonic:...`); Claude Code may also accept the short form (`/dashboard`, `/restart`) when no other plugin uses the same name.
+The names say what they do and are unique on purpose: where the plugin's name cannot be typed as a prefix (Claude Desktop), the short name is all there is. In Claude Code the full form is `/claude-mnemonic:memory-dashboard` and `/claude-mnemonic:memory-restart`. They were renamed from the shorter `dashboard` and `restart`, which no longer exist.
 
 ## Auto-Updates
 
@@ -397,7 +397,7 @@ rm -f ~/.claude-mnemonic/*.db-wal ~/.claude-mnemonic/*.db-shm
 curl -X POST http://127.0.0.1:37777/api/restart
 
 # Or use the slash command in Claude Code
-/restart
+/memory-restart
 ```
 
 **Check health status:**

@@ -30,7 +30,7 @@ def make_tree(root):
         ("mcp-server", 0o755),
         ("hooks/stop", 0o755),
         ("hooks/hooks.json", 0o644),
-        ("commands/dashboard.md", 0o644),
+        ("commands/memory-dashboard.md", 0o644),
         (".claude-plugin/plugin.json", 0o600),
     ]:
         path = os.path.join(root, rel)
@@ -55,7 +55,7 @@ class PackReleaseTest(unittest.TestCase):
             self.assertEqual(
                 names,
                 sorted(
-                    [".claude-plugin/plugin.json", "commands/dashboard.md", "hooks/hooks.json", "hooks/stop", "mcp-server", "worker"]
+                    [".claude-plugin/plugin.json", "commands/memory-dashboard.md", "hooks/hooks.json", "hooks/stop", "mcp-server", "worker"]
                 ),
             )
             modes = {m.name: m.mode for m in tar.getmembers()}
@@ -86,7 +86,7 @@ class PackReleaseTest(unittest.TestCase):
             self.assertIsNone(z.testzip())
             self.assertIn("hooks/stop", z.namelist())
             self.assertEqual(z.getinfo("worker").external_attr >> 16, 0o755)
-            self.assertEqual(z.read("commands/dashboard.md"), b"content of commands/dashboard.md")
+            self.assertEqual(z.read("commands/memory-dashboard.md"), b"content of commands/memory-dashboard.md")
 
     def test_refuses_an_empty_tree_and_an_unknown_extension(self):
         empty = os.path.join(self.tmp.name, "empty")

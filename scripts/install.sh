@@ -263,7 +263,9 @@ download_release() {
         error "Failed to copy plugin configuration to $INSTALL_DIR/.claude-plugin/"
     fi
 
-    # Copy slash commands if they exist in the release
+    # Copy slash commands if they exist in the release. They were called dashboard and restart: remove the old files so an
+    # install over an old one does not show both.
+    rm -f "$INSTALL_DIR/commands/dashboard.md" "$INSTALL_DIR/commands/restart.md"
     if [[ -d "$tmp_dir/commands" ]]; then
         cp -r "$tmp_dir/commands/"* "$INSTALL_DIR/commands/" 2>/dev/null || true
     fi

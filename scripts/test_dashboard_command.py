@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The /claude-mnemonic:dashboard command: its shell snippet really finds the worker's port (environment, then
+"""The /memory-dashboard command: its shell snippet really finds the worker's port (environment, then
 settings.json, then 37777), opens the dashboard only when the worker answers, and the command is listed in the plugin
 manifest. The browser opener is a stub, so nothing is opened."""
 import json
@@ -13,7 +13,7 @@ import unittest
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-COMMAND = os.path.join(ROOT, "commands", "dashboard.md")
+COMMAND = os.path.join(ROOT, "commands", "memory-dashboard.md")
 
 
 def read(path):
@@ -91,12 +91,17 @@ class DashboardCommand(unittest.TestCase):
 
 
 class Manifest(unittest.TestCase):
-    def test_the_command_is_listed_in_the_plugin_manifest_and_exists(self):
+    def test_the_commands_exist_and_the_installed_manifest_does_not_pin_old_names(self):
+        # The manifest `make install` ships must not list command files that are gone (it used to name dashboard.md and
+        # restart.md); without a `commands` key the commands/ folder is scanned, so both commands load.
         manifest = json.loads(read(os.path.join(ROOT, ".claude-plugin", "plugin.json")))
-        self.assertIn("./commands/dashboard.md", manifest["commands"])
-        self.assertIn("./commands/restart.md", manifest["commands"], "the existing command is still there")
-        for rel in manifest["commands"]:
-            self.assertTrue(os.path.isfile(os.path.join(ROOT, rel)), rel)
+        for rel in manifest.get("commands", []):
+            self.assertTrue(os.path.isfile(os.path.join(ROOT, rel)), f"the manifest names {rel}, which does not exist")
+        self.assertNotIn("commands", manifest, "the default scan of commands/ loads both; a list would replace it")
+        for name in ("memory-dashboard", "memory-restart"):
+            self.assertTrue(os.path.isfile(os.path.join(ROOT, "commands", name + ".md")), name)
+        for old in ("dashboard", "restart"):
+            self.assertFalse(os.path.exists(os.path.join(ROOT, "commands", old + ".md")), f"{old}.md is the old name")
 
     def test_the_command_has_a_description_and_only_the_tools_it_needs(self):
         text = read(COMMAND)

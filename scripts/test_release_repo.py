@@ -159,6 +159,37 @@ class ConfigurationBlocks(unittest.TestCase):
         self.assertEqual(d["CACHE_DIR"], "~/.claude/plugins/cache/custom")
 
 
+class CommandNames(unittest.TestCase):
+    """The slash commands are /memory-dashboard and /memory-restart (they were /dashboard and /restart): where Claude
+    Desktop offers plugin commands the plugin's name cannot be typed as a prefix, so the short name is all a person sees."""
+
+    # Files that name the old files on purpose: the cleanup that removes them from an older install, and this test.
+    ALLOWED = {"Makefile", "scripts/install.sh", "scripts/register-plugin.sh", "scripts/test_release_repo.py",
+               "scripts/test_register_plugin.py", "CONTRIBUTING.md"}
+    OLD = re.compile(r"claude-mnemonic:(dashboard|restart)\b|commands/(dashboard|restart)\.md|(?<![\w:/.-])/(dashboard|restart)(?![\w/-])")
+
+    @unittest.skipUnless(shutil.which("git"), "needs git")
+    def test_no_tracked_file_uses_the_old_command_names(self):
+        files = subprocess.run(["git", "ls-files"], cwd=REPO_ROOT, capture_output=True, text=True, check=True).stdout.split("\n")
+        offenders = []
+        for rel in files:
+            if not rel or rel in self.ALLOWED or rel.startswith(("docs/", "ui/")) or not rel.endswith((".md", ".go", ".py", ".sh", ".tpl", ".txt", ".json", ".yaml", ".yml")):
+                continue
+            try:
+                text = read(os.path.join(REPO_ROOT, rel))
+            except (OSError, UnicodeDecodeError):
+                continue
+            for n, line in enumerate(text.split("\n"), 1):
+                if self.OLD.search(line) and "localhost" not in line and "/api/" not in line and "http" not in line:
+                    offenders.append(f"{rel}:{n}: {line.strip()[:100]}")
+        self.assertEqual(offenders, [], "use /memory-dashboard and /memory-restart")
+
+    def test_the_installs_remove_the_old_files_from_the_commands_directories(self):
+        for rel in ("Makefile", "scripts/install.sh", "scripts/register-plugin.sh"):
+            text = read(os.path.join(REPO_ROOT, rel))
+            self.assertRegex(text, r"rm -f [^\n]*commands/dashboard\.md[^\n]*commands/restart\.md", rel)
+
+
 class NoHardCodedUpstream(unittest.TestCase):
     def test_no_script_names_upstream_any_more(self):
         # The Go module path (-X linker flags in the build script) is an import path, not a place to download from.
