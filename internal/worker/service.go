@@ -129,6 +129,7 @@ type Service struct {
 	conflictStore      *gorm.ConflictStore
 	patternStore       *gorm.PatternStore
 	relationStore      *gorm.RelationStore
+	identityStore      *gorm.ProjectIdentityStore
 	patternDetector    *pattern.Detector
 	maintenanceSvc     *maintenance.Service
 	sessionManager     *session.Manager
@@ -161,7 +162,9 @@ type Service struct {
 	conflictProposer   conflictProposeFunc
 	relationNeighbours similarOlderFunc
 	relationWake       chan struct{}
+	identitySlots      chan struct{}
 	expensiveOpLimiter *ExpensiveOperationLimiter
+	identitySeen       sync.Map
 	version            string
 	recentQueriesBuf   [maxRecentQueries]RecentSearchQuery
 	wg                 sync.WaitGroup
@@ -174,8 +177,9 @@ type Service struct {
 	recentQueriesMu    sync.RWMutex
 	cachedObsCountsMu  sync.RWMutex
 	staleQueueOnce     sync.Once
-	ready              atomic.Bool
 	briefMu            sync.Mutex
+	autoMergeRunning   atomic.Bool
+	ready              atomic.Bool
 	conflictRunning    atomic.Bool
 	relationRunning    atomic.Bool
 }
@@ -399,6 +403,7 @@ func NewService(version string) (*Service, error) {
 		rateLimiter:        rateLimiter,
 		expensiveOpLimiter: NewExpensiveOperationLimiter(),
 		relationWake:       make(chan struct{}, 1),
+		identitySlots:      make(chan struct{}, 4),
 		bulkOpLimiter:      NewBulkOperationLimiter(60), // 60 second cooldown for bulk operations
 		cachedObsCounts:    make(map[string]cachedCount),
 		statsCacheTTL:      time.Minute,             // Cache stats for 1 minute
@@ -523,6 +528,7 @@ func (s *Service) initializeAsync() {
 	s.conflictStore = conflictStore
 	s.patternStore = patternStore
 	s.relationStore = relationStore
+	s.identityStore = gorm.NewProjectIdentityStore(store)
 	s.sessionManager = sessionManager
 	s.processor = processor
 	s.embedSvc = embedSvc
@@ -606,6 +612,13 @@ func (s *Service) initializeAsync() {
 		s.wg.Add(1)
 		go s.relationLoop()
 		log.Info().Msg("Knowledge graph builder started")
+	}
+
+	// Projects that are certainly one are merged by themselves only when asked to (off by default).
+	if s.config != nil && s.config.ProjectAutoMergeEnabled {
+		s.wg.Add(1)
+		go s.autoMergeLoop()
+		log.Info().Msg("Project auto-merge started")
 	}
 
 	// Start the scheduled maintenance service (issue #49: was dead code, never instantiated).
@@ -842,6 +855,7 @@ func (s *Service) reinitializeDatabase() {
 	s.conflictStore = conflictStore
 	s.patternStore = patternStore
 	s.relationStore = relationStore
+	s.identityStore = gorm.NewProjectIdentityStore(store)
 	s.patternDetector = patternDetector
 	s.sessionManager = sessionManager
 	s.processor = processor
@@ -1371,6 +1385,9 @@ func (s *Service) setupRoutes() {
 		r.Post("/api/conflicts/{id}/resolve", s.handleResolveConflict)
 		r.Post("/api/conflicts/{id}/undo", s.handleUndoConflict)
 		r.Post("/api/projects/{id}/merge", s.handleMergeProject)
+		r.Get("/api/projects/duplicates", s.handleListDuplicates)
+		r.Post("/api/projects/duplicates/dismiss", s.handleDismissDuplicate)
+		r.Post("/api/projects/duplicates/restore", s.handleRestoreDuplicate)
 		r.Delete("/api/projects/aliases/{alias}", s.handleDeleteProjectAlias)
 		r.Get("/api/stats", s.handleGetStats)
 		r.Get("/api/stats/retrieval", s.handleGetRetrievalStats)

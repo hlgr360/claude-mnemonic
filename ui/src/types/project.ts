@@ -49,3 +49,40 @@ export interface ProjectActionResult {
   message: string
   stats: ProjectStats
 }
+
+/** One side of a suggested duplicate. */
+export interface DuplicateProject {
+  project: string
+  label: string
+  display_name: string
+  observations: number
+  last_active_epoch: number
+}
+
+export interface DuplicateReason {
+  code: 'same_remote' | 'same_titles' | 'path_gone' | 'few_notes' | string
+  text: string
+}
+
+/** Two projects that are probably one. `survivor` has more data; merging moves `other` into it. */
+export interface DuplicateSuggestion {
+  survivor: DuplicateProject
+  other: DuplicateProject
+  strength: 'strong' | 'medium' | 'weak'
+  reasons: DuplicateReason[]
+  /** The strongest evidence: with automatic merging on, the worker merges this pair by itself. */
+  auto_mergeable: boolean
+}
+
+/** A pair a person said is not the same project. */
+export interface DismissedPair {
+  a: DuplicateProject
+  b: DuplicateProject
+}
+
+export interface DuplicatesReply {
+  suggestions: DuplicateSuggestion[]
+  dismissed: DismissedPair[]
+  /** Whether the worker merges the strongest pairs by itself (off by default). */
+  auto_merge: boolean
+}

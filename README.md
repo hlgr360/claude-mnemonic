@@ -264,6 +264,22 @@ Your assistant can read the graph too, not only the dashboard:
 - Over HTTP: `GET /api/observations/{id}/connections?direction=&types=&min_confidence=&limit=` and
   `GET /api/relations/types?project=&observation_id=`. Notes you superseded or archived are never listed.
 
+### Duplicate Projects
+
+The same work can end up under two project ids (a moved or renamed folder, a second clone). The worker records the
+normalised git remote of each project's folder (no credentials, nothing sent anywhere) and the dashboard's **Manage
+projects…** shows **Possible duplicates**: pairs that share a remote, or a name plus other evidence (the same notes, a
+folder that is gone). A name alone is never enough and projects with different remotes are never suggested. Merging
+uses the existing preview, backup and alias; **Not the same** is remembered per pair. In Claude Desktop use
+`project_manage` with `duplicates` and `dismiss`; see [DESKTOP.md](DESKTOP.md).
+
+| Variable | Default | What it does |
+|----------|---------|--------------|
+| `PROJECT_AUTO_MERGE_ENABLED` | `false` | Merge by itself the pairs with the same remote whose old folder is gone (backup first, alias `auto-merge`, announced in the dashboard) |
+| `PROJECT_AUTO_MERGE_INTERVAL_MINUTES` | `30` | How often it looks |
+
+API: `GET /api/projects/duplicates`, `POST /api/projects/duplicates/dismiss` and `/restore` (`{a, b}`).
+
 ### Local LLM Settings (Ollama, optional)
 
 Summaries, observation extraction and the stale-observation check run on the Claude CLI by default. Each of

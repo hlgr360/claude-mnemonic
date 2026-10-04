@@ -646,3 +646,27 @@ func TestLoad_GraphRelationSettings(t *testing.T) {
 	assert.InDelta(t, 0.6, cfg.GraphRelationsMinSim, 0.0001, "a similarity above 1 is not one")
 	assert.Equal(t, 3, cfg.GraphRelationsMaxPerObs, "at least one relation per note")
 }
+
+func TestLoad_ProjectAutoMergeIsOffByDefault(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	cfg, err := Load()
+	require.NoError(t, err)
+	assert.False(t, cfg.ProjectAutoMergeEnabled, "projects are never merged by themselves unless asked to")
+	assert.Equal(t, 30, cfg.ProjectAutoMergeIntervalMin)
+}
+
+func TestLoad_ProjectAutoMergeSettings(t *testing.T) {
+	writeSettings(t, `{"CLAUDE_MNEMONIC_PROJECT_AUTO_MERGE_ENABLED": true, "CLAUDE_MNEMONIC_PROJECT_AUTO_MERGE_INTERVAL_MINUTES": 5}`)
+	cfg, err := Load()
+	require.NoError(t, err)
+	assert.True(t, cfg.ProjectAutoMergeEnabled)
+	assert.Equal(t, 5, cfg.ProjectAutoMergeIntervalMin)
+}
+
+func TestLoad_UnusableProjectAutoMergeSettingsKeepTheDefaults(t *testing.T) {
+	writeSettings(t, `{"CLAUDE_MNEMONIC_PROJECT_AUTO_MERGE_ENABLED": "yes", "CLAUDE_MNEMONIC_PROJECT_AUTO_MERGE_INTERVAL_MINUTES": 0}`)
+	cfg, err := Load()
+	require.NoError(t, err)
+	assert.False(t, cfg.ProjectAutoMergeEnabled, "a value that is not a boolean does not switch it on")
+	assert.Equal(t, 30, cfg.ProjectAutoMergeIntervalMin)
+}

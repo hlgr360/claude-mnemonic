@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import type { ProjectActionResult, ProjectAlias, ProjectSummary } from '@/types'
+import type { DismissedPair, DuplicatesReply, DuplicateSuggestion, ProjectActionResult, ProjectAlias, ProjectSummary } from '@/types'
 import {
-  deleteProject, describeError, listAliases, listProjects, mergeProject, removeAlias
+  deleteProject, describeError, dismissDuplicate, listAliases, listDuplicates, listProjects, mergeProject, removeAlias, restoreDuplicate
 } from '@/utils/projectAdmin'
+import { mergeSentence, projectLine, strengthHint, strengthLabel, swapped } from '@/utils/duplicates'
 import { formatRelativeTime } from '@/utils/formatters'
 
 export interface ProjectChange {
@@ -34,6 +35,9 @@ const notice = ref('')
 const pending = ref<Pending | null>(null)
 const mergeSource = ref<string | null>(null)
 const mergeTarget = ref('')
+// Projects that look like one project; a failure here never hides the project list itself.
+const duplicates = ref<DuplicatesReply | null>(null)
+const showDismissed = ref(false)
 
 // An alias that still has data cannot be deleted or merged: act on the project it points to.
 const isActionable = (p: ProjectSummary) => !p.alias_of
@@ -51,6 +55,15 @@ async function load() {
     error.value = describeError(err)
   } finally {
     loading.value = false
+  }
+  await loadDuplicates()
+}
+
+async function loadDuplicates() {
+  try {
+    duplicates.value = await listDuplicates()
+  } catch {
+    duplicates.value = null
   }
 }
 
@@ -94,6 +107,37 @@ async function previewMerge() {
     pending.value = { kind: 'merge', project: source, into: preview.into ?? into, preview }
   }
 }
+
+// Merge a suggested pair through the same preview and confirmation as any merge.
+async function previewSuggested(s: DuplicateSuggestion) {
+  mergeSource.value = null
+  pending.value = null
+  const preview = await guarded(() => mergeProject(s.other.project, s.survivor.project))
+  if (preview) {
+    pending.value = { kind: 'merge', project: s.other.project, into: preview.into ?? s.survivor.project, preview }
+  }
+}
+
+async function notTheSame(s: DuplicateSuggestion) {
+  const done = await guarded(async () => {
+    await dismissDuplicate(s.survivor.project, s.other.project)
+    return true
+  })
+  if (done) {
+    notice.value = `Noted: ${s.survivor.project} and ${s.other.project} are not the same project. They will not be suggested again.`
+    await loadDuplicates()
+  }
+}
+
+async function restoreDismissed(d: DismissedPair) {
+  const done = await guarded(async () => {
+    await restoreDuplicate(d.a.project, d.b.project)
+    return true
+  })
+  if (done) await loadDuplicates()
+}
+
+const hasDuplicates = computed(() => !!duplicates.value && (duplicates.value.suggestions.length > 0 || duplicates.value.dismissed.length > 0))
 
 function cancel() {
   pending.value = null
@@ -237,6 +281,83 @@ const pendingTitle = computed(() => {
 
         <!-- Project list -->
         <div class="overflow-y-auto min-h-0 flex-1 space-y-2">
+          <!-- Possible duplicates: the same work under two ids, found by name and git remote, confirmed by evidence -->
+          <div v-if="hasDuplicates" data-testid="duplicates-section" class="pb-3">
+            <p class="text-slate-500 text-xs uppercase tracking-wide mb-1">Possible duplicates</p>
+            <p class="text-slate-500 text-xs mb-2">
+              Projects that look like one project, with the evidence. A name alone is never enough, and nothing is merged until you preview and confirm.
+            </p>
+            <p v-if="duplicates?.auto_merge" data-testid="auto-merge-note" class="text-amber-300/80 text-xs mb-2">
+              Automatic merging is on: pairs marked below are merged by the worker itself, with a backup, when they share a git remote and the old folder is gone.
+            </p>
+            <div
+              v-for="s in duplicates?.suggestions ?? []"
+              :key="s.survivor.project + s.other.project"
+              data-testid="duplicate-item"
+              class="mb-2 p-3 rounded-lg border border-slate-700/60 bg-slate-800/30"
+            >
+              <div class="flex items-center gap-2 mb-1">
+                <span
+                  class="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase"
+                  :class="s.strength === 'strong' ? 'bg-emerald-500/20 text-emerald-300' : s.strength === 'medium' ? 'bg-amber-500/20 text-amber-300' : 'bg-slate-600/40 text-slate-300'"
+                  :title="strengthHint(s.strength)"
+                  data-testid="duplicate-strength"
+                >{{ strengthLabel(s.strength) }}</span>
+                <span v-if="s.auto_mergeable && duplicates?.auto_merge" class="text-amber-300/80 text-[10px]" data-testid="duplicate-auto">merged automatically</span>
+              </div>
+              <div class="text-slate-200 text-sm">
+                {{ projectLine(s.survivor) }}<span class="text-slate-500"> and </span>{{ projectLine(s.other) }}
+              </div>
+              <div class="text-slate-500 text-xs font-mono truncate">{{ s.survivor.project }} · {{ s.other.project }}</div>
+              <ul class="mt-1 text-slate-400 text-xs list-disc pl-4">
+                <li v-for="r in s.reasons" :key="r.code" data-testid="duplicate-reason">{{ r.text }}</li>
+              </ul>
+              <div class="mt-2 flex flex-wrap gap-2">
+                <button
+                  class="px-2.5 py-1.5 rounded-lg text-xs bg-claude-500 text-slate-900 font-semibold hover:bg-claude-400 disabled:opacity-40"
+                  :disabled="working"
+                  data-testid="duplicate-merge"
+                  :title="`${mergeSentence(s)}: you see a preview first`"
+                  @click="previewSuggested(s)"
+                >
+                  <i class="fas fa-code-merge mr-1" />{{ mergeSentence(s) }}
+                </button>
+                <button
+                  class="px-2.5 py-1.5 rounded-lg text-xs text-slate-300 bg-white/5 hover:bg-white/10 disabled:opacity-40"
+                  :disabled="working"
+                  data-testid="duplicate-swap"
+                  :title="`Keep ${s.other.project} instead`"
+                  @click="previewSuggested(swapped(s))"
+                >
+                  <i class="fas fa-right-left mr-1" />Keep {{ s.other.label || s.other.project }} instead
+                </button>
+                <button
+                  class="px-2.5 py-1.5 rounded-lg text-xs text-slate-300 bg-white/5 hover:bg-white/10 disabled:opacity-40"
+                  :disabled="working"
+                  data-testid="duplicate-dismiss"
+                  @click="notTheSame(s)"
+                >
+                  Not the same
+                </button>
+              </div>
+            </div>
+            <p v-if="duplicates && duplicates.suggestions.length === 0" class="text-slate-500 text-xs mb-2" data-testid="duplicates-none">
+              No pair is suggested right now.
+            </p>
+            <div v-if="duplicates?.dismissed.length">
+              <button class="text-slate-500 hover:text-slate-300 text-xs" data-testid="dismissed-toggle" @click="showDismissed = !showDismissed">
+                <i class="fas mr-1" :class="showDismissed ? 'fa-chevron-down' : 'fa-chevron-right'" />
+                Marked as not the same ({{ duplicates.dismissed.length }})
+              </button>
+              <div v-if="showDismissed" class="mt-1 space-y-1">
+                <div v-for="d in duplicates.dismissed" :key="d.a.project + d.b.project" data-testid="dismissed-item" class="flex items-center gap-2 text-xs text-slate-400">
+                  <span class="truncate flex-1">{{ projectLine(d.a) }} and {{ projectLine(d.b) }}</span>
+                  <button class="text-slate-400 hover:text-white" :disabled="working" data-testid="dismissed-restore" @click="restoreDismissed(d)">Suggest again</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div v-if="loading" class="text-center text-slate-500 text-sm py-6">
             <i class="fas fa-spinner animate-spin mr-2" />Loading projects…
           </div>

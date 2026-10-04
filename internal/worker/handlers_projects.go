@@ -39,11 +39,13 @@ type setAliasRequest struct {
 
 // candidateDetail describes one project among several that share a name.
 type candidateDetail struct {
-	Project         string   `json:"project"`
-	DisplayName     string   `json:"display_name"`
-	Label           string   `json:"label"`
-	Detail          string   `json:"detail"`
-	SampleTitles    []string `json:"sample_titles,omitempty"`
+	Project      string   `json:"project"`
+	DisplayName  string   `json:"display_name"`
+	Label        string   `json:"label"`
+	Detail       string   `json:"detail"`
+	SampleTitles []string `json:"sample_titles,omitempty"`
+	// ProbablySameAs lists the other candidates this one is probably the same project as (see duplicates).
+	ProbablySameAs  []string `json:"probably_same_as,omitempty"`
 	Observations    int64    `json:"observations"`
 	Sessions        int64    `json:"sessions"`
 	LastActiveEpoch int64    `json:"last_active_epoch"`
@@ -180,6 +182,14 @@ func (s *Service) handleResolveProject(w http.ResponseWriter, r *http.Request) {
 	resp := resolveResponse{Resolution: res}
 	if len(res.Candidates) > 0 {
 		resp.CandidateDetails = view.details(res.Candidates)
+		// Namesakes that are probably one project say so, so a person is not asked to choose between the same thing.
+		same := s.probablySame(r.Context(), res.Candidates)
+		for i := range resp.CandidateDetails {
+			resp.CandidateDetails[i].ProbablySameAs = same[resp.CandidateDetails[i].Project]
+		}
+	}
+	if ref.Path != "" && res.ID != "" {
+		s.noteProjectPath(res.ID, ref.Path)
 	}
 
 	noStore(w)

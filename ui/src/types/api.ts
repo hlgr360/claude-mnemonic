@@ -45,6 +45,9 @@ export interface SSEEvent {
   title?: string
   action?: string
   project?: string
+  /** project events: what a merge moved the project into, and where its backup is */
+  into?: string
+  backup?: string
   isProcessing?: boolean
   queueDepth?: number
 }

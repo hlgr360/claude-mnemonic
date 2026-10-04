@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useConflictCount, useSSE, useStats, useTimeline, useTotals, useUpdate, useHealth } from '@/composables'
 import { showingText } from '@/utils/counts'
+import { autoMergedMessage } from '@/utils/duplicates'
 import Header from '@/components/Header.vue'
 import StatsCards from '@/components/StatsCards.vue'
 import FilterTabs from '@/components/FilterTabs.vue'
@@ -12,7 +13,7 @@ import ScopeReview from '@/components/ScopeReview.vue'
 import Sidebar from '@/components/Sidebar.vue'
 
 // Composables
-const { isConnected, isReconnecting, reconnectCountdown, isProcessing, queueDepth } = useSSE()
+const { isConnected, isReconnecting, reconnectCountdown, isProcessing, queueDepth, lastEvent } = useSSE()
 const { updateInfo, updateStatus, isUpdating, applyUpdate } = useUpdate()
 const { health } = useHealth()
 // Initialize useTimeline first to get currentProject ref
@@ -43,6 +44,15 @@ const shownCounts = computed(() => ({ observations: observationCount.value, prom
 const showing = computed(() => showingText(shownCounts.value, totals.value))
 // The badge on the Conflicts tab
 const { openCount: conflictCount, refreshCount: refreshConflictCount } = useConflictCount(currentProject)
+
+// The worker merged two projects that are certainly one (only when automatic merging is switched on): say so.
+const autoMerged = ref('')
+watch(lastEvent, (event) => {
+  if (event?.type !== 'project' || event.action !== 'auto_merged') return
+  autoMerged.value = autoMergedMessage(event)
+  if (currentProject.value === event.project) setProject(event.into ?? null)
+  refresh()
+})
 
 // A decision hides or restores a note, so the badge and the timeline's markings are stale
 function onConflictsChanged() {
@@ -79,6 +89,12 @@ function onConflictsChanged() {
 
     <!-- Main Content -->
     <main class="max-w-7xl mx-auto px-4 py-6">
+      <div v-if="autoMerged" data-testid="auto-merge-notice" class="mb-4 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-200 text-sm flex items-start gap-3" role="status">
+        <i class="fas fa-code-merge mt-0.5" />
+        <span class="flex-1">{{ autoMerged }} If it was wrong, restore the backup; the old id can also be removed under Manage projects.</span>
+        <button class="text-amber-200/70 hover:text-white" aria-label="Dismiss" @click="autoMerged = ''"><i class="fas fa-times" /></button>
+      </div>
+
       <!-- Stats Cards -->
       <StatsCards
         :stats="stats"

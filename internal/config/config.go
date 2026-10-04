@@ -102,6 +102,10 @@ type Config struct {
 	LLMFallbackToClaude          bool     `json:"llm_fallback_to_claude"`
 	ProjectBriefEnabled          bool     `json:"project_brief_enabled"`
 	ConflictProposalsEnabled     bool     `json:"conflict_proposals_enabled"`
+	// ProjectAutoMergeEnabled merges projects that are certainly one (the same git remote, the old folder gone) by itself.
+	// Off by default: it only ever acts on the strongest evidence, with a backup and an alias, and says so.
+	ProjectAutoMergeEnabled     bool `json:"project_auto_merge_enabled"`
+	ProjectAutoMergeIntervalMin int  `json:"project_auto_merge_interval_minutes"`
 }
 
 var (
@@ -198,6 +202,8 @@ func Default() *Config {
 		// ConflictProposalsMaxPerRun per pass. They only ever propose: nothing is hidden or deleted without the
 		// user's decision. Superseded notes are kept unless a retention is set.
 		ConflictProposalsEnabled:     true,
+		ProjectAutoMergeEnabled:      false,
+		ProjectAutoMergeIntervalMin:  30,
 		ConflictProposalsMaxPerRun:   20,
 		ConflictProposalsIntervalMin: 60,
 		ConflictProposalsMinSim:      0.65,
@@ -338,6 +344,12 @@ func Load() (*Config, error) {
 		if v, ok := settings[key].(float64); ok && v > 0 {
 			*target = int(v)
 		}
+	}
+	if v, ok := settings["CLAUDE_MNEMONIC_PROJECT_AUTO_MERGE_ENABLED"].(bool); ok {
+		cfg.ProjectAutoMergeEnabled = v
+	}
+	if v, ok := settings["CLAUDE_MNEMONIC_PROJECT_AUTO_MERGE_INTERVAL_MINUTES"].(float64); ok && v >= 1 {
+		cfg.ProjectAutoMergeIntervalMin = int(v)
 	}
 	if v, ok := settings["CLAUDE_MNEMONIC_CONFLICT_PROPOSALS_MIN_SIMILARITY"].(float64); ok && v > 0 && v <= 1 {
 		cfg.ConflictProposalsMinSim = v
