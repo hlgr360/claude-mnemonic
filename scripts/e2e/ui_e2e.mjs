@@ -215,6 +215,44 @@ try {
   await clickByText('.project-filter button', 'All Projects')
   await waitFor(`document.querySelector('.project-filter > button').innerText.includes('All Projects')`, 'filter back on all projects')
 
+  console.log('== the Graph tab: the knowledge graph of related notes')
+  // The builder's first pass is a minute after the worker starts; a rebuild wakes it now.
+  await worker('/api/relations/rebuild', { method: 'POST' })
+  const graphDeadline = Date.now() + 150000
+  let graphNow = await worker(`/api/graph?project=${ids.reviewed}`)
+  while (graphNow.edges.length === 0 && Date.now() < graphDeadline) { await sleep(3000); graphNow = await worker(`/api/graph?project=${ids.reviewed}`) }
+  check('the worker has built relations between the notes that read alike', graphNow.edges.length > 0, JSON.stringify(graphNow).slice(0, 200))
+  check('opened the Graph tab', await clickByText('button', 'Graph'))
+  await waitFor(`!!document.querySelector('[data-testid=graph-view]')`, 'graph view')
+  await waitFor(`document.querySelector('[data-testid=graph-summary]')?.innerText.includes('relation')`, 'graph summary')
+  const allGraph = await worker('/api/graph')
+  const wantSummary = `${allGraph.nodes.length} note${allGraph.nodes.length === 1 ? '' : 's'}, ${allGraph.edges.filter(e => e.confidence >= 0.6).length} relation`
+  const summaryText = await evaluate(`document.querySelector('[data-testid=graph-summary]').innerText`)
+  check('the summary counts what the worker has', summaryText.startsWith(wantSummary.replace(/ relation$/, '')) && /relations?/.test(summaryText), summaryText + ' vs ' + wantSummary)
+  check('the graph is drawn on a canvas', await evaluate(`!!document.querySelector('[data-testid=graph-canvas] canvas')`))
+  check('the empty state is not shown', await evaluate(`!document.querySelector('[data-testid=graph-empty]')`))
+  check('nothing is selected, so the details say how to use it', (await evaluate(`document.querySelector('[data-testid=graph-details]').innerText`)).includes('Click a note'))
+  check('every relation kind is a button with its count', await evaluate(`document.querySelectorAll('[data-testid=graph-kinds] button').length === 6`))
+  await evaluate(`(() => { const s = document.querySelector('[data-testid=graph-confidence]'); s.value = '1'; s.dispatchEvent(new Event('input', { bubbles: true })) })()`)
+  await waitFor(`/^0 notes, 0 relations/.test(document.querySelector('[data-testid=graph-summary]').innerText)`, 'a confidence of 1 to drop every relation')
+  check('raising the minimum confidence narrows the picture', true)
+  check('and says why nothing is drawn', (await text()).includes('No relation passes the filters'))
+  await evaluate(`(() => { const s = document.querySelector('[data-testid=graph-confidence]'); s.value = '0.6'; s.dispatchEvent(new Event('input', { bubbles: true })) })()`)
+  await waitFor(`!/^0 notes/.test(document.querySelector('[data-testid=graph-summary]').innerText)`, 'the graph back')
+  await evaluate(`document.querySelectorAll('[data-testid=graph-kinds] button')[0].click()`)
+  await waitFor(`/^0 notes/.test(document.querySelector('[data-testid=graph-summary]').innerText) || document.querySelectorAll('[data-testid=graph-kinds] button')[0].className.includes('opacity-40')`, 'the kind to be hidden')
+  check('a relation kind can be hidden', await evaluate(`document.querySelectorAll('[data-testid=graph-kinds] button')[0].className.includes('opacity-40')`))
+  await evaluate(`document.querySelectorAll('[data-testid=graph-kinds] button')[0].click()`)
+  const stats = await worker('/api/graph/stats')
+  check('the worker reports real graph numbers', stats.enabled === true && stats.nodeCount > 0 && stats.edgeCount > 0, JSON.stringify({ nodeCount: stats.nodeCount, edgeCount: stats.edgeCount }))
+  // The section is collapsed with v-show, so its refresh button exists in the page even while hidden: look at visibility.
+  await evaluate(`(() => { const r = document.querySelector('[title="Refresh metrics"]'); if (!r || r.offsetParent === null) [...document.querySelectorAll('button')].find(b => b.innerText.includes('Advanced Metrics')).click(); return true })()`)
+  await waitFor(`(() => { const r = document.querySelector('[title="Refresh metrics"]'); return !!r && r.offsetParent !== null })()`, 'the metrics section to open')
+  await evaluate(`document.querySelector('[title="Refresh metrics"]').click()`)
+  await waitFor(`new RegExp('Nodes\\\\s*\\\\n?\\\\s*${stats.nodeCount}\\\\b').test(document.body.innerText)`, 'the sidebar to show the real node count')
+  check('the sidebar shows the real graph numbers', true)
+  check('the timeline note is not shown on the graph', await evaluate(`!document.querySelector('[data-testid=showing-note]')`))
+
   console.log('== the Conflicts tab: review proposals side by side')
   const openConflicts = async () => (await worker('/api/conflicts?status=open')).conflicts
   const injectedIds = async () => ((await worker(`/api/context/inject?project=${ids.reviewed}`)).observations ?? []).map(o => o.id)

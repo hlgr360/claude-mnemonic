@@ -41,7 +41,7 @@ export E2E_DIR="$WORK" E2E_PORT="$WORKER_PORT" DO_NOT_TRACK=1 CGO_ENABLED=1
 
 cleanup() {
   kill $(lsof -ti ":$WORKER_PORT") $(lsof -ti ":37998") $(lsof -ti ":${E2E_OLLAMA_PORT:-37996}") $(lsof -ti ":$UI_PORT") $(lsof -ti ":9333") 2>/dev/null
-  if [ "${KEEP:-0}" = "1" ]; then echo "kept: $WORK"; else rm -rf "$WORK" "${TMPDIR:-/tmp}"/e2e-* "${TMPDIR:-/tmp}"/e2e-admin-* "${TMPDIR:-/tmp}"/e2e-names-* "${TMPDIR:-/tmp}"/e2e-threads-* "${TMPDIR:-/tmp}"/e2e-brief-* "${TMPDIR:-/tmp}"/e2e-conflicts-* "${TMPDIR:-/tmp}"/ui-e2e-* 2>/dev/null; fi
+  if [ "${KEEP:-0}" = "1" ]; then echo "kept: $WORK"; else rm -rf "$WORK" "${TMPDIR:-/tmp}"/e2e-* "${TMPDIR:-/tmp}"/e2e-admin-* "${TMPDIR:-/tmp}"/e2e-names-* "${TMPDIR:-/tmp}"/e2e-threads-* "${TMPDIR:-/tmp}"/e2e-brief-* "${TMPDIR:-/tmp}"/e2e-conflicts-* "${TMPDIR:-/tmp}"/e2e-relations-* "${TMPDIR:-/tmp}"/ui-e2e-* 2>/dev/null; fi
 }
 trap cleanup EXIT
 
@@ -150,6 +150,11 @@ printf '{"CLAUDE_CODE_PATH": "%s/fake-claude", "CLAUDE_MNEMONIC_CONFLICT_PROPOSA
 fresh_worker || exit 1
 suite "Conflict review: proposals, decisions, hiding, undo"            python3 "$HERE/drive_conflicts.py"
 base_settings
+
+# The knowledge graph is built in the background from the vector index (no model); its first pass runs a minute
+# after the worker starts, so the suite seeds straight away and then waits for it.
+fresh_worker || exit 1
+suite "Knowledge graph: relations, filters, hiding, rebuild"           python3 "$HERE/drive_relations.py"
 
 if [ "$RUN_UI" = "1" ]; then
   if [ ! -d "$ROOT/ui/dist" ] || ! command -v node >/dev/null; then

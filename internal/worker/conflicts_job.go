@@ -53,26 +53,35 @@ func conflictQuery(o *models.Observation) string {
 	return text
 }
 
-// olderNeighbours finds the live observations of the same project that are older than obs and close to it.
-func (s *Service) olderNeighbours(ctx context.Context, obs *models.Observation, minSimilarity float64) ([]*models.Observation, bool, error) {
+// similarNote is a note found close to another one, with how close.
+type similarNote struct {
+	obs *models.Observation
+	sim float64
+}
+
+// similarOlder finds the live observations of the same project that are older than obs and at least minSimilarity
+// close to it, the closest first, at most limit of them. ok is false when vector search is unavailable.
+func (s *Service) similarOlder(ctx context.Context, obs *models.Observation, minSimilarity float64, limit, fetch int) ([]similarNote, bool, error) {
 	s.initMu.RLock()
 	observationStore := s.observationStore
 	s.initMu.RUnlock()
 	if observationStore == nil {
 		return nil, false, nil
 	}
-	// The vector client's project filter also returns global-scope notes of other projects. A conflict is always
-	// between two notes of one project, so the search is made over every project, deep enough to still find the
-	// project's own notes, and narrowed here.
-	results, ok, err := s.vectorSearch(ctx, conflictQuery(obs), conflictVectorFetch,
+	// The vector client's project filter also returns global-scope notes of other projects. A relation between
+	// notes is always within one project, so the search is made over every project, deep enough to still find
+	// the project's own notes, and narrowed here.
+	results, ok, err := s.vectorSearch(ctx, conflictQuery(obs), fetch,
 		sqlitevec.BuildWhereFilter(sqlitevec.DocTypeObservation, ""))
 	if err != nil || !ok {
 		return nil, ok, err
 	}
 	var ids []int64
+	sim := map[int64]float64{}
 	for _, h := range distinctObservationHits(results, minSimilarity, "") {
 		if h.id != obs.ID && h.project == obs.Project {
 			ids = append(ids, h.id)
+			sim[h.id] = h.similarity
 		}
 	}
 	if len(ids) == 0 {
@@ -82,15 +91,28 @@ func (s *Service) olderNeighbours(ctx context.Context, obs *models.Observation, 
 	if err != nil {
 		return nil, true, err
 	}
-	var out []*models.Observation
+	var out []similarNote
 	for _, o := range found {
 		if o.IsSuperseded || o.Project != obs.Project || o.CreatedAtEpoch >= obs.CreatedAtEpoch {
 			continue
 		}
-		out = append(out, o)
-		if len(out) == conflictNeighbours {
+		out = append(out, similarNote{obs: o, sim: sim[o.ID]})
+		if len(out) == limit {
 			break
 		}
+	}
+	return out, true, nil
+}
+
+// olderNeighbours finds the older, live notes of the same project that are close to obs, for the conflict check.
+func (s *Service) olderNeighbours(ctx context.Context, obs *models.Observation, minSimilarity float64) ([]*models.Observation, bool, error) {
+	found, ok, err := s.similarOlder(ctx, obs, minSimilarity, conflictNeighbours, conflictVectorFetch)
+	if err != nil || !ok {
+		return nil, ok, err
+	}
+	out := make([]*models.Observation, len(found))
+	for i, f := range found {
+		out[i] = f.obs
 	}
 	return out, true, nil
 }

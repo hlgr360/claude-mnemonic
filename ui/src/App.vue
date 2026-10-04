@@ -7,6 +7,7 @@ import StatsCards from '@/components/StatsCards.vue'
 import FilterTabs from '@/components/FilterTabs.vue'
 import Timeline from '@/components/Timeline.vue'
 import ConflictsPanel from '@/components/ConflictsPanel.vue'
+import GraphView from '@/components/GraphView.vue'
 import Sidebar from '@/components/Sidebar.vue'
 
 // Composables
@@ -113,13 +114,19 @@ function onConflictsChanged() {
             @update:concept-filter="setConceptFilter"
           />
 
-          <p v-if="showing && currentFilter !== 'conflicts'" data-testid="showing-note" class="text-xs text-slate-500 -mt-2 mb-3 px-1">
+          <p v-if="showing && currentFilter !== 'conflicts' && currentFilter !== 'graph'" data-testid="showing-note" class="text-xs text-slate-500 -mt-2 mb-3 px-1">
             {{ showing }}
           </p>
 
+          <!-- Knowledge graph -->
+          <GraphView
+            v-if="currentFilter === 'graph'"
+            :project="currentProject"
+          />
+
           <!-- Conflict review -->
           <ConflictsPanel
-            v-if="currentFilter === 'conflicts'"
+            v-else-if="currentFilter === 'conflicts'"
             :project="currentProject"
             @changed="onConflictsChanged"
           />

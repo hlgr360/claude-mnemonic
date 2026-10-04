@@ -25,6 +25,7 @@ const tabs: { key: FilterType; label: string; icon: string }[] = [
   { key: 'observations', label: 'Observations', icon: 'fa-brain' },
   { key: 'summaries', label: 'Summaries', icon: 'fa-clipboard-list' },
   { key: 'prompts', label: 'Prompts', icon: 'fa-comment' },
+  { key: 'graph', label: 'Graph', icon: 'fa-diagram-project' },
   { key: 'conflicts', label: 'Conflicts', icon: 'fa-code-compare' }
 ]
 </script>
@@ -54,7 +55,7 @@ const tabs: { key: FilterType; label: string; icon: string }[] = [
       </button>
 
       <!-- Stats -->
-      <div v-if="currentFilter !== 'conflicts'" class="ml-auto flex items-center gap-3 text-xs text-slate-500">
+      <div v-if="currentFilter !== 'conflicts' && currentFilter !== 'graph'" class="ml-auto flex items-center gap-3 text-xs text-slate-500">
         <span>{{ observationCount }} obs</span>
         <span>·</span>
         <span>{{ promptCount }} prompts</span>

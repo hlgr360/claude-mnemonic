@@ -583,6 +583,15 @@ func runMigrations(db *gorm.DB, sqlDB *sql.DB) error {
 				return tx.Migrator().DropTable("conflict_checks")
 			},
 		},
+		{
+			ID: "019_relation_checks",
+			Migrate: func(tx *gorm.DB) error {
+				return tx.AutoMigrate(&RelationCheck{})
+			},
+			Rollback: func(tx *gorm.DB) error {
+				return tx.Migrator().DropTable("relation_checks")
+			},
+		},
 	})
 
 	if err := m.Migrate(); err != nil {
