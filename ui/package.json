@@ -18,7 +18,7 @@
   "devDependencies": {
     "@fortawesome/fontawesome-free": "^7.3.1",
     "@tailwindcss/postcss": "^4.3.3",
-    "@types/node": "^25.9.8",
+    "@types/node": "^26.0.0",
     "@vitejs/plugin-vue": "^6.0.9",
     "postcss": "^8.5.28",
     "tailwindcss": "^4.3.3",
