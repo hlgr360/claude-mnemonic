@@ -444,6 +444,8 @@ make dev            # dev mode with hot reload
 make install        # install to Claude plugins
 ```
 
+How work is done in this fork (ticket, branch, checks, security scanning, reviewing the bots' comments before merging) is in [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## License
 
 MIT
