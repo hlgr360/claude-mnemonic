@@ -138,7 +138,9 @@ func GitIdentity(ctx context.Context, dir string) Identity {
 	defer cancel()
 
 	run := func(args ...string) string {
-		cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...) // #nosec G204 -- the binary and the arguments are fixed; dir is one argument to -C, never a shell string
+		// The folder is the command's working directory, not an argument: the arguments below are fixed strings.
+		cmd := exec.CommandContext(ctx, "git", args...) // #nosec G204 -- the binary and every argument are constants of this file
+		cmd.Dir = dir
 		cmd.Env = append(cmd.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_OPTIONAL_LOCKS=0")
 		out, err := cmd.Output()
 		if err != nil {
