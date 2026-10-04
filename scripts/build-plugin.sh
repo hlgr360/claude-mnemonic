@@ -56,6 +56,9 @@ if [[ -n "${MNEMONIC_REPO:-}" ]]; then
     rm -f "$TREE/lib/ensure-binaries.sh.bak" "$TREE/.claude-plugin/plugin.json.bak" "$TREE/README.md.bak"
 fi
 
+# Limits of the upload form that `claude plugin validate` does not check (the description is at most 500 characters).
+python3 scripts/check_plugin_manifest.py "$TREE"
+
 if [[ "${SKIP_VALIDATE:-}" != "1" ]]; then
     if ! command -v claude >/dev/null 2>&1; then
         echo "The claude CLI is needed to validate the plugin (SKIP_VALIDATE=1 to skip)" >&2

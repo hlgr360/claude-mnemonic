@@ -1,7 +1,7 @@
 {
   "name": "claude-mnemonic",
   "version": "{{ .Version }}",
-  "description": "Persistent memory for Claude Code and Claude Desktop: the decisions, findings and fixes from your earlier sessions, searchable and shared by both, with a local web dashboard. A local worker (SQLite and embeddings) stores it on your computer; the binaries are downloaded from this fork's release on first use and verified. In Claude Desktop chat, paste the instruction from README.md into your personal preferences once, or chat answers from its built-in memory instead. Fork of lukaszraczylo/claude-mnemonic (MIT).",
+  "description": "Persistent memory for Claude Code and Claude Desktop: decisions, findings and fixes from earlier sessions, searchable and shared by both, with a local web dashboard. Binaries are downloaded and verified from this fork's release on first use. Desktop chat needs the instruction from README.md pasted into your preferences once. Fork of lukaszraczylo/claude-mnemonic (MIT).",
   "author": {
     "name": "hlgr360",
     "url": "https://github.com/hlgr360"

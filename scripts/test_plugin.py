@@ -398,6 +398,58 @@ class MemorySkill(unittest.TestCase):
         self.assertEqual(front.count("\n"), 4, "name, user-invocable and description, each on one line")
 
 
+class UploadLimits(unittest.TestCase):
+    """Claude's upload form rejects what `claude plugin validate` accepts: "Plugin description must be at most 500
+    characters". The build checks the limits the form is known to enforce."""
+
+    def tree_with_description(self, text):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        os.makedirs(os.path.join(tmp.name, ".claude-plugin"))
+        with open(os.path.join(tmp.name, ".claude-plugin", "plugin.json"), "w", encoding="utf-8") as fh:
+            json.dump({"name": "x", "version": "1.0.0", "description": text}, fh)
+        return tmp.name
+
+    def run_check(self, tree):
+        return subprocess.run([sys.executable, os.path.join(HERE, "check_plugin_manifest.py"), tree], capture_output=True, text=True)
+
+    def test_exactly_500_characters_pass_and_501_fail(self):
+        ok = self.run_check(self.tree_with_description("x" * 500))
+        self.assertEqual(ok.returncode, 0, ok.stderr)
+        bad = self.run_check(self.tree_with_description("x" * 501))
+        self.assertEqual(bad.returncode, 1)
+        self.assertIn("501 characters, 1 over the limit of 500", bad.stderr)
+        self.assertIn("Plugin description must be at most 500 characters", bad.stderr, "the form's own message is quoted")
+
+    def test_characters_are_counted_not_bytes(self):
+        # The form counts characters: 500 two-byte characters are fine.
+        self.assertEqual(self.run_check(self.tree_with_description("é" * 500)).returncode, 0)
+
+    def test_the_built_plugin_is_within_the_limit_and_the_build_runs_the_check(self):
+        f = Fixture(self)
+        with open(os.path.join(f.tree, ".claude-plugin", "plugin.json"), encoding="utf-8") as fh:
+            description = json.load(fh)["description"]
+        self.assertLessEqual(len(description), 500, f"the description is {len(description)} characters")
+        self.assertIn('check_plugin_manifest.py "$TREE"', read_file(os.path.join(HERE, "build-plugin.sh")), "the build must run the check")
+
+    def test_the_check_refuses_the_description_that_was_released_too_long(self):
+        # v0.21.95.1 shipped a 514-character description and could not be uploaded to an org.
+        released = (
+            "Persistent memory for Claude Code and Claude Desktop: the decisions, findings and fixes from your earlier sessions, "
+            "searchable and shared by both, with a local web dashboard. A local worker (SQLite and embeddings) stores it on your "
+            "computer; the binaries are downloaded from this fork's release on first use and verified. In Claude Desktop chat, "
+            "paste the instruction from README.md into your personal preferences once, or chat answers from its built-in memory "
+            "instead. Fork of lukaszraczylo/claude-mnemonic (MIT)."
+        )
+        self.assertEqual(len(released), 514)
+        self.assertEqual(self.run_check(self.tree_with_description(released)).returncode, 1)
+
+
+def read_file(path):
+    with open(path, encoding="utf-8") as fh:
+        return fh.read()
+
+
 class Overview(unittest.TestCase):
     """What Claude Desktop's plugin page shows: the manifest's description, author and links, and the README."""
 
@@ -413,7 +465,8 @@ class Overview(unittest.TestCase):
         manifest, _ = self.built()
         description = manifest["description"]
         self.assertNotIn("ChromaDB", description)
-        for phrase in ("Claude Code and Claude Desktop", "README.md", "built-in memory", "lukaszraczylo/claude-mnemonic"):
+        # Short on purpose (the upload form allows 500 characters); the README carries the explanation.
+        for phrase in ("Claude Code and Claude Desktop", "README.md", "Desktop chat", "lukaszraczylo/claude-mnemonic"):
             self.assertIn(phrase, description)
 
     def test_the_author_is_the_fork_and_upstream_stays_credited(self):
