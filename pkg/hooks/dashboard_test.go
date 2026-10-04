@@ -19,7 +19,7 @@ func TestDashboardNotice_SaysItOncePerVersionAndNamesThePortAndTheCommand(t *tes
 
 	first := DashboardNotice(dir, "v1.0.0", 37777)
 	assert.Contains(t, first, "http://localhost:37777")
-	assert.Contains(t, first, "/claude-mnemonic:dashboard")
+	assert.Contains(t, first, "/memory-dashboard")
 	assert.NotContains(t, first, "\n", "one line")
 
 	assert.Empty(t, DashboardNotice(dir, "v1.0.0", 37777), "the same version does not say it again")

@@ -77,7 +77,7 @@ class Fixture:
         for h in HOOKS:
             write(os.path.join(stage, "hooks", h), f"#!/bin/sh\necho fixture {h}\n")
         write(os.path.join(stage, "hooks", "hooks.json"), "{}", 0o644)
-        write(os.path.join(stage, "commands", "dashboard.md"), "x", 0o644)
+        write(os.path.join(stage, "commands", "memory-dashboard.md"), "x", 0o644)
         archive = os.path.join(self.release, f"claude-mnemonic_{version}_{SYSTEM}.tar.gz")
         package_release.pack(stage, archive)
         digest = "0" * 64 if wrong_checksum else sha256(archive)
@@ -275,14 +275,14 @@ class BuildPlugin(unittest.TestCase):
         files = sorted(os.path.relpath(os.path.join(r, n), f.tree) for r, _d, ns in os.walk(f.tree) for n in ns)
         self.assertEqual(
             files,
-            sorted([".claude-plugin/plugin.json", "LICENSE", "README.md", "hooks/hooks.json", "lib/ensure-binaries.sh", "mcp-server", "skills/dashboard/SKILL.md", "skills/project-memory/SKILL.md", "skills/restart/SKILL.md"] + [f"hooks/{h}" for h in HOOKS]),
+            sorted([".claude-plugin/plugin.json", "LICENSE", "README.md", "hooks/hooks.json", "lib/ensure-binaries.sh", "mcp-server", "skills/memory-dashboard/SKILL.md", "skills/memory-restart/SKILL.md", "skills/project-memory/SKILL.md"] + [f"hooks/{h}" for h in HOOKS]),
         )
         with open(os.path.join(f.tree, ".claude-plugin", "plugin.json"), encoding="utf-8") as fh:
             manifest = json.load(fh)
         self.assertEqual(manifest["version"], "3.4.5")
         self.assertEqual(manifest["name"], "claude-mnemonic")
         self.assertEqual(manifest["mcpServers"]["claude-mnemonic"]["command"], "${CLAUDE_PLUGIN_ROOT}/mcp-server")
-        # A `commands` list in the manifest replaces the default commands/ scan, which hid /claude-mnemonic:dashboard.
+        # A `commands` list in the manifest replaces the default commands/ scan, which hid the dashboard command.
         self.assertNotIn("commands", manifest)
         # hooks/hooks.json is the default location; declaring it as well made Desktop count the hooks twice (12 for 6).
         self.assertNotIn("hooks", manifest)
@@ -354,12 +354,12 @@ class MemorySkill(unittest.TestCase):
 
     def test_the_skill_is_background_knowledge_not_a_slash_command(self):
         # Without this a person could run /claude-mnemonic:project-memory by hand; the plugin's slash commands are only
-        # dashboard and restart. The model still sees the description (that is what makes it use the skill).
+        # memory-dashboard and memory-restart. The model still sees the description (that is what makes it use the skill).
         front = self.skill().split("---")[1]
         self.assertIn("\nuser-invocable: false\n", front)
         self.assertNotIn("disable-model-invocation", front, "that would take the description out of the model's context")
 
-    def test_only_dashboard_and_restart_can_be_run_by_hand(self):
+    def test_only_the_two_memory_commands_can_be_run_by_hand(self):
         f = Fixture(self)
         runnable = []
         for name in sorted(os.listdir(os.path.join(f.tree, "skills"))):
@@ -367,7 +367,7 @@ class MemorySkill(unittest.TestCase):
                 front = fh.read().split("---")[1]
             if "user-invocable: false" not in front:
                 runnable.append(name)
-        self.assertEqual(runnable, ["dashboard", "restart"])
+        self.assertEqual(runnable, ["memory-dashboard", "memory-restart"])
 
     def test_claude_code_is_told_to_step_aside(self):
         text = self.skill()
@@ -435,7 +435,7 @@ class CommandsAsSkills(unittest.TestCase):
     def test_every_command_becomes_a_user_only_skill_with_the_same_body(self):
         f = Fixture(self)
         names = sorted(n[:-3] for n in os.listdir(os.path.join(REPO_ROOT, "commands")) if n.endswith(".md"))
-        self.assertEqual(names, ["dashboard", "restart"])
+        self.assertEqual(names, ["memory-dashboard", "memory-restart"])
         for name in names:
             with open(os.path.join(REPO_ROOT, "commands", name + ".md"), encoding="utf-8") as fh:
                 source_front, source_body = self.front_and_body(fh.read())

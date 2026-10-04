@@ -100,6 +100,10 @@ if [ -d "$MARKETPLACE_PATH" ]; then
     cp -r "$MARKETPLACE_PATH/"* "$CACHE_PATH/" 2>/dev/null || true
 fi
 
+# The commands were called dashboard and restart: a cache directory of the same version from an older install may still
+# hold them, next to the new ones.
+rm -f "$CACHE_PATH/commands/dashboard.md" "$CACHE_PATH/commands/restart.md"
+
 # Also ensure actual binaries are available via the wrapper scripts
 # The wrappers delegate to $STABLE_BIN which has the real binaries
 if [ ! -x "$STABLE_BIN/mcp-server" ]; then

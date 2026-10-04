@@ -45,6 +45,18 @@ class KeepOldVersions(unittest.TestCase):
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         return p.stdout
 
+    def test_the_old_command_names_are_removed_from_the_cache_and_the_new_ones_are_kept(self):
+        # The commands were called dashboard and restart (now memory-dashboard and memory-restart). An older install of the
+        # same version, or the marketplace directory, may still hold the old files; they must not show up beside the new ones.
+        market = os.path.join(self.home, ".claude", "plugins", "marketplaces", "claude-mnemonic", "commands")
+        os.makedirs(market)
+        for name in ("dashboard", "restart", "memory-dashboard", "memory-restart"):
+            with open(os.path.join(market, name + ".md"), "w", encoding="utf-8") as f:
+                f.write(name)
+        self.install("v9")
+        cached = sorted(os.listdir(os.path.join(self.base, "v9", "commands")))
+        self.assertEqual(cached, ["memory-dashboard.md", "memory-restart.md"])
+
     def test_the_newest_two_previous_versions_are_kept_by_default(self):
         self.make_versions("v1", "v2", "v3", "v4", "v5")
         out = self.install("v6")

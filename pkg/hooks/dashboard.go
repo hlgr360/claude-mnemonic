@@ -37,5 +37,5 @@ func DashboardNotice(dataDir, version string, port int) string {
 	if err := os.MkdirAll(dataDir, 0o750); err == nil {
 		_ = os.WriteFile(marker, []byte(version+"\n"), 0o600)
 	}
-	return fmt.Sprintf("claude-mnemonic: your memory dashboard is at %s (or run /claude-mnemonic:dashboard)", DashboardURL(port))
+	return fmt.Sprintf("claude-mnemonic: your memory dashboard is at %s (or run /memory-dashboard)", DashboardURL(port))
 }

@@ -26,7 +26,7 @@ DESCRIPTION = (
 )
 
 # The skill is background knowledge for the model, not something a person runs: `user-invocable: false` keeps it out of the
-# `/` menu (so the plugin's slash commands are only /claude-mnemonic:dashboard and :restart) and keeps its description in
+# `/` menu (so the plugin's slash commands are only memory-dashboard and memory-restart) and keeps its description in
 # the model's context, which is the part that matters.
 
 # In Claude Code the hooks already load the project's context and capture what happens, and the tools below that

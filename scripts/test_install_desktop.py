@@ -219,7 +219,7 @@ class CommandLine(unittest.TestCase):
             code, out, _ = self.run_cli(config=cfg)
             self.assertEqual(code, 0)
             self.assertIn("The memory dashboard is at http://localhost:4100", out)
-            self.assertIn("/claude-mnemonic:dashboard", out)
+            self.assertIn("/memory-dashboard", out)
             again = self.run_cli(config=cfg)[1]
             self.assertIn("Already up to date", again)
             self.assertIn("http://localhost:4100", again, "also when nothing had to change")

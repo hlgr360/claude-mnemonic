@@ -310,7 +310,7 @@ def worker_port(env=None, home=None):
 
 def dashboard_line(env=None, home=None):
     """Where the web dashboard is, for the end of an install."""
-    return f"\nThe memory dashboard is at http://localhost:{worker_port(env, home)} (in Claude Code: /claude-mnemonic:dashboard; in Desktop, ask for the dashboard)."
+    return f"\nThe memory dashboard is at http://localhost:{worker_port(env, home)} (in Claude Code: /memory-dashboard; in Desktop, ask for the dashboard)."
 
 
 def instruction_section(name, copy):
