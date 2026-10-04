@@ -19,6 +19,10 @@ without an explicit project, whatever the model does.
 
 ## Install
 
+**With the plugin** (see the README), chat gets the connector from the plugin: the plugin's own MCP server is available in Claude Desktop chat (confirmed by the maintainer on 2026-10-04, with the plugin installed from a Claude org's inventory). The route below, which writes the connector into `claude_desktop_config.json`, is then **not needed**. The two are alternatives: with both, chat may list two claude-mnemonic connectors that talk to the same worker; if you move to the plugin, remove the configuration entry with `make uninstall-desktop` (it keeps a backup, see below). Chat still needs the instruction from "Making chat use it" either way.
+
+**Without the plugin**, from a source checkout:
+
 ```sh
 make install            # builds and installs the worker and MCP server (as before)
 python3 scripts/install-desktop.py --dry-run     # preview the change to Claude Desktop's config
