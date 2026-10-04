@@ -607,59 +607,6 @@ func (s *Service) handleGetObservationByID(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, obs)
 }
 
-// handleGraphStats returns graph statistics for the dashboard.
-// Uses relation data to compute knowledge graph metrics.
-func (s *Service) handleGraphStats(w http.ResponseWriter, r *http.Request) {
-	// Get relation count (edges) - this represents the knowledge graph
-	edgeCount, err := s.relationStore.GetTotalRelationCount(r.Context())
-	if err != nil {
-		edgeCount = 0
-	}
-
-	// Count by relation type
-	edgeTypes := make(map[string]int)
-	for _, t := range models.AllRelationTypes {
-		relations, err := s.relationStore.GetRelationsByType(r.Context(), t, 10000)
-		if err == nil {
-			edgeTypes[string(t)] = len(relations)
-		}
-	}
-
-	// Get unique observation IDs involved in relations (approximate node count)
-	// For now, use edge count as a proxy - each edge has 2 nodes
-	nodeCount := 0
-	if edgeCount > 0 {
-		// Rough estimate: unique nodes ≈ edges * 1.5 (since nodes can have multiple edges)
-		nodeCount = int(float64(edgeCount) * 1.5)
-	}
-
-	// Calculate average degree
-	var avgDegree float64
-	if nodeCount > 0 {
-		avgDegree = float64(edgeCount*2) / float64(nodeCount)
-	}
-
-	// Graph is enabled if we have any edges (relations)
-	enabled := edgeCount > 0
-
-	writeJSON(w, map[string]any{
-		"enabled":      enabled,
-		"nodeCount":    nodeCount,
-		"edgeCount":    edgeCount,
-		"avgDegree":    avgDegree,
-		"maxDegree":    0,
-		"minDegree":    0,
-		"medianDegree": 0.0,
-		"edgeTypes":    edgeTypes,
-		"config": map[string]any{
-			"maxHops":            2,
-			"branchFactor":       10,
-			"edgeWeight":         0.3,
-			"rebuildIntervalMin": 30,
-		},
-	})
-}
-
 // handleVectorMetrics returns vector database metrics for the dashboard.
 // Returns enabled: false if vector features are not available.
 func (s *Service) handleVectorMetrics(w http.ResponseWriter, r *http.Request) {

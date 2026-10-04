@@ -159,6 +159,8 @@ type Service struct {
 	briefWriter        func(ctx context.Context, in sdk.BriefInput) (*sdk.BriefResult, error)
 	briefRunning       map[string]struct{}
 	conflictProposer   conflictProposeFunc
+	relationNeighbours similarOlderFunc
+	relationWake       chan struct{}
 	expensiveOpLimiter *ExpensiveOperationLimiter
 	version            string
 	recentQueriesBuf   [maxRecentQueries]RecentSearchQuery
@@ -175,6 +177,7 @@ type Service struct {
 	ready              atomic.Bool
 	briefMu            sync.Mutex
 	conflictRunning    atomic.Bool
+	relationRunning    atomic.Bool
 }
 
 // cachedCount stores a cached count value with expiration.
@@ -395,6 +398,7 @@ func NewService(version string) (*Service, error) {
 		retrievalStats:     make(map[string]*RetrievalStats),
 		rateLimiter:        rateLimiter,
 		expensiveOpLimiter: NewExpensiveOperationLimiter(),
+		relationWake:       make(chan struct{}, 1),
 		bulkOpLimiter:      NewBulkOperationLimiter(60), // 60 second cooldown for bulk operations
 		cachedObsCounts:    make(map[string]cachedCount),
 		statsCacheTTL:      time.Minute,             // Cache stats for 1 minute
@@ -594,6 +598,14 @@ func (s *Service) initializeAsync() {
 		s.wg.Add(1)
 		go s.conflictLoop()
 		log.Info().Msg("Conflict proposer started")
+	}
+
+	// The knowledge graph is built from what is already stored (vector neighbours and rules), so it costs no
+	// model usage; it runs whenever the graph is enabled.
+	if s.config != nil && s.config.GraphEnabled {
+		s.wg.Add(1)
+		go s.relationLoop()
+		log.Info().Msg("Knowledge graph builder started")
 	}
 
 	// Start the scheduled maintenance service (issue #49: was dead code, never instantiated).
@@ -1396,6 +1408,8 @@ func (s *Service) setupRoutes() {
 		r.Post("/api/patterns/merge", s.handleMergePatterns)
 
 		// Relation routes (knowledge graph)
+		r.Get("/api/graph", s.handleGraph)
+		r.Post("/api/relations/rebuild", s.handleRebuildRelations)
 		r.Get("/api/relations/stats", s.handleGetRelationStats)
 		r.Get("/api/relations/type/{type}", s.handleGetRelationsByType)
 		r.Get("/api/observations/{id}/relations", s.handleGetRelations)

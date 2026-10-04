@@ -64,6 +64,8 @@ type Config struct {
 	OllamaNumCtx                 int      `json:"ollama_num_ctx"`
 	OllamaTimeoutSeconds         int      `json:"ollama_timeout_seconds"`
 	ConflictProposalsMinSim      float64  `json:"conflict_proposals_min_similarity"`
+	GraphRelationsMinSim         float64  `json:"graph_relations_min_similarity"`
+	GraphRelationsMaxPerObs      int      `json:"graph_relations_max_per_observation"`
 	ProjectBriefMinNewObs        int      `json:"project_brief_min_new_observations"`
 	ProjectBriefMaxAgeDays       int      `json:"project_brief_max_age_days"`
 	ProjectBriefMaxPerRun        int      `json:"project_brief_max_per_run"`
@@ -199,7 +201,12 @@ func Default() *Config {
 		ConflictProposalsMaxPerRun:   20,
 		ConflictProposalsIntervalMin: 60,
 		ConflictProposalsMinSim:      0.65,
-		SupersededRetentionDays:      0,
+		// The knowledge graph links each observation to at most this many older, semantically close ones of its
+		// project. Measured on a real archive: 0.6 and 3 give about 1.9 relations per note; the old all-pairs rules
+		// gave about 29.
+		GraphRelationsMinSim:    0.6,
+		GraphRelationsMaxPerObs: 3,
+		SupersededRetentionDays: 0,
 		// Project briefs spend Claude usage, so they are opt-in. A brief is refreshed after enough new
 		// observations, or when it is old and something is new.
 		ProjectBriefEnabled:         false,
@@ -334,6 +341,12 @@ func Load() (*Config, error) {
 	}
 	if v, ok := settings["CLAUDE_MNEMONIC_CONFLICT_PROPOSALS_MIN_SIMILARITY"].(float64); ok && v > 0 && v <= 1 {
 		cfg.ConflictProposalsMinSim = v
+	}
+	if v, ok := settings["CLAUDE_MNEMONIC_GRAPH_RELATIONS_MIN_SIMILARITY"].(float64); ok && v > 0 && v <= 1 {
+		cfg.GraphRelationsMinSim = v
+	}
+	if v, ok := settings["CLAUDE_MNEMONIC_GRAPH_RELATIONS_MAX_PER_OBSERVATION"].(float64); ok && v >= 1 {
+		cfg.GraphRelationsMaxPerObs = int(v)
 	}
 	if v, ok := settings["CLAUDE_MNEMONIC_SUPERSEDED_RETENTION_DAYS"].(float64); ok && v >= 0 {
 		cfg.SupersededRetentionDays = int(v)

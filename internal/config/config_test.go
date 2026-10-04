@@ -625,3 +625,24 @@ func TestLoad_UnusableConflictSettingsKeepTheDefaults(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 0, cfg.SupersededRetentionDays, "an explicit zero is valid: keep for ever")
 }
+
+func TestLoad_GraphRelationSettings(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	cfg, err := Load()
+	require.NoError(t, err)
+	assert.True(t, cfg.GraphEnabled, "the graph builder is on by default: it costs no model usage")
+	assert.InDelta(t, 0.6, cfg.GraphRelationsMinSim, 0.0001)
+	assert.Equal(t, 3, cfg.GraphRelationsMaxPerObs)
+
+	writeSettings(t, `{"CLAUDE_MNEMONIC_GRAPH_RELATIONS_MIN_SIMILARITY": 0.7, "CLAUDE_MNEMONIC_GRAPH_RELATIONS_MAX_PER_OBSERVATION": 5}`)
+	cfg, err = Load()
+	require.NoError(t, err)
+	assert.InDelta(t, 0.7, cfg.GraphRelationsMinSim, 0.0001)
+	assert.Equal(t, 5, cfg.GraphRelationsMaxPerObs)
+
+	writeSettings(t, `{"CLAUDE_MNEMONIC_GRAPH_RELATIONS_MIN_SIMILARITY": 1.5, "CLAUDE_MNEMONIC_GRAPH_RELATIONS_MAX_PER_OBSERVATION": 0}`)
+	cfg, err = Load()
+	require.NoError(t, err)
+	assert.InDelta(t, 0.6, cfg.GraphRelationsMinSim, 0.0001, "a similarity above 1 is not one")
+	assert.Equal(t, 3, cfg.GraphRelationsMaxPerObs, "at least one relation per note")
+}

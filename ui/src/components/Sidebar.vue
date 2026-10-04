@@ -309,6 +309,7 @@ function getStatusColor(status: string): string {
                   <span class="text-slate-400 text-sm">Max Degree</span>
                   <span class="text-white font-medium">{{ graphStats.maxDegree }}</span>
                 </div>
+                <p v-if="graphStats.message" class="text-xs text-slate-500">{{ graphStats.message }}</p>
               </div>
 
               <!-- Vector Metrics -->

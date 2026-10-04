@@ -305,3 +305,13 @@ func (c *ConceptWeight) BeforeCreate(tx *gorm.DB) error {
 	}
 	return nil
 }
+
+// RelationCheck records that the relation builder has looked at an observation, and how many relations came out
+// of it, so an observation is looked at once (and a failed attempt is made again).
+type RelationCheck struct {
+	ObservationID  int64 `gorm:"primaryKey;autoIncrement:false"`
+	CheckedAtEpoch int64 `gorm:"not null"`
+	Relations      int   `gorm:"not null;default:0"`
+}
+
+func (RelationCheck) TableName() string { return "relation_checks" }

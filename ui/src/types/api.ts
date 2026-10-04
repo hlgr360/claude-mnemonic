@@ -41,7 +41,7 @@ export interface Stats {
 }
 
 export interface SSEEvent {
-  type: 'processing_status' | 'observation' | 'session' | 'prompt' | 'summary' | 'conflict' | 'project' | 'heartbeat' | 'connected'
+  type: 'processing_status' | 'observation' | 'session' | 'prompt' | 'summary' | 'conflict' | 'graph' | 'project' | 'heartbeat' | 'connected'
   title?: string
   action?: string
   project?: string
@@ -49,7 +49,7 @@ export interface SSEEvent {
   queueDepth?: number
 }
 
-export type FilterType = 'all' | 'observations' | 'summaries' | 'prompts' | 'conflicts'
+export type FilterType = 'all' | 'observations' | 'summaries' | 'prompts' | 'conflicts' | 'graph'
 
 export interface ComponentHealth {
   name: string
@@ -78,7 +78,11 @@ export interface GraphStats {
     branchFactor: number
     edgeWeight: number
     rebuildIntervalMin: number
+    minSimilarity?: number
+    maxPerNote?: number
   }
+  /** Observations the graph builder has not looked at yet. */
+  pending?: number
   message?: string
 }
 

@@ -225,6 +225,31 @@ curl -s -X POST localhost:37777/api/conflicts/7/undo
 
 An observation is looked at once; if the model call fails it is tried again in the next pass.
 
+### Knowledge Graph
+
+The dashboard's **Graph** tab draws how your notes relate: each note is a circle (bigger when it has more relations,
+coloured by type), each relation a line (thicker when the notes are closer). Click a note to read it and see the
+notes related to it. You can hide relation types, raise the minimum confidence, and the project filter applies.
+
+Relations are made in the background from what is already stored, so they cost **no model usage**: a note is linked to
+at most three older notes of the **same project** that read alike (by the same vector search the rest of the memory
+uses). The existing rules may then call a relation *fixes*, *depends on* or *evolves from* when two notes share files
+or follow a natural order (a decision, then the feature); otherwise it is *relates to*, and the confidence is how close
+the two notes are. A relation is never *supersedes*: replacing a note is something you decide in the Conflicts tab, and
+notes you superseded leave the graph. A new note is picked up within about ten minutes, and an existing archive is
+worked through a hundred notes at a time after the worker starts. In a real archive of 416 notes this gave about two
+relations per note; an all-pairs rule gave about 29 per note, which is not a graph.
+
+| Variable | Default | What it does |
+|----------|---------|--------------|
+| `GRAPH_ENABLED` | `true` | Build the graph in the background |
+| `GRAPH_RELATIONS_MIN_SIMILARITY` | `0.6` | How close an older note must be to be related |
+| `GRAPH_RELATIONS_MAX_PER_OBSERVATION` | `3` | At most this many relations from a note to older notes |
+
+After changing the thresholds, start over with `curl -s -X POST localhost:37777/api/relations/rebuild` (the **Rebuild**
+button in the Graph tab does the same). `GET /api/graph?project=&min_confidence=&types=&max_nodes=` returns the nodes and
+relations as JSON.
+
 ### Local LLM Settings (Ollama, optional)
 
 Summaries, observation extraction and the stale-observation check run on the Claude CLI by default. Each of
