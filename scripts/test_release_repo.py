@@ -161,8 +161,10 @@ class ConfigurationBlocks(unittest.TestCase):
 
 class NoHardCodedUpstream(unittest.TestCase):
     def test_no_script_names_upstream_any_more(self):
+        # The Go module path (-X linker flags in the build script) is an import path, not a place to download from.
+        module = re.compile(r"github\.com/" + UPSTREAM + r"/claude-mnemonic/(?:pkg|internal|cmd)/")
         offenders = [os.path.basename(p) for p in sorted(glob.glob(os.path.join(HERE, "*.sh")) + glob.glob(os.path.join(HERE, "*.ps1")))
-                     if UPSTREAM in read(p)]
+                     if UPSTREAM in module.sub("", read(p))]
         self.assertEqual(offenders, [], "the repository comes from one variable per script (MNEMONIC_REPO), defaulting to this fork")
 
     def test_every_script_that_names_a_repository_defaults_to_this_fork(self):

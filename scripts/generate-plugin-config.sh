@@ -4,8 +4,11 @@
 
 set -e
 
-# Get version from GoReleaser environment variable
-if [ -n "$GORELEASER_CURRENT_TAG" ]; then
+# Version: VERSION (from scripts/build-release.sh), else the GoReleaser tag
+if [ -n "$VERSION" ]; then
+    VERSION="${VERSION#v}"
+    echo "Using version from VERSION: $VERSION"
+elif [ -n "$GORELEASER_CURRENT_TAG" ]; then
     VERSION="${GORELEASER_CURRENT_TAG#v}"
     echo "Using version from GORELEASER_CURRENT_TAG: $VERSION"
 else
@@ -21,7 +24,7 @@ fi
 
 # Source and destination directories
 TEMPLATE_DIR="plugin/.claude-plugin"
-OUTPUT_DIR=".claude-plugin"
+OUTPUT_DIR="${OUTPUT_DIR:-.claude-plugin}"
 
 # Create output directory
 mkdir -p "$OUTPUT_DIR"

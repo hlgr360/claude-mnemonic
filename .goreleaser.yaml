@@ -295,7 +295,7 @@ archives:
       - src: plugin/hooks/hooks.json
         dst: hooks
         strip_parent: true
-      - src: plugin/commands/*
+      - src: commands/*
         dst: commands
         strip_parent: true
     format_overrides:
@@ -318,7 +318,7 @@ changelog:
 
 release:
   github:
-    owner: lukaszraczylo
+    owner: hlgr360
     name: claude-mnemonic
   draft: false
   prerelease: auto
@@ -331,7 +331,7 @@ release:
     ### Installation
 
     ```bash
-    curl -sSL https://raw.githubusercontent.com/lukaszraczylo/claude-mnemonic/main/scripts/install.sh | bash
+    curl -sSL https://raw.githubusercontent.com/hlgr360/claude-mnemonic/main/scripts/install.sh | bash
     ```
 
 signs:

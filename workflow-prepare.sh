@@ -54,6 +54,11 @@ fi
 # Download ONNX runtime libraries for target platform
 ./scripts/download-onnx-libs.sh "$ONNX_PLATFORM"
 
+# SKIP_MODELS=1 (release builds) skips the model download below: only the tests need the models
+if [ "$SKIP_MODELS" = "1" ]; then
+	exit 0
+fi
+
 # Download ONNX models from Hugging Face and stage for tests
 # Non-fatal: if download fails, tests will attempt runtime download themselves
 set +e
