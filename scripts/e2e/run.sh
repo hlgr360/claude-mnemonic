@@ -81,7 +81,8 @@ suite() { # name, command...
 echo "building into $WORK"
 (cd "$ROOT" && go build -tags fts5 -ldflags "-s -w" -buildvcs=false -o "$WORK/bin/worker" ./cmd/worker \
   && go build -tags fts5 -ldflags "-s -w" -buildvcs=false -o "$WORK/bin/mcp-server" ./cmd/mcp \
-  && go build -tags fts5 -ldflags "-s -w" -buildvcs=false -o "$WORK/bin/pre-compact" ./cmd/hooks/pre-compact) || { echo "build failed"; exit 1; }
+  && go build -tags fts5 -ldflags "-s -w" -buildvcs=false -o "$WORK/bin/pre-compact" ./cmd/hooks/pre-compact \
+  && go build -tags fts5 -ldflags "-s -w -X github.com/lukaszraczylo/claude-mnemonic/pkg/hooks.Version=e2e" -buildvcs=false -o "$WORK/bin/session-start" ./cmd/hooks/session-start) || { echo "build failed"; exit 1; }
 
 base_settings
 fresh_worker || exit 1
@@ -162,6 +163,10 @@ suite "Knowledge graph: relations, filters, hiding, rebuild"           python3 "
 # Scope: notes imported without a scope get the rule's; an archive written by the old rule is re-scoped through the API.
 fresh_worker || exit 1
 suite "Scope: the rule, the re-scope, notes chosen by hand"            python3 "$HERE/drive_scope.py"
+
+# Where the dashboard is: the real session-start hook, the real MCP server in both modes, and the page itself.
+fresh_worker || exit 1
+suite "Dashboard link: session-start message, Desktop tool, Code unchanged" python3 "$HERE/drive_dashboard_link.py"
 
 if [ "$RUN_UI" = "1" ]; then
   if [ ! -d "$ROOT/ui/dist" ] || ! command -v node >/dev/null; then

@@ -77,6 +77,11 @@ Requires: Go 1.24+, Node.js 18+, CGO-compatible compiler
 
 After install, open **http://localhost:37777** to see the dashboard. Start a new Claude Code session - memory is now active.
 
+You do not have to remember the address:
+
+- **Claude Code:** run **`/claude-mnemonic:dashboard`**. It opens the dashboard in your browser (it finds a custom `WORKER_PORT` itself) and says so if the worker is not running. The first session after an install or an update also shows you a one-line message with the address (for you only; it is not added to what the model sees).
+- **Claude Desktop:** ask for your memory dashboard; the `dashboard` tool gives chat the link to click. `scripts/install-desktop.py` and `make install` print the address at the end too.
+
 ### Verifying Release Signatures
 
 All release checksums are signed with [cosign](https://github.com/sigstore/cosign) using keyless signing. To verify:
@@ -99,7 +104,7 @@ cosign verify-blob \
 | **Global Patterns** | Best practices are shared across all projects |
 | **Semantic Search** | Find relevant context with natural language (local embeddings) |
 | **Live Statusline** | Real-time metrics in Claude Code: `[mnemonic] ● served:42 | project:28 memories` |
-| **Web Dashboard** | Browse and manage memories at `localhost:37777` |
+| **Web Dashboard** | Browse and manage memories at `localhost:37777` (`/claude-mnemonic:dashboard` opens it) |
 | **Auto-Updates** | Automatically downloads and applies new versions |
 | **Slash Commands** | Control the worker directly from Claude Code |
 
@@ -341,7 +346,10 @@ Available commands within Claude Code:
 
 | Command | Description |
 |---------|-------------|
-| `/restart` | Restart the worker process when experiencing issues |
+| `/claude-mnemonic:dashboard` | Open the web dashboard in your browser |
+| `/claude-mnemonic:restart` | Restart the worker process when experiencing issues |
+
+Plugin commands are namespaced with the plugin's name (`/claude-mnemonic:...`); Claude Code may also accept the short form (`/dashboard`, `/restart`) when no other plugin uses the same name.
 
 ## Auto-Updates
 

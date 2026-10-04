@@ -85,6 +85,7 @@ claude-mnemonic keeps memory per project. This client has no working directory, 
 - If a project folder is open, call project_resolve with its absolute path, then context with the returned id.
 - Otherwise call project_suggest with the user's first message, offer the user the candidates (plus "none"), and wait for their choice.
 - If the user declines, stay read-only: use search and catch_up without saving, and never call remember or checkpoint.
+- When the user asks to see, open or manage their memory in a browser, call dashboard and give them the link.
 - Pass the chosen project id to remember, checkpoint, catch_up and context on every call.
 - Once a project is chosen, keep one checkpoint per thread of work current. If the conversation was compacted and you lost the thread, call catch_up.`
 
@@ -237,6 +238,12 @@ func desktopTools() []Tool {
 			},
 		},
 		{
+			Name: "dashboard",
+			Description: memoryPrefix + "the address of the web dashboard, where the user can browse and manage their saved notes, session summaries, the knowledge graph, conflicts to review, scopes and projects. " +
+				"Call it when the user asks to see, open or manage their memory in a browser, and give them the link: it opens on their computer. Read-only.",
+			InputSchema: map[string]any{"type": "object", "properties": map[string]any{}},
+		},
+		{
 			Name:        "relation_types",
 			Description: memoryPrefix + "the kinds of connection between notes (relates_to, fixes, depends_on, evolves_from, supersedes, causes), what each means, and how many there are in a project, around one note, or everywhere. Read-only.",
 			InputSchema: map[string]any{
@@ -323,7 +330,7 @@ func desktopTools() []Tool {
 // isDesktopTool reports whether name is one of the tools added by Desktop mode.
 func isDesktopTool(name string) bool {
 	switch name {
-	case "project_suggest", "project_resolve", "project_list", "context", "remember", "project_manage", "checkpoint", "catch_up", "related", "relation_types":
+	case "project_suggest", "project_resolve", "project_list", "context", "remember", "project_manage", "checkpoint", "catch_up", "related", "relation_types", "dashboard":
 		return true
 	}
 	return false
@@ -348,6 +355,8 @@ func (s *Server) callDesktopTool(ctx context.Context, name string, args json.Raw
 		return s.toolCheckpoint(ctx, args)
 	case "catch_up":
 		return s.toolCatchUp(ctx, args)
+	case "dashboard":
+		return s.toolDashboard(), nil
 	case "related":
 		return s.toolRelated(ctx, args)
 	case "relation_types":
@@ -918,4 +927,14 @@ func (s *Server) manageRef(ctx context.Context, action, ref string) (string, err
 	}
 	return "", fmt.Errorf("%s", unresolvedMessage("project_manage "+action, ref,
 		resolution{Ambiguous: true, Candidates: ids, CandidateDetails: named}))
+}
+
+// toolDashboard says where the web dashboard is: the worker's own address, on the port this server was started with.
+// The tool call already made sure the worker is running. Desktop cannot open a local page itself; the user clicks the
+// link and it opens on their computer.
+func (s *Server) toolDashboard() string {
+	url := strings.TrimRight(s.workerURL, "/")
+	return fmt.Sprintf("The memory dashboard is at %s . Give the user this link: it opens in their browser on this computer. "+
+		"It shows their saved notes, session summaries, the knowledge graph, conflicts to review, scopes, and project management "+
+		"(merge, delete, possible duplicates). It is served by the local worker, so it only works on this computer.", url)
 }

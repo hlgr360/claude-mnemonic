@@ -284,6 +284,35 @@ def copy_to_clipboard(text):
     return argv[0]
 
 
+DEFAULT_WORKER_PORT = 37777
+
+
+def worker_port(env=None, home=None):
+    """The worker's port: CLAUDE_MNEMONIC_WORKER_PORT from the environment, else from ~/.claude-mnemonic/settings.json,
+    else 37777."""
+    env = os.environ if env is None else env
+    try:
+        port = int(env.get("CLAUDE_MNEMONIC_WORKER_PORT", ""))
+        if port > 0:
+            return port
+    except ValueError:
+        pass
+    home = home or os.path.expanduser("~")
+    try:
+        with open(os.path.join(home, ".claude-mnemonic", "settings.json"), encoding="utf-8") as f:
+            port = int(json.load(f).get("CLAUDE_MNEMONIC_WORKER_PORT", 0))
+        if port > 0:
+            return port
+    except (OSError, ValueError, TypeError, AttributeError):
+        pass
+    return DEFAULT_WORKER_PORT
+
+
+def dashboard_line(env=None, home=None):
+    """Where the web dashboard is, for the end of an install."""
+    return f"\nThe memory dashboard is at http://localhost:{worker_port(env, home)} (in Claude Code: /claude-mnemonic:dashboard; in Desktop, ask for the dashboard)."
+
+
 def instruction_section(name, copy):
     """What to print after a Desktop install: the instruction itself and where it goes.
 
@@ -412,6 +441,7 @@ def run(opts, out=None):
     if not uninstall and existing == entry:
         print(f"Already up to date: '{name}' is configured in {path}.", file=out)
         if not opts.dry_run:
+            print(dashboard_line(), file=out)
             print(instruction_section(name, not opts.no_copy), end="", file=out)
         return 0
 
@@ -437,6 +467,7 @@ def run(opts, out=None):
         print(f"Command: {binary} {' '.join(args)}".rstrip(), file=out)
     print("\nQuit Claude Desktop completely (Cmd-Q / File > Exit) and reopen it; it reads this file only at startup.", file=out)
     if not uninstall:
+        print(dashboard_line(), file=out)
         print(instruction_section(name, not opts.no_copy), end="", file=out)
     return 0
 

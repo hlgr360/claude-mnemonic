@@ -51,6 +51,7 @@ Desktop mode adds these tools (Claude Code's tool list is unchanged):
 | `catch_up` | Returns the project's thread notes (most recently worked on first) and latest decisions, read-only |
 | `related` | How a note is connected to others: what it fixes, builds on or evolved from, and what came after it (by note id, or by a query and a project), read-only |
 | `relation_types` | The kinds of connection, what each means and how many there are, read-only |
+| `dashboard` | The address of the web dashboard, so chat can give you the link (it opens in your browser on this computer), read-only |
 | `project_manage` | Stats, alias, merge and delete projects (previews first, see below) |
 
 `search` and the other existing tools keep working; with no project chosen, `search` covers
@@ -74,6 +75,7 @@ How to use it:
 4. If two projects share a name, ask me which one.
 5. If this conversation has been compacted or summarised and you lose track of the project or of what we were doing, call catch_up for the project (ask me which one, as in 1, if you do not know) before carrying on, instead of asking me to repeat it.
 6. When I ask how something came about, what led to a decision or whether a problem was ever fixed, find the note with search, then call related with its id and follow the connections it lists.
+7. When I ask to see, open or manage my memory in a browser, call dashboard and give me the link.
 
 Do not use it for general questions that do not refer to my own earlier work.
 ```
