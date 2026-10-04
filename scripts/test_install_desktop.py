@@ -405,6 +405,10 @@ class Instructions(unittest.TestCase):
         doc = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "DESKTOP.md"), encoding="utf-8").read()
         self.assertIn(inst.render_instructions().rstrip("\n"), doc, "DESKTOP.md must contain exactly what the installer prints")
 
+    def test_the_readme_spells_out_the_instruction_word_for_word(self):
+        readme = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "README.md"), encoding="utf-8").read()
+        self.assertIn("```text\n" + inst.render_instructions().rstrip("\n") + "\n```", readme, "the README must show exactly what the installer prints")
+
     def test_clipboard_tool_selection_and_fallback(self):
         import unittest.mock as mock
         with mock.patch.object(inst.shutil, "which", side_effect=lambda c: "/usr/bin/" + c if c == "xclip" else None):
