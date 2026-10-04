@@ -30,11 +30,12 @@ func DashboardURL(port int) string {
 // the model receives. A marker that cannot be written means it may be said again, which is harmless.
 func DashboardNotice(dataDir, version string, port int) string {
 	marker := filepath.Join(dataDir, dashboardMarker)
+	// #nosec G304 -- the marker lives in claude-mnemonic's own data directory; its name is a constant
 	if seen, err := os.ReadFile(marker); err == nil && strings.TrimSpace(string(seen)) == version {
 		return ""
 	}
-	if err := os.MkdirAll(dataDir, 0o755); err == nil {
-		_ = os.WriteFile(marker, []byte(version+"\n"), 0o644)
+	if err := os.MkdirAll(dataDir, 0o750); err == nil {
+		_ = os.WriteFile(marker, []byte(version+"\n"), 0o600)
 	}
 	return fmt.Sprintf("claude-mnemonic: your memory dashboard is at %s (or run /claude-mnemonic:dashboard)", DashboardURL(port))
 }
