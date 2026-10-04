@@ -2,9 +2,11 @@
 
 **Give Claude Code a memory that actually remembers.**
 
-[![Release](https://img.shields.io/github/v/release/lukaszraczylo/claude-mnemonic?style=flat-square)](https://github.com/lukaszraczylo/claude-mnemonic/releases)
-[![License](https://img.shields.io/github/license/lukaszraczylo/claude-mnemonic?style=flat-square)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/hlgr360/claude-mnemonic?style=flat-square)](https://github.com/hlgr360/claude-mnemonic/releases)
+[![License](https://img.shields.io/github/license/hlgr360/claude-mnemonic?style=flat-square)](LICENSE)
 [![Go](https://img.shields.io/badge/Go-1.24+-00ADD8?style=flat-square&logo=go)](https://go.dev)
+
+> **This is a fork** of [lukaszraczylo/claude-mnemonic](https://github.com/lukaszraczylo/claude-mnemonic) (MIT). It adds Claude Desktop support ([DESKTOP.md](DESKTOP.md)), project management (duplicates, aliases, merge), a dashboard link and command, a signed release pipeline and a Claude plugin. Its releases are named for the upstream version they contain plus a fork number: `0.21.95.1` is upstream `0.21.95` plus this fork's first release.
 
 ---
 
@@ -49,17 +51,31 @@ That's it. No Python. No external services. Everything runs locally.
 
 ## Install
 
-**One command. That's it.**
+Pick **one** of the two routes; they register the same hooks, so do not combine them.
+
+### As a plugin (Claude Code and Claude Desktop)
+
+```
+/plugin marketplace add hlgr360/agent-plugins
+/plugin install claude-mnemonic@hlgr360
+```
+
+- Needs Claude Code 2.1.224 or later. The plugin carries no binaries: on first use it downloads the binaries of its own version from this fork's release, checks them against the release's checksums (and against the cosign signature when cosign is installed), and installs them in `~/.claude-mnemonic/bin`. The first session may start without memory until the download has finished.
+- Supported: macOS on Apple silicon and Linux on x86-64.
+- **Claude Desktop chat needs one extra setting**, a text you paste once into your preferences: see [DESKTOP.md](DESKTOP.md), "Making chat use it".
+- Your data (`~/.claude-mnemonic`: the database, settings and embeddings) is never touched by the plugin.
+
+### With the install script
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/lukaszraczylo/claude-mnemonic/main/scripts/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/hlgr360/claude-mnemonic/main/scripts/install.sh | bash
 ```
 
 <details>
 <summary>Windows (PowerShell)</summary>
 
 ```powershell
-irm https://raw.githubusercontent.com/lukaszraczylo/claude-mnemonic/main/scripts/install.ps1 | iex
+irm https://raw.githubusercontent.com/hlgr360/claude-mnemonic/main/scripts/install.ps1 | iex
 ```
 </details>
 
@@ -67,7 +83,7 @@ irm https://raw.githubusercontent.com/lukaszraczylo/claude-mnemonic/main/scripts
 <summary>Build from source</summary>
 
 ```bash
-git clone https://github.com/lukaszraczylo/claude-mnemonic.git
+git clone https://github.com/hlgr360/claude-mnemonic.git
 cd claude-mnemonic
 make build && make install
 ```
@@ -84,12 +100,12 @@ You do not have to remember the address:
 
 ### Verifying Release Signatures
 
-All release checksums are signed with [cosign](https://github.com/sigstore/cosign) using keyless signing. To verify:
+All release checksums are signed with [cosign](https://github.com/sigstore/cosign) using keyless signing (the signature covers the platform archives and the plugin zip). To verify:
 
 ```bash
-# Download the checksum file and its sigstore bundle from the release
+# Download checksums.txt and checksums.txt.sigstore.json from the release
 cosign verify-blob \
-  --certificate-identity-regexp "https://github.com/lukaszraczylo/claude-mnemonic/.*" \
+  --certificate-identity-regexp "^https://github.com/hlgr360/claude-mnemonic/.*$" \
   --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
   --bundle "checksums.txt.sigstore.json" \
   checksums.txt
@@ -104,7 +120,7 @@ cosign verify-blob \
 | **Global Patterns** | Best practices are shared across all projects |
 | **Semantic Search** | Find relevant context with natural language (local embeddings) |
 | **Live Statusline** | Real-time metrics in Claude Code: `[mnemonic] ● served:42 | project:28 memories` |
-| **Web Dashboard** | Browse and manage memories at `localhost:37777` (`/claude-mnemonic:dashboard` opens it) |
+| **Web Dashboard** | Browse and manage memories at `localhost:37777` (`/memory-dashboard` opens it) |
 | **Auto-Updates** | Automatically downloads and applies new versions |
 | **Slash Commands** | Control the worker directly from Claude Code |
 
@@ -458,4 +474,4 @@ MIT
 
 ---
 
-**Links:** [Releases](https://github.com/lukaszraczylo/claude-mnemonic/releases) · [Issues](https://github.com/lukaszraczylo/claude-mnemonic/issues)
+**Links:** [Releases](https://github.com/hlgr360/claude-mnemonic/releases) · [Issues](https://github.com/hlgr360/claude-mnemonic/issues) · [Upstream](https://github.com/lukaszraczylo/claude-mnemonic)
