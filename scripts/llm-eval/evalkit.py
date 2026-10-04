@@ -144,10 +144,16 @@ def run_haiku(prompt, timeout=240):
     return {"raw": p.stdout, "secs": round(time.time() - t, 1), "rc": p.returncode}
 
 
+# Some Ollama builds cannot constrain the output to a JSON schema (the MLX gemma4 build answers
+# "HTTP 501: structured output is unavailable"). LLM_EVAL_NO_FORMAT=1 sends no schema; the prompts already
+# ask for JSON and the parsers take the first {...} of the answer, fenced or not.
+NO_FORMAT = os.environ.get("LLM_EVAL_NO_FORMAT", "") == "1"
+
+
 def run_ollama(model, system, prompt, schema=None, num_ctx=16384, timeout=420):
     msgs = ([{"role": "system", "content": system}] if system else []) + [{"role": "user", "content": prompt}]
     body = {"model": model, "stream": False, "messages": msgs, "keep_alive": "30m", "options": {"num_ctx": num_ctx, "temperature": 0.2}}
-    if schema:
+    if schema and not NO_FORMAT:
         body["format"] = schema
     t = time.time()
     req = urllib.request.Request(ollama_url() + "/api/chat", data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})
