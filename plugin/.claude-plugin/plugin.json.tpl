@@ -12,6 +12,5 @@
       "command": "${CLAUDE_PLUGIN_ROOT}/mcp-server",
       "env": {}
     }
-  },
-  "commands": ["./commands/restart.md"]
+  }
 }

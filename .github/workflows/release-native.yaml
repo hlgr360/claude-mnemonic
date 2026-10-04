@@ -19,7 +19,12 @@ on:
             - "scripts/package_release.py"
             - "scripts/generate-plugin-config.sh"
             - "scripts/download-onnx-libs.sh"
+            - "scripts/build-plugin.sh"
             - "workflow-prepare.sh"
+            - "plugin/**"
+            - "hooks/**"
+            - "commands/**"
+            - "mcp-server"
     workflow_dispatch:
 
 permissions:
@@ -105,9 +110,40 @@ jobs:
                   if-no-files-found: error
                   retention-days: 7
 
+    # The plugin has no binaries: one zip for every platform. It is built and validated here (also on pull requests
+    # that touch it) and published next to the platform archives, so the signed checksums cover it too.
+    plugin:
+        name: Plugin
+        needs: version
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v7
+
+            - uses: actions/setup-node@v7
+              with:
+                  node-version: "22"
+
+            # Only for `claude plugin validate`.
+            - name: Install the claude CLI
+              run: npm install --global @anthropic-ai/claude-code
+
+            - name: Build and validate the plugin
+              env:
+                  DIST: dist
+                  VERSION: ${{ needs.version.outputs.version }}
+                  MNEMONIC_REPO: ${{ github.repository }}
+              run: scripts/build-plugin.sh "$VERSION"
+
+            - uses: actions/upload-artifact@v7
+              with:
+                  name: archive-plugin
+                  path: dist/claude-mnemonic-plugin_*.zip
+                  if-no-files-found: error
+                  retention-days: 7
+
     publish:
         name: Sign and publish
-        needs: [version, build]
+        needs: [version, build, plugin]
         if: needs.version.outputs.publish == 'true'
         runs-on: ubuntu-latest
         permissions:
@@ -123,9 +159,9 @@ jobs:
             - name: Checksums
               working-directory: dist
               run: |
-                  sha256sum claude-mnemonic_* | sort -k2 > checksums.txt
+                  sha256sum claude-mnemonic_* claude-mnemonic-plugin_* | sort -k2 > checksums.txt
                   cat checksums.txt
-                  test "$(wc -l < checksums.txt)" -eq 3
+                  test "$(wc -l < checksums.txt)" -eq 4
 
             - uses: sigstore/cosign-installer@v4.1.2
 
@@ -154,6 +190,8 @@ jobs:
                     echo "## Claude Mnemonic v${VERSION}"
                     echo
                     echo "Persistent memory system for Claude Code and Claude Desktop."
+                    echo
+                    echo "\`claude-mnemonic-plugin_${VERSION}.zip\` is the Claude Code plugin (one zip for every platform); it fetches and verifies the binaries of this release on first use."
                     echo
                     echo '```bash'
                     echo "curl -sSL https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/scripts/install.sh | bash"

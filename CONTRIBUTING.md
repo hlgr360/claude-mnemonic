@@ -29,7 +29,7 @@ All of these are run before pushing. The Go tests need the `fts5` build tag (`ma
 | Struct alignment (also on tests) | `GOFLAGS=-tags=fts5 go run golang.org/x/tools/go/analysis/passes/fieldalignment/cmd/fieldalignment@latest ./...` |
 | Go tests with the race detector | `go test -tags fts5 -race -count=1 ./...` |
 | UI types and tests | `cd ui && npx vue-tsc --noEmit && npm test` |
-| Python script tests (installers, release packer and workflow) | `make test-scripts` |
+| Python script tests (installers, release packer and workflow, plugin) | `make test-scripts` |
 | End-to-end | `scripts/e2e/run.sh` |
 
 Known baseline, so you do not chase it: `internal/update` `TestExtractTarGz_FilePermissionsPreserved` fails on an untouched `main` (shell umask), `internal/vector/sqlitevec` can abort at exit with an ONNX `recursive_mutex lock failed` although every test passed, and `TestRunBriefPass_RewritesInPlace…` compares millisecond timestamps and fails now and then in a full `internal/worker` run (it passes alone). Anything else failing is yours.
@@ -77,6 +77,16 @@ Releases are built by `.github/workflows/release-native.yaml` ("Release (fork)")
   Push the commit to the tag name instead of running `git tag`: the clone already has upstream's tag of that name (pointing at upstream's commit), and the release must be built from ours. The workflow then builds, signs and publishes. A tag that already has a release fails loudly rather than replacing it.
 - **Build one locally** on a supported platform: `scripts/build-release.sh 0.0.1-local` (`DIST=<dir>` for the output, `SKIP_UI=1` to reuse an existing dashboard build). It rewrites `ui/package.json`, `ui/tsconfig.tsbuildinfo` and `internal/worker/static`; restore them with `git checkout --` before committing. Do not run the unpacked `worker` to read its version: it has no version flag and starts a real worker.
 - **`.goreleaser.yaml`** is no longer the release path. It is kept valid because the pull request check runs `goreleaser check` on it.
+
+## The plugin
+
+The Claude Code plugin is **thin**: no binaries, one platform-independent zip (`claude-mnemonic-plugin_<version>.zip`) built by `scripts/build-plugin.sh <version>` and published by the release next to the platform archives, under the same signed `checksums.txt`. `claude --plugin-dir dist/plugin` loads the built tree without installing it (note that its hooks run for real: they start the worker and write to `~/.claude-mnemonic`).
+
+- **What is in it.** The manifest (version stamped), `hooks/hooks.json` and the hook wrappers, the `mcp-server` wrapper, `commands/*.md`, and `lib/ensure-binaries.sh`. The wrappers are the same scripts `make install` uses (`hooks/*`, `mcp-server` at the repository root); the source of the manifest is `plugin/.claude-plugin/plugin.json.tpl`.
+- **Who manages the binaries.** The plugin installs them, and the in-app updater keeps working after that. `lib/ensure-binaries.sh` fetches the archive of the plugin's own version from the release, checks it against `checksums.txt` (and against the cosign signature when cosign is installed, the check the updater makes) and installs into `~/.claude-mnemonic/bin`, where the hooks and the worker already look first. It installs when the worker or MCP server is missing or when its marker (`.plugin-version`) is older than the plugin; it **never replaces binaries that have no marker** (`make install`, `install.sh`) and never downgrades, so the updater can move forward in between. The plugin version is the floor.
+- **First run.** The session-start hook starts the download in the background and returns at once (hooks must not wait); the MCP server waits for it. The first session may therefore run without memory until the download has finished. Supported: macOS arm64 and Linux amd64. Windows is not supported by the plugin yet; use `install.ps1`.
+- **The name.** `claude plugin validate` rejects a third-party plugin name that starts with `claude-`. Claude Code installs and loads such a plugin all the same (only `validate`, `plugin init` and `plugin tag` check the name), and the name keeps `/claude-mnemonic:dashboard` and existing installs working, so it stays. The build runs `claude plugin validate --strict` and accepts exactly that one error; any other error or warning fails it.
+- **Not both.** The plugin and an install from `install.sh` or `make install` are alternatives (both register the same hooks and commands).
 
 ## Security scanning
 
