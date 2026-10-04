@@ -209,7 +209,9 @@ try {
   const bulkTotals = await worker(`/api/counts?project=${ids.bulk}`)
   await waitFor(`(() => { const m = /Observations\\s*\\n?\\s*([\\d.,]+)/.exec(document.body.innerText); return m && Number(m[1].replace(/[^0-9]/g, '')) === ${bulkTotals.observations} })()`, 'the sidebar to follow the project filter')
   check('picking a project shows that project\'s totals', bulkTotals.observations === 52, JSON.stringify(bulkTotals))
-  check('and no note is needed when the page holds all of them', !(await evaluate(`!!document.querySelector('[data-testid=showing-note]')`)))
+  // The sidebar follows the totals at once; the timeline reloads a moment later.
+  const noteGone = await waitFor(`!document.querySelector('[data-testid=showing-note]')`, 'the note to go').then(() => true, () => false)
+  check('and no note is needed when the page holds all of them', noteGone)
   await openDropdown()
   await waitFor(`[...document.querySelectorAll('.project-filter button')].some(b => b.innerText.includes('All Projects'))`, 'All Projects entry')
   await clickByText('.project-filter button', 'All Projects')
@@ -252,6 +254,42 @@ try {
   await waitFor(`new RegExp('Nodes\\\\s*\\\\n?\\\\s*${stats.nodeCount}\\\\b').test(document.body.innerText)`, 'the sidebar to show the real node count')
   check('the sidebar shows the real graph numbers', true)
   check('the timeline note is not shown on the graph', await evaluate(`!document.querySelector('[data-testid=showing-note]')`))
+
+  console.log('== scopes: the badge, the filter and the review dialog')
+  const scopedRows = async () => { const r = await worker(`/api/observations?project=${ids.scoped}&limit=50`); return r.observations ?? r }
+  const scopeOfTitle = async (title) => (await scopedRows()).find(o => o.title === title)?.scope
+  const legacyOne = 'Legacy global note about queues'
+  check('the dashboard starts on the timeline with all scopes', await clickByText('button', 'Observations'))
+  await waitFor(`document.querySelectorAll('[data-testid=scope-badge]').length > 0`, 'scope badges on the cards')
+  check('every observation card shows its scope', await evaluate(`[...document.querySelectorAll('[data-testid=scope-badge]')].every(b => /Project|Global/.test(b.innerText))`))
+  check('the seed has global notes and project notes to tell apart', (await scopeOfTitle(legacyOne)) === 'global' && (await scopeOfTitle('Note saved on purpose')) === 'project')
+
+  await evaluate(`(() => { const s = document.querySelector('[data-testid=scope-filter]'); s.value = 'global'; s.dispatchEvent(new Event('change', { bubbles: true })) })()`)
+  await waitFor(`[...document.querySelectorAll('[data-testid=scope-badge]')].length > 0 && [...document.querySelectorAll('[data-testid=scope-badge]')].every(b => b.innerText.includes('Global'))`, 'only global cards')
+  check('the scope filter shows only global notes', true)
+  await evaluate(`(() => { const s = document.querySelector('[data-testid=scope-filter]'); s.value = 'all'; s.dispatchEvent(new Event('change', { bubbles: true })) })()`)
+
+  check('opened the review dialog', await evaluate(`(() => { document.querySelector('[data-testid=scope-review-open]').click(); return true })()`))
+  await waitFor(`!!document.querySelector('[data-testid=scope-summary]')`, 'the preview')
+  const summary = await evaluate(`document.querySelector('[data-testid=scope-summary]').innerText`)
+  check('it says two notes would change, to project', /^2 of \d+ notes would change scope \(2 to project\)/.test(summary), summary)
+  check('and names them in the sample', await evaluate(`document.querySelector('[data-testid=scope-sample]').innerText.includes('Legacy global note about queues')`))
+  check('the notes chosen by hand are counted as kept', /\d+ keep a scope that was chosen by hand/.test(summary), summary)
+  await evaluate(`document.querySelector('[data-testid=scope-apply]').click()`)
+  await waitFor(`!!document.querySelector('[data-testid=scope-done]')`, 'the result')
+  const doneText = await evaluate(`document.querySelector('[data-testid=scope-done]').innerText`)
+  check('it reports what it changed and where the backup is', /Changed the scope of 2 notes/.test(doneText) && /backup/i.test(doneText), doneText)
+  check('the worker has the new scopes', (await scopeOfTitle(legacyOne)) === 'project' && (await scopeOfTitle('Legacy global note about releases')) === 'project')
+  check('the note saved on purpose is untouched', (await scopeOfTitle('Note saved on purpose')) === 'project')
+  await evaluate(`document.querySelector('[aria-label=Close]').click()`)
+  await waitFor(`!document.querySelector('[data-testid=scope-review]')`, 'the dialog to close')
+
+  // One note's scope changed on its card is kept by hand, and the next review leaves it alone.
+  const wanted = 'Note saved on purpose'
+  await waitFor(`[...document.querySelectorAll('h3')].some(h => h.innerText.trim() === ${JSON.stringify(wanted)})`, 'the card')
+  check('clicked the scope badge of a card', await evaluate(`(() => { const card = [...document.querySelectorAll('h3')].find(h => h.innerText.trim() === ${JSON.stringify(wanted)}).closest('.mb-4'); card.querySelector('[data-testid=scope-badge]').click(); return true })()`))
+  await waitFor(`(async () => (await (await fetch('/api/observations?project=${ids.scoped}&limit=50')).json()).observations.find(o => o.title === ${JSON.stringify(wanted)}).scope === 'global')()`, 'the scope to be saved')
+  check('it is global now, saved on the worker', (await scopeOfTitle(wanted)) === 'global')
 
   console.log('== the Conflicts tab: review proposals side by side')
   const openConflicts = async () => (await worker('/api/conflicts?status=open')).conflicts

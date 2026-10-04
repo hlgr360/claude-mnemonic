@@ -109,9 +109,19 @@ func TestObservationStore_StoreObservation_WithScope(t *testing.T) {
 			expectedScope: models.ScopeGlobal,
 		},
 		{
-			name:          "Global scope - security",
-			tags:          []string{"security", "auth"},
+			name:          "Global scope - anti-pattern",
+			tags:          []string{"anti-pattern", "auth"},
 			expectedScope: models.ScopeGlobal,
+		},
+		{
+			name:          "Project scope - security alone is not a claim of generality",
+			tags:          []string{"security", "auth"},
+			expectedScope: models.ScopeProject,
+		},
+		{
+			name:          "Project scope - the tags most notes carry",
+			tags:          []string{"architecture", "testing", "workflow", "tooling"},
+			expectedScope: models.ScopeProject,
 		},
 		{
 			name:          "Project scope - specific feature",

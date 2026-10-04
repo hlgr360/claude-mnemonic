@@ -38,12 +38,8 @@ func (s *ObservationSuite) TestScopeConstants() {
 
 // TestGlobalizableConcepts tests that globalizable concepts are defined.
 func (s *ObservationSuite) TestGlobalizableConcepts() {
-	expected := []string{
-		"best-practice", "pattern", "anti-pattern", "architecture",
-		"security", "performance", "testing",
-		"debugging", "workflow", "tooling",
-	}
-	s.Equal(expected, GlobalizableConcepts)
+	s.Equal([]string{"best-practice", "anti-pattern"}, GlobalizableConcepts,
+		"only an explicit claim of generality; the tags most notes carry (architecture, testing, workflow, ...) are not one")
 }
 
 // TestDetermineScope_TableDriven tests scope determination with various concepts.
@@ -64,9 +60,9 @@ func (s *ObservationSuite) TestDetermineScope_TableDriven() {
 			expected: ScopeProject,
 		},
 		{
-			name:     "security concept - global scope",
+			name:     "security concept alone is not a claim of generality - project scope",
 			concepts: []string{"security"},
-			expected: ScopeGlobal,
+			expected: ScopeProject,
 		},
 		{
 			name:     "best-practice concept - global scope",
@@ -74,23 +70,18 @@ func (s *ObservationSuite) TestDetermineScope_TableDriven() {
 			expected: ScopeGlobal,
 		},
 		{
-			name:     "mixed concepts with globalizable - global scope",
-			concepts: []string{"how-it-works", "security"},
+			name:     "mixed concepts with a globalizable one - global scope",
+			concepts: []string{"how-it-works", "anti-pattern"},
 			expected: ScopeGlobal,
 		},
 		{
-			name:     "performance concept - global scope",
-			concepts: []string{"performance"},
-			expected: ScopeGlobal,
+			name:     "the tags most notes carry are not a claim of generality - project scope",
+			concepts: []string{"architecture", "pattern", "workflow", "testing", "tooling", "debugging", "performance", "security"},
+			expected: ScopeProject,
 		},
 		{
-			name:     "testing concept - global scope",
-			concepts: []string{"testing"},
-			expected: ScopeGlobal,
-		},
-		{
-			name:     "pattern concept - global scope",
-			concepts: []string{"pattern"},
+			name:     "anti-pattern concept - global scope",
+			concepts: []string{"anti-pattern"},
 			expected: ScopeGlobal,
 		},
 	}
@@ -101,6 +92,26 @@ func (s *ObservationSuite) TestDetermineScope_TableDriven() {
 			s.Equal(tt.expected, result)
 		})
 	}
+}
+
+// TestDetermineScopeFor_AProjectNoteThatChangedTheProjectStaysInIt: a general-looking tag does not make a note global
+// when it modified the project's own files.
+func (s *ObservationSuite) TestDetermineScopeFor() {
+	s.Equal(ScopeGlobal, DetermineScopeFor([]string{"best-practice"}, nil), "a general lesson that touched nothing")
+	s.Equal(ScopeGlobal, DetermineScopeFor([]string{"anti-pattern", "workflow"}, []string{}), "an empty list is nothing")
+	s.Equal(ScopeProject, DetermineScopeFor([]string{"best-practice"}, []string{"internal/x.go"}), "it changed the project's files")
+	s.Equal(ScopeProject, DetermineScopeFor([]string{"architecture", "testing"}, nil), "common tags are not a claim of generality")
+	s.Equal(ScopeProject, DetermineScopeFor(nil, nil))
+}
+
+// TestNewObservation_ScopeFollowsTheRule: an explicit scope is kept; otherwise the rule decides.
+func (s *ObservationSuite) TestNewObservation_ScopeFollowsTheRule() {
+	auto := NewObservation("s", "p", &ParsedObservation{Type: ObsTypeDiscovery, Concepts: []string{"best-practice"}}, 1, 0)
+	s.Equal(ScopeGlobal, auto.Scope)
+	modified := NewObservation("s", "p", &ParsedObservation{Type: ObsTypeDiscovery, Concepts: []string{"best-practice"}, FilesModified: []string{"a.go"}}, 1, 0)
+	s.Equal(ScopeProject, modified.Scope)
+	explicit := NewObservation("s", "p", &ParsedObservation{Type: ObsTypeDiscovery, Scope: ScopeProject, Concepts: []string{"best-practice"}}, 1, 0)
+	s.Equal(ScopeProject, explicit.Scope, "a scope that was set is kept")
 }
 
 // TestParsedObservation_FileMtimesJSON tests FileMtimes JSON serialization.
@@ -267,7 +278,7 @@ func TestNewObservation(t *testing.T) {
 
 	assert.Equal(t, "sdk-123", obs.SDKSessionID)
 	assert.Equal(t, "test-project", obs.Project)
-	assert.Equal(t, ScopeGlobal, obs.Scope) // security triggers global
+	assert.Equal(t, ScopeProject, obs.Scope) // "security" alone is not a claim of generality, and it modified a file
 	assert.Equal(t, ObsTypeFeature, obs.Type)
 	assert.Equal(t, "Add authentication", obs.Title.String)
 	assert.True(t, obs.Title.Valid)

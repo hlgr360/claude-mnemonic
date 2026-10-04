@@ -1,6 +1,7 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import type { FeedItem, FilterType, ObservationType, ConceptType } from '@/types'
 import { fetchObservations, fetchPrompts, fetchSummaries, combineTimeline } from '@/utils/api'
+import { filterByScope, type ScopeFilter } from '@/utils/scope'
 import { useSSE } from './useSSE'
 
 // Debounce utility
@@ -30,6 +31,7 @@ export function useTimeline() {
   const currentProject = ref<string | null>(null)
   const currentTypeFilter = ref<ObservationType | null>(null)
   const currentConceptFilter = ref<ConceptType | null>(null)
+  const currentScopeFilter = ref<ScopeFilter>('all')
 
   // Request cancellation
   let abortController: AbortController | null = null
@@ -72,7 +74,7 @@ export function useTimeline() {
       })
     }
 
-    return items
+    return filterByScope(items, currentScopeFilter.value)
   })
 
   const refresh = async () => {
@@ -142,6 +144,10 @@ export function useTimeline() {
     currentConceptFilter.value = concept
   }
 
+  const setScopeFilter = (scope: ScopeFilter) => {
+    currentScopeFilter.value = scope
+  }
+
   // Watch for SSE events and debounced refresh
   watch(lastEvent, (event) => {
     if (event && (event.type === 'observation' || event.type === 'prompt' || event.type === 'summary' || event.type === 'conflict')) {
@@ -174,10 +180,12 @@ export function useTimeline() {
     currentProject,
     currentTypeFilter,
     currentConceptFilter,
+    currentScopeFilter,
     refresh,
     setFilter,
     setProject,
     setTypeFilter,
-    setConceptFilter
+    setConceptFilter,
+    setScopeFilter
   }
 }
