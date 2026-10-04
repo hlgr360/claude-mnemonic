@@ -65,7 +65,16 @@ Releases are built by `.github/workflows/release-native.yaml` ("Release (fork)")
 
 - **What it does.** One job per native runner (macOS arm64, Linux amd64, Windows amd64: the build uses CGO) runs `scripts/build-release.sh <version>`, which builds the dashboard and the nine binaries and packs `claude-mnemonic_<version>_<os>_<arch>.tar.gz` (`.zip` on Windows) in the layout the updater and the install scripts unpack. A last job writes `checksums.txt`, signs it with cosign (keyless, so no key to keep), **verifies the signature with the same arguments the in-app updater uses**, and publishes the GitHub release with the archives, `checksums.txt` and `checksums.txt.sigstore.json`.
 - **Only a `v*` tag publishes.** A pull request that touches the release files, and a manual run (`gh workflow run release-native.yaml --repo hlgr360/claude-mnemonic`), only build and keep the archives as workflow artifacts for seven days.
-- **Cutting a release** (the maintainer's call, because it is public and cannot be taken back cleanly): `git tag vX.Y.Z && git push origin vX.Y.Z` on a merged `main`. The version number is the tag; it is stamped into the binaries and the plugin manifest.
+- **The version is upstream's.** A release carries the version of the upstream release merged into `main` (`v0.21.95` while that is the latest merged), not a number of its own: running it gives everything upstream has at that version plus this fork's additions. `scripts/release-version.sh` reads it from the merge state (`--tag` for the `vX.Y.Z` form). The tag must be plain `vX.Y.Z`: the in-app updater compares dotted numbers only and mis-reads a suffix such as `-fork.1`. Consequence: one release per upstream version; a fork-only fix made in between ships with the next upstream version you merge.
+- **Cutting a release** (the maintainer's call, because it is public and cannot be taken back cleanly), on a merged and pulled `main`:
+
+  ```bash
+  git fetch upstream --tags
+  scripts/release-version.sh --tag        # e.g. v0.21.95
+  git push origin "$(git rev-parse HEAD)":refs/tags/v0.21.95
+  ```
+
+  Push the commit to the tag name instead of running `git tag`: the clone already has upstream's tag of that name (pointing at upstream's commit), and the release must be built from ours. The workflow then builds, signs and publishes. A tag that already has a release fails loudly rather than replacing it.
 - **Build one locally** on a supported platform: `scripts/build-release.sh 0.0.1-local` (`DIST=<dir>` for the output, `SKIP_UI=1` to reuse an existing dashboard build). It rewrites `ui/package.json`, `ui/tsconfig.tsbuildinfo` and `internal/worker/static`; restore them with `git checkout --` before committing. Do not run the unpacked `worker` to read its version: it has no version flag and starts a real worker.
 - **`.goreleaser.yaml`** is no longer the release path. It is kept valid because the pull request check runs `goreleaser check` on it.
 
