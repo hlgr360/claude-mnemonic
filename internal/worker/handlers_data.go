@@ -35,6 +35,13 @@ func (s *Service) handleGetObservations(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// sort=date lists the newest first (the dashboard's timeline); the default stays most important first.
+	order, orderErr := gorm.ParseObservationOrder(r.URL.Query().Get("sort"))
+	if orderErr != nil {
+		http.Error(w, orderErr.Error(), http.StatusBadRequest)
+		return
+	}
+
 	var observations []*models.Observation
 	var total int64
 	var err error
@@ -60,10 +67,10 @@ func (s *Service) handleGetObservations(w http.ResponseWriter, r *http.Request) 
 	if !usedVector {
 		if project != "" {
 			// Strict project filtering for dashboard - only observations from this project
-			observations, total, err = s.observationStore.GetObservationsByProjectStrictPaginated(ctx, project, pagination.Limit, pagination.Offset)
+			observations, total, err = s.observationStore.GetObservationsByProjectStrictOrdered(ctx, project, pagination.Limit, pagination.Offset, order)
 		} else {
 			// All projects
-			observations, total, err = s.observationStore.GetAllRecentObservationsPaginated(ctx, pagination.Limit, pagination.Offset)
+			observations, total, err = s.observationStore.GetAllRecentObservationsOrdered(ctx, pagination.Limit, pagination.Offset, order)
 		}
 	}
 

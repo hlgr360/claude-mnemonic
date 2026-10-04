@@ -81,6 +81,14 @@ post("/api/conflicts", {"older_id": by["Cache lifetime is one day"], "newer_id":
 d = os.path.join(base, "obs_only"); os.makedirs(d)
 ids["obs_only"] = json.loads(tool("project_resolve", path=d))["id"]
 tool("remember", path=d, title="Observation without a session", text="This project survives only through its observation.")
+
+# A note saved last, with the default importance, in a project of its own. The dashboard's timeline must show it although
+# the 52 older notes of the bulk project (given a higher score below) fill the first 50 of the importance-ordered list:
+# a note that has just been saved starts at importance 1, behind every note that has earned more.
+d = os.path.join(base, "fresh"); os.makedirs(d)
+ids["fresh"] = json.loads(tool("project_resolve", path=d))["id"]
+time.sleep(0.05)
+tool("remember", path=d, title="Freshly saved note about the pantry", text="Saved last, with the default importance score.")
 ids["summ_only"] = "summ-only_a1b2c3"
 db = sqlite3.connect(f"{E2E}/home/.claude-mnemonic/claude-mnemonic.db", timeout=30)
 db.execute("DELETE FROM sdk_sessions WHERE project = ?", (ids["obs_only"],))
@@ -90,6 +98,8 @@ for i, title in enumerate(("First summary", "Second summary")):
                (time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), f"sdk-summ-only-{i}", ids["summ_only"], title, now + i))
 for t in legacy_titles:
     db.execute("UPDATE observations SET scope = 'global', scope_source = 'auto' WHERE project = ? AND title = ?", (ids["scoped"], t))
+# The bulk notes have earned a higher importance than a note that has just been saved (which starts at 1).
+db.execute("UPDATE observations SET importance_score = 1.5 WHERE project = ?", (ids["bulk"],))
 db.commit(); db.close()
 print(json.dumps(ids))
 p.stdin.close(); p.wait(timeout=10)

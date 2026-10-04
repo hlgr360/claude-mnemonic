@@ -1,6 +1,7 @@
 import type { Observation, UserPrompt, SessionSummary, Stats, FeedItem, ObservationFeedItem, PromptFeedItem, SummaryFeedItem, RelationWithDetails, RelationGraph, RelationStats, GraphStats, VectorMetrics } from '@/types'
 
 import { normalizeAnalytics, normalizeRecent, type RecentQuery, type SearchAnalytics } from './searchAnalytics'
+import { observationsQuery, type ObservationSort } from './observationsQuery'
 
 const API_BASE = '/api'
 const DEFAULT_TIMEOUT = 10000 // 10 seconds
@@ -99,10 +100,10 @@ interface ObservationsResponse {
   hasMore: boolean
 }
 
-export async function fetchObservations(limit: number = 100, project?: string, signal?: AbortSignal): Promise<Observation[]> {
-  const params = new URLSearchParams({ limit: String(limit) })
-  if (project) params.append('project', project)
-  const response = await fetchWithRetry<ObservationsResponse>(`${API_BASE}/observations?${params}`, { signal })
+// Newest first by default: the timeline is chronological, and the worker's own default (most important first) leaves a
+// note that was just saved off the page. See observationsQuery.ts.
+export async function fetchObservations(limit: number = 100, project?: string, signal?: AbortSignal, sort: ObservationSort = 'date'): Promise<Observation[]> {
+  const response = await fetchWithRetry<ObservationsResponse>(`${API_BASE}/observations?${observationsQuery(limit, project, sort)}`, { signal })
   return response.observations || []
 }
 
