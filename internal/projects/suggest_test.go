@@ -23,7 +23,7 @@ func TestSuggest_SemanticHitsRankProjects(t *testing.T) {
 	hits := []Hit{
 		{"awx_aaaaaa", "AWX credential rotation", 0.8},
 		{"awx_aaaaaa", "AWX key vault", 0.7},
-		{"mnemonic_bbbbbb", "vector search", 0.5},
+		{"mnemonic_bbbbbb", "vector search", 0.6},
 	}
 	got := Suggest("rotate awx credentials", hits, nil, nil, now, 4)
 
@@ -31,24 +31,72 @@ func TestSuggest_SemanticHitsRankProjects(t *testing.T) {
 	top := got.Suggestions[0]
 	assert.Equal(t, 2, top.Hits)
 	assert.Equal(t, []string{"AWX credential rotation", "AWX key vault"}, top.TopTitles)
-	assert.InDelta(t, 1.9, top.Score, 0.01, "0.8 + 0.7 semantic, +0.4 because the query names the project (\"awx\"), no recency data")
+	assert.InDelta(t, 0.9, top.Score, 0.01, "(0.8-0.5) + (0.7-0.5) semantic, +0.4 because the query names the project (\"awx\"), no recency data")
 	assert.Equal(t, "content and name match", top.Reason)
 	assert.Equal(t, "content match", got.Suggestions[1].Reason)
-	assert.True(t, got.Confident, "1.9 vs 0.5 is a clear lead")
+	assert.InDelta(t, 0.1, got.Suggestions[1].Score, 0.01, "a hit counts by how far it is above the floor")
+	assert.True(t, got.Confident, "0.9 vs 0.1 is a clear lead")
 }
 
 func TestSuggest_OnlyTheStrongestHitsPerProjectCount(t *testing.T) {
 	var hits []Hit
 	for i := 0; i < 20; i++ {
-		hits = append(hits, Hit{"many_aaaaaa", "", 0.2})
+		hits = append(hits, Hit{"many_aaaaaa", "", 0.6})
 	}
 	hits = append(hits, Hit{"few_bbbbbb", "", 0.9}, Hit{"few_bbbbbb", "", 0.9})
 
 	got := Suggest("anything", hits, nil, nil, now, 4)
-	// many: 5 * 0.2 = 1.0 (capped at 5 hits), few: 1.8
-	assert.Equal(t, []string{"few_bbbbbb", "many_aaaaaa"}, ids(got), "volume of weak hits must not beat a few strong ones")
-	assert.InDelta(t, 1.0, got.Suggestions[1].Score, 0.01)
-	assert.Equal(t, 20, got.Suggestions[1].Hits, "Hits still reports the raw count")
+	// many: 5 * (0.6-0.5) = 0.5 (capped at 5 hits), few: 2 * (0.9-0.5) = 0.8
+	assert.Equal(t, []string{"few_bbbbbb", "many_aaaaaa"}, ids(got), "volume of mediocre hits must not beat a few strong ones")
+	assert.InDelta(t, 0.5, got.Suggestions[1].Score, 0.01)
+	assert.Equal(t, 20, got.Suggestions[1].Hits, "Hits still reports every hit above the floor")
+}
+
+func TestSuggest_HitsAtOrBelowTheFloorAreNotEvidence(t *testing.T) {
+	got := Suggest("anything",
+		[]Hit{{"weak_aaaaaa", "a title", 0.45}, {"weak_aaaaaa", "another", 0.5}, {"weak_aaaaaa", "third", 0.3}},
+		[]Activity{{Project: "weak_aaaaaa", LastActiveEpoch: now - day}}, nil, now, 4)
+
+	require.Len(t, got.Suggestions, 1)
+	s := got.Suggestions[0]
+	assert.Equal(t, "recent", s.Reason, "only weak matches: not a \"content match\"")
+	assert.Zero(t, s.Hits)
+	assert.Empty(t, s.TopTitles, "titles of weak matches are noise")
+	assert.False(t, got.Confident)
+}
+
+// The shape of a real Desktop question that names the project: the project's own notes score 0.64-0.74 while
+// three other projects have notes that merely mention Claude and memory, at 0.56-0.60. Before the floor the
+// lead was about 1.5x and the answer was never confident.
+func TestSuggest_AQueryThatNamesAProjectIsConfident(t *testing.T) {
+	var hits []Hit
+	for _, s := range []float64{0.74, 0.73, 0.70, 0.69, 0.66, 0.64} {
+		hits = append(hits, Hit{"claude-mnemonic_aaaaaa", "", s})
+	}
+	for _, p := range []string{"alpha_bbbbbb", "beta_cccccc", "gamma_dddddd"} {
+		for _, s := range []float64{0.59, 0.58, 0.57, 0.56, 0.55} {
+			hits = append(hits, Hit{p, "", s})
+		}
+	}
+	got := Suggest("what do you remember about claude-mnemonic", hits, nil, nil, now, 4)
+
+	assert.Equal(t, "claude-mnemonic_aaaaaa", got.Suggestions[0].Project)
+	assert.Equal(t, "content and name match", got.Suggestions[0].Reason)
+	assert.Greater(t, got.Suggestions[0].Score, 4*got.Suggestions[1].Score, "a clear lead over the weak mentions")
+	assert.True(t, got.Confident)
+}
+
+// A topic that really spans projects, or a vague question, has no leader: it stays flat and Desktop asks.
+func TestSuggest_AFlatFieldIsNotConfident(t *testing.T) {
+	var hits []Hit
+	for _, p := range []string{"a_aaaaaa", "b_bbbbbb", "c_cccccc", "d_dddddd"} {
+		for _, s := range []float64{0.66, 0.64, 0.62} {
+			hits = append(hits, Hit{p, "", s})
+		}
+	}
+	got := Suggest("terraform azure private network", hits, nil, nil, now, 4)
+	assert.Len(t, got.Suggestions, 4)
+	assert.False(t, got.Confident)
 }
 
 func TestSuggest_NameMatchBoostsAProjectWithoutHits(t *testing.T) {
@@ -118,11 +166,15 @@ func TestSuggest_ConfidenceNeedsClearLeadAndEvidence(t *testing.T) {
 		assert.False(t, got.Confident)
 	})
 	t.Run("clear lead but weak evidence is not confident", func(t *testing.T) {
-		got := Suggest("x", []Hit{{"a_aaaaaa", "", 0.3}, {"b_bbbbbb", "", 0.05}}, nil, nil, now, 4)
-		assert.False(t, got.Confident)
+		got := Suggest("x", []Hit{{"a_aaaaaa", "", 0.58}, {"b_bbbbbb", "", 0.51}}, nil, nil, now, 4)
+		assert.False(t, got.Confident, "0.08 against 0.01: a lead, but over almost nothing")
 	})
 	t.Run("a single strong candidate is confident", func(t *testing.T) {
 		got := Suggest("x", []Hit{{"a_aaaaaa", "", 0.9}}, nil, nil, now, 4)
+		assert.True(t, got.Confident)
+	})
+	t.Run("two hits at 0.65 are enough evidence", func(t *testing.T) {
+		got := Suggest("x", []Hit{{"a_aaaaaa", "", 0.65}, {"a_aaaaaa", "", 0.65}, {"b_bbbbbb", "", 0.52}}, nil, nil, now, 4)
 		assert.True(t, got.Confident)
 	})
 }
@@ -130,7 +182,7 @@ func TestSuggest_ConfidenceNeedsClearLeadAndEvidence(t *testing.T) {
 func TestSuggest_LimitAndDefaults(t *testing.T) {
 	var hits []Hit
 	for _, p := range []string{"a_111111", "b_222222", "c_333333", "d_444444", "e_555555", "f_666666"} {
-		hits = append(hits, Hit{p, "", 0.5})
+		hits = append(hits, Hit{p, "", 0.6})
 	}
 	assert.Len(t, Suggest("x", hits, nil, nil, now, 0).Suggestions, 4, "default limit")
 	assert.Len(t, Suggest("x", hits, nil, nil, now, 2).Suggestions, 2)
@@ -151,7 +203,7 @@ func TestSuggest_EmptyInputs(t *testing.T) {
 }
 
 func TestSuggest_DeterministicOrderOnTies(t *testing.T) {
-	hits := []Hit{{"b_222222", "", 0.5}, {"a_111111", "", 0.5}}
+	hits := []Hit{{"b_222222", "", 0.6}, {"a_111111", "", 0.6}}
 	for i := 0; i < 20; i++ {
 		assert.Equal(t, []string{"a_111111", "b_222222"}, ids(Suggest("x", hits, nil, nil, now, 4)))
 	}
