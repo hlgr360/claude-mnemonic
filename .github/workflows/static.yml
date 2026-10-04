@@ -19,6 +19,10 @@ concurrency:
 
 jobs:
   build:
+    # Upstream's website. A fork has no Pages site for it (and the pages in docs/ point at upstream), so this runs only in
+    # upstream's own repository and is skipped everywhere else; deploy needs build, so it is skipped with it. To publish
+    # the site from a fork on purpose, remove this line.
+    if: github.repository == 'lukaszraczylo/claude-mnemonic'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
