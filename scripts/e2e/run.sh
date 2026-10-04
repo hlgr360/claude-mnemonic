@@ -133,6 +133,10 @@ printf '{"CLAUDE_CODE_PATH": "%s/fake-claude", '"$NO_PROPOSALS"'}\n' "$WORK" > "
 fresh_worker || exit 1
 suite "PreCompact hook summarises the conversation before a compaction" python3 "$HERE/drive_precompact.py"
 
+# Where the dashboard is: the real session-start hook, the real MCP server in both modes.
+fresh_worker || exit 1
+suite "Dashboard link: session-start message, Desktop tool, Code unchanged" python3 "$HERE/drive_dashboard_link.py"
+
 # Local LLM: the summary task on a fake Ollama (the suite plays Ollama itself and switches it off midway),
 # with the fake claude from above as the fallback.
 OLLAMA_E2E_PORT="${E2E_OLLAMA_PORT:-37996}"
@@ -163,10 +167,6 @@ suite "Knowledge graph: relations, filters, hiding, rebuild"           python3 "
 # Scope: notes imported without a scope get the rule's; an archive written by the old rule is re-scoped through the API.
 fresh_worker || exit 1
 suite "Scope: the rule, the re-scope, notes chosen by hand"            python3 "$HERE/drive_scope.py"
-
-# Where the dashboard is: the real session-start hook, the real MCP server in both modes, and the page itself.
-fresh_worker || exit 1
-suite "Dashboard link: session-start message, Desktop tool, Code unchanged" python3 "$HERE/drive_dashboard_link.py"
 
 if [ "$RUN_UI" = "1" ]; then
   if [ ! -d "$ROOT/ui/dist" ] || ! command -v node >/dev/null; then

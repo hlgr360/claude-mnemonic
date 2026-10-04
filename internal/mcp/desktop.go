@@ -85,8 +85,8 @@ claude-mnemonic keeps memory per project. This client has no working directory, 
 - If a project folder is open, call project_resolve with its absolute path, then context with the returned id.
 - Otherwise call project_suggest with the user's first message, offer the user the candidates (plus "none"), and wait for their choice.
 - If the user declines, stay read-only: use search and catch_up without saving, and never call remember or checkpoint.
-- When the user asks to see, open or manage their memory in a browser, call dashboard and give them the link.
 - Pass the chosen project id to remember, checkpoint, catch_up and context on every call.
+- When the user asks to see, open or manage their memory in a browser, call dashboard and give them the link.
 - Once a project is chosen, keep one checkpoint per thread of work current. If the conversation was compacted and you lost the thread, call catch_up.`
 
 // workerBootstrap starts the worker when it is not running.
@@ -363,6 +363,16 @@ func (s *Server) callDesktopTool(ctx context.Context, name string, args json.Raw
 		return s.toolRelationTypes(ctx, args)
 	}
 	return "", fmt.Errorf("unknown tool %q", name)
+}
+
+// toolDashboard says where the web dashboard is: the worker's own address, on the port this server was started with.
+// The tool call already made sure the worker is running. Desktop cannot open a local page itself; the user clicks the
+// link and it opens on their computer.
+func (s *Server) toolDashboard() string {
+	url := strings.TrimRight(s.workerURL, "/")
+	return fmt.Sprintf("The memory dashboard is at %s . Give the user this link: it opens in their browser on this computer. "+
+		"It shows their saved notes, session summaries, the knowledge graph, conflicts to review, scopes, and project management "+
+		"(merge, delete, possible duplicates). It is served by the local worker, so it only works on this computer.", url)
 }
 
 // resolution mirrors the worker's /api/projects/resolve answer.
@@ -927,14 +937,4 @@ func (s *Server) manageRef(ctx context.Context, action, ref string) (string, err
 	}
 	return "", fmt.Errorf("%s", unresolvedMessage("project_manage "+action, ref,
 		resolution{Ambiguous: true, Candidates: ids, CandidateDetails: named}))
-}
-
-// toolDashboard says where the web dashboard is: the worker's own address, on the port this server was started with.
-// The tool call already made sure the worker is running. Desktop cannot open a local page itself; the user clicks the
-// link and it opens on their computer.
-func (s *Server) toolDashboard() string {
-	url := strings.TrimRight(s.workerURL, "/")
-	return fmt.Sprintf("The memory dashboard is at %s . Give the user this link: it opens in their browser on this computer. "+
-		"It shows their saved notes, session summaries, the knowledge graph, conflicts to review, scopes, and project management "+
-		"(merge, delete, possible duplicates). It is served by the local worker, so it only works on this computer.", url)
 }
