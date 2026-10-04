@@ -1,5 +1,11 @@
 #!/bin/sh
+# Claude Mnemonic MCP server: run the installed binary. In the plugin, the binaries are fetched first when they are
+# missing (this waits: the server cannot start without them).
 BIN="$HOME/.claude-mnemonic/bin/mcp-server"
+ENSURE="$(dirname "$0")/lib/ensure-binaries.sh"
+if [ ! -x "$BIN" ] && [ -f "$ENSURE" ]; then
+    sh "$ENSURE" >&2
+fi
 [ -x "$BIN" ] && exec "$BIN" "$@"
 echo "claude-mnemonic: mcp-server not found at $BIN" >&2
 echo "Install: cd $(dirname "$0") && make install" >&2

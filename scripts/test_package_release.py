@@ -130,7 +130,13 @@ class ReleaseWorkflowTest(unittest.TestCase):
     def test_covers_the_three_platforms_with_native_runners(self):
         for platform in ("darwin-arm64", "linux-amd64", "windows-amd64"):
             self.assertIn(f"platform: {platform}", self.text)
-        self.assertIn("test \"$(wc -l < checksums.txt)\" -eq 3", self.text)
+        self.assertIn("test \"$(wc -l < checksums.txt)\" -eq 4", self.text, "three platform archives and the plugin zip")
+
+    def test_the_plugin_zip_is_built_validated_and_signed_with_the_rest(self):
+        self.assertRegex(self.text, r"needs: \[version, build, plugin\]")
+        self.assertIn("scripts/build-plugin.sh", self.text)
+        self.assertIn("name: archive-plugin", self.text)
+        self.assertIn("sha256sum claude-mnemonic_* claude-mnemonic-plugin_*", self.text)
 
     def test_does_not_use_the_upstream_shared_workflow(self):
         self.assertNotIn("lukaszraczylo", self.text)

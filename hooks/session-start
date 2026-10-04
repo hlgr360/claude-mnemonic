@@ -1,4 +1,9 @@
 #!/bin/sh
+# Claude Mnemonic hook: run the installed binary. In the plugin, the binaries are fetched when they are missing, in
+# the background (a hook must not wait for a download), so this hook does nothing until the download has finished.
 BIN="$HOME/.claude-mnemonic/bin/hooks/session-start"
+ENSURE="$(dirname "$0")/../lib/ensure-binaries.sh"
+# Once per session, bring the binaries up to the plugin's version (a no-op unless they are older).
+[ -f "$ENSURE" ] && sh "$ENSURE" --background
 [ -x "$BIN" ] && exec "$BIN" "$@"
 exit 0
