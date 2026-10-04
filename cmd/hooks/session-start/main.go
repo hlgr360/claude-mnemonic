@@ -39,6 +39,10 @@ func handleSessionStart(ctx *hooks.HookContext, input *Input) (string, error) {
 	deadline, cancel := hooks.HookDeadline(30 * time.Second)
 	defer cancel()
 
+	// On the first session after an install or an update, tell the user where the dashboard is. This is for the
+	// user only (a systemMessage); it is never added to the context the model receives.
+	ctx.UserMessage = hooks.DashboardNotice(hooks.DataDir(), hooks.Version, ctx.Port)
+
 	// Fetch observations for context injection
 	endpoint := fmt.Sprintf("/api/context/inject?project=%s&cwd=%s",
 		url.QueryEscape(ctx.Project),

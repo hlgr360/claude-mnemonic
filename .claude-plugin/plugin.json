@@ -17,5 +17,5 @@
       "env": {}
     }
   },
-  "commands": ["./commands/restart.md"]
+  "commands": ["./commands/restart.md", "./commands/dashboard.md"]
 }

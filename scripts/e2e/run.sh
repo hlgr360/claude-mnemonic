@@ -81,7 +81,8 @@ suite() { # name, command...
 echo "building into $WORK"
 (cd "$ROOT" && go build -tags fts5 -ldflags "-s -w" -buildvcs=false -o "$WORK/bin/worker" ./cmd/worker \
   && go build -tags fts5 -ldflags "-s -w" -buildvcs=false -o "$WORK/bin/mcp-server" ./cmd/mcp \
-  && go build -tags fts5 -ldflags "-s -w" -buildvcs=false -o "$WORK/bin/pre-compact" ./cmd/hooks/pre-compact) || { echo "build failed"; exit 1; }
+  && go build -tags fts5 -ldflags "-s -w" -buildvcs=false -o "$WORK/bin/pre-compact" ./cmd/hooks/pre-compact \
+  && go build -tags fts5 -ldflags "-s -w -X github.com/lukaszraczylo/claude-mnemonic/pkg/hooks.Version=e2e" -buildvcs=false -o "$WORK/bin/session-start" ./cmd/hooks/session-start) || { echo "build failed"; exit 1; }
 
 base_settings
 fresh_worker || exit 1
@@ -131,6 +132,10 @@ mkdir -p "$WORK/home/.claude-mnemonic"
 printf '{"CLAUDE_CODE_PATH": "%s/fake-claude", '"$NO_PROPOSALS"'}\n' "$WORK" > "$WORK/home/.claude-mnemonic/settings.json"
 fresh_worker || exit 1
 suite "PreCompact hook summarises the conversation before a compaction" python3 "$HERE/drive_precompact.py"
+
+# Where the dashboard is: the real session-start hook, the real MCP server in both modes.
+fresh_worker || exit 1
+suite "Dashboard link: session-start message, Desktop tool, Code unchanged" python3 "$HERE/drive_dashboard_link.py"
 
 # Local LLM: the summary task on a fake Ollama (the suite plays Ollama itself and switches it off midway),
 # with the fake claude from above as the fallback.

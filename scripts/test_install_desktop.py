@@ -212,6 +212,43 @@ class CommandLine(unittest.TestCase):
         self.assertTrue(read(cfg).endswith("\n"))
         self.assertNotIn("Backup:", out, "there was nothing to back up")
 
+    def test_install_says_where_the_dashboard_is(self):
+        import unittest.mock as mock
+        cfg = tmpfile(self, TWO)
+        with mock.patch.dict(os.environ, {"CLAUDE_MNEMONIC_WORKER_PORT": "4100"}):
+            code, out, _ = self.run_cli(config=cfg)
+            self.assertEqual(code, 0)
+            self.assertIn("The memory dashboard is at http://localhost:4100", out)
+            self.assertIn("/claude-mnemonic:dashboard", out)
+            again = self.run_cli(config=cfg)[1]
+            self.assertIn("Already up to date", again)
+            self.assertIn("http://localhost:4100", again, "also when nothing had to change")
+            self.assertNotIn("dashboard", self.run_cli("--dry-run", config=cfg)[1], "a dry run says nothing about it")
+
+    def test_uninstall_does_not_mention_the_dashboard(self):
+        cfg = tmpfile(self, TWO)
+        self.run_cli(config=cfg)
+        self.assertNotIn("dashboard", self.run_cli("uninstall", config=cfg)[1])
+
+    def test_worker_port_environment_then_settings_then_default(self):
+        home = tempfile.mkdtemp()
+        self.addCleanup(lambda: __import__("shutil").rmtree(home, ignore_errors=True))
+        self.assertEqual(inst.worker_port({}, home), 37777)
+        os.makedirs(os.path.join(home, ".claude-mnemonic"))
+        settings = os.path.join(home, ".claude-mnemonic", "settings.json")
+        with open(settings, "w") as f:
+            f.write('{"CLAUDE_MNEMONIC_WORKER_PORT": 4200}')
+        self.assertEqual(inst.worker_port({}, home), 4200)
+        self.assertEqual(inst.worker_port({"CLAUDE_MNEMONIC_WORKER_PORT": "4300"}, home), 4300, "the environment wins")
+        for bad in ("abc", "0", "-5", ""):
+            self.assertEqual(inst.worker_port({"CLAUDE_MNEMONIC_WORKER_PORT": bad}, home), 4200, bad)
+        with open(settings, "w") as f:
+            f.write("not json")
+        self.assertEqual(inst.worker_port({}, home), 37777, "an unreadable settings file means the default")
+        with open(settings, "w") as f:
+            f.write('{"CLAUDE_MNEMONIC_WORKER_PORT": "oops"}')
+        self.assertEqual(inst.worker_port({}, home), 37777)
+
     def test_install_into_an_empty_file(self):
         cfg = tmpfile(self, "   \n")
         self.assertEqual(self.run_cli(config=cfg)[0], 0)

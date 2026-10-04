@@ -177,12 +177,13 @@ install: mark-clean build stop-worker
 	@chmod +x $(HOME)/.claude/plugins/marketplaces/claude-mnemonic/hooks/*
 	@cp mcp-server $(HOME)/.claude/plugins/marketplaces/claude-mnemonic/
 	@chmod +x $(HOME)/.claude/plugins/marketplaces/claude-mnemonic/mcp-server
-	@cp commands/restart.md $(HOME)/.claude/plugins/marketplaces/claude-mnemonic/commands/
+	@cp commands/*.md $(HOME)/.claude/plugins/marketplaces/claude-mnemonic/commands/
 	@echo "Registering plugin with Claude Code..."
 	@./scripts/register-plugin.sh "$(VERSION)"
 	@$(MAKE) start-worker
 	@$(MAKE) restore-stamped
 	@echo "Installation complete!"
+	@echo "Dashboard: http://localhost:$${CLAUDE_MNEMONIC_WORKER_PORT:-37777} (in Claude Code: /claude-mnemonic:dashboard)"
 	@echo "Restart Claude Code to load the new plugin: sessions that are already open keep working with the new binaries,"
 	@echo "but they do not register hook events added by this version (a pre-compact hook, for example)."
 
@@ -221,7 +222,7 @@ uninstall-ollama:
 	@python3 scripts/setup-ollama.py disable
 
 test-scripts:
-	@python3 -m unittest scripts/test_install_desktop.py scripts/test_desktop_calls.py scripts/test_setup_ollama.py scripts/test_llm_eval.py scripts/test_register_plugin.py
+	@python3 -m unittest scripts/test_install_desktop.py scripts/test_desktop_calls.py scripts/test_setup_ollama.py scripts/test_llm_eval.py scripts/test_register_plugin.py scripts/test_dashboard_command.py
 
 # Uninstall
 uninstall: stop-worker

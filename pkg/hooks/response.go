@@ -78,13 +78,36 @@ type HookContext struct {
 	Project   string
 	SessionID string
 	CWD       string
-	RawInput  []byte
-	Port      int
+	// UserMessage, when a handler sets it, is shown to the user (the hook's systemMessage). It is never part of the
+	// context the model receives.
+	UserMessage string
+	RawInput    []byte
+	Port        int
 }
 
 // HookHandler is a function that handles hook-specific logic.
 // It receives the context and returns an optional context string and error.
 type HookHandler[T any] func(ctx *HookContext, input *T) (additionalContext string, err error)
+
+// buildHookResponse makes the JSON a hook prints when it has something to say: the context for the model (under
+// hookSpecificOutput) and/or a message for the user (systemMessage). It returns nil when there is nothing to say, and
+// the caller prints the plain {"continue": true} instead.
+func buildHookResponse(hookName, additionalContext, userMessage string) map[string]interface{} {
+	if additionalContext == "" && userMessage == "" {
+		return nil
+	}
+	response := map[string]interface{}{"continue": true}
+	if userMessage != "" {
+		response["systemMessage"] = userMessage
+	}
+	if additionalContext != "" {
+		response["hookSpecificOutput"] = map[string]interface{}{
+			"hookEventName":     hookName,
+			"additionalContext": additionalContext,
+		}
+	}
+	return response
+}
 
 // RunHook executes a hook with common boilerplate handling.
 // It handles: internal call skip, stdin reading, JSON unmarshaling,
@@ -142,14 +165,7 @@ func RunHook[T any](hookName string, handler HookHandler[T]) {
 	}
 
 	// Output response
-	if additionalContext != "" {
-		response := map[string]interface{}{
-			"continue": true,
-			"hookSpecificOutput": map[string]interface{}{
-				"hookEventName":     hookName,
-				"additionalContext": additionalContext,
-			},
-		}
+	if response := buildHookResponse(hookName, additionalContext, ctx.UserMessage); response != nil {
 		_ = json.NewEncoder(os.Stdout).Encode(response)
 		os.Exit(0)
 	}
