@@ -419,6 +419,8 @@ Available commands within Claude Code:
 
 The names say what they do and are unique on purpose: where the plugin's name cannot be typed as a prefix (Claude Desktop), the short name is all there is. In Claude Code the full form is `/claude-mnemonic:memory-dashboard` and `/claude-mnemonic:memory-restart`. They were renamed from the shorter `dashboard` and `restart`, which no longer exist.
 
+In Claude Desktop chat and Cowork a shell runs in a sandbox that cannot reach the worker on your computer, so the same two actions are MCP tools there (`dashboard` and `restart`, which run on your side of the sandbox): ask Claude to show your memory dashboard or to restart your memory. The commands tell Claude to use the tool when it has one.
+
 ## Auto-Updates
 
 Claude Mnemonic automatically checks for updates and applies them. Updates are downloaded in the background and applied on restart.
@@ -452,6 +454,8 @@ curl -X POST http://127.0.0.1:37777/api/restart
 
 # Or use the slash command in Claude Code
 /memory-restart
+
+# In Claude Desktop chat or Cowork: ask Claude to restart your memory (it uses the restart tool)
 ```
 
 **Check health status:**

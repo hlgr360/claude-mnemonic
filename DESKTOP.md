@@ -56,6 +56,7 @@ Desktop mode adds these tools (Claude Code's tool list is unchanged):
 | `related` | How a note is connected to others: what it fixes, builds on or evolved from, and what came after it (by note id, or by a query and a project), read-only |
 | `relation_types` | The kinds of connection, what each means and how many there are, read-only |
 | `dashboard` | The address of the web dashboard, so chat can give you the link (it opens in your browser on this computer), read-only |
+| `restart` | Restarts the local worker and waits until it answers again. Chat and Cowork run shell commands in a sandbox that cannot reach this computer, so `/memory-restart` cannot do it there; this tool runs on this side of the sandbox |
 | `project_manage` | Stats, alias, merge and delete projects (previews first, see below) |
 
 `search` and the other existing tools keep working; with no project chosen, `search` covers

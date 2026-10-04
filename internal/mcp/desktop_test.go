@@ -207,17 +207,17 @@ func TestToolsList_DesktopToolsOnlyInDesktopMode(t *testing.T) {
 	code := NewServer(nil, "", "p_aaaaaa", "v")
 	initialize(t, code, "claude-code")
 	codeTools := toolNames(t, code)
-	for _, n := range []string{"project_suggest", "project_resolve", "project_list", "context", "remember", "project_manage", "checkpoint", "catch_up", "related", "relation_types", "dashboard"} {
+	for _, n := range []string{"project_suggest", "project_resolve", "project_list", "context", "remember", "project_manage", "checkpoint", "catch_up", "related", "relation_types", "dashboard", "restart"} {
 		assert.NotContains(t, codeTools, n, "Code's tool list must not change")
 	}
 
 	desktop := NewServer(nil, "", "p_aaaaaa", "v")
 	initialize(t, desktop, "claude-ai")
 	desktopTools := toolNames(t, desktop)
-	for _, n := range []string{"project_suggest", "project_resolve", "project_list", "context", "remember", "project_manage", "checkpoint", "catch_up", "related", "relation_types", "dashboard"} {
+	for _, n := range []string{"project_suggest", "project_resolve", "project_list", "context", "remember", "project_manage", "checkpoint", "catch_up", "related", "relation_types", "dashboard", "restart"} {
 		assert.Contains(t, desktopTools, n)
 	}
-	assert.Len(t, desktopTools, len(codeTools)+11, "desktop adds exactly the eight project tools, the two relation tools and the dashboard link")
+	assert.Len(t, desktopTools, len(codeTools)+12, "desktop adds exactly the eight project tools, the two relation tools, the dashboard link and restart")
 }
 
 func TestToolDescriptions_CarryTheProtocol(t *testing.T) {
