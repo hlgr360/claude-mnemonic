@@ -40,6 +40,25 @@ var AllRelationTypes = []RelationType{
 	RelationEvolvesFrom,
 }
 
+// RelationTypeInfo describes a relation type for a person or a model choosing among them.
+type RelationTypeInfo struct {
+	Type        RelationType `json:"type"`
+	Description string       `json:"description"`
+	// Automatic says whether the knowledge graph creates relations of this type by itself. A relation is never
+	// "supersedes" or "causes" on its own: replacing a note is a person's decision (the conflict review).
+	Automatic bool `json:"automatic"`
+}
+
+// RelationTypeInfos lists the relation types with what they mean, in the order of AllRelationTypes.
+var RelationTypeInfos = []RelationTypeInfo{
+	{RelationCauses, "The source note caused what the target note describes. Not created automatically.", false},
+	{RelationFixes, "The source note fixes the problem the target note describes (a bugfix after the feature or discovery it concerns).", true},
+	{RelationSupersedes, "The source note replaces the target note. Not created automatically: it is decided in the conflict review, and a superseded note leaves the graph.", false},
+	{RelationDependsOn, "The source note builds on the target note (for example a feature on the decision behind it).", true},
+	{RelationRelatesTo, "The two notes are about the same thing and both stay true. The usual relation: how close they are is its confidence.", true},
+	{RelationEvolvesFrom, "The source note refines or reworks what the target note found.", true},
+}
+
 // RelationDetectionSource indicates how a relationship was detected.
 type RelationDetectionSource string
 

@@ -1415,6 +1415,8 @@ func (s *Service) setupRoutes() {
 		r.Get("/api/observations/{id}/relations", s.handleGetRelations)
 		r.Get("/api/observations/{id}/graph", s.handleGetRelationGraph)
 		r.Get("/api/observations/{id}/related", s.handleGetRelatedObservations)
+		r.Get("/api/observations/{id}/connections", s.handleGetConnections)
+		r.Get("/api/relations/types", s.handleRelationTypes)
 
 		// Bulk import, export, and archival routes
 		r.Post("/api/observations/bulk-import", s.handleBulkImport)

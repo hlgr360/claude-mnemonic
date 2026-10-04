@@ -4,6 +4,7 @@ package gorm
 import (
 	"context"
 	"database/sql"
+	"strings"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -168,7 +169,8 @@ func (s *RelationStore) GetRelationsByType(ctx context.Context, relationType mod
 	return toModelRelations(relations), nil
 }
 
-// GetRelationsWithDetails retrieves relations with observation titles for display.
+// GetRelationsWithDetails retrieves relations with observation titles for display. Relations to notes that are
+// superseded or archived are left out.
 func (s *RelationStore) GetRelationsWithDetails(ctx context.Context, obsID int64) ([]*models.RelationWithDetails, error) {
 	var results []struct {
 		SourceType  string         `gorm:"column:source_type"`
@@ -185,8 +187,8 @@ func (s *RelationStore) GetRelationsWithDetails(ctx context.Context, obsID int64
 			"COALESCE(tgt.title, '') as target_title, "+
 			"src.type as source_type, "+
 			"tgt.type as target_type").
-		Joins("JOIN observations src ON src.id = r.source_id").
-		Joins("JOIN observations tgt ON tgt.id = r.target_id").
+		// Only relations between live notes: one to a superseded or archived note is not shown.
+		Joins(strings.TrimSpace(liveRelationJoins)).
 		Where("r.source_id = ? OR r.target_id = ?", obsID, obsID).
 		Order("r.confidence DESC, r.created_at_epoch DESC").
 		Scan(&results).Error

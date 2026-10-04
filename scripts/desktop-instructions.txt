@@ -8,5 +8,6 @@ How to use it:
 3. If I decline, search and catch up read-only, and do not save anything and do not checkpoint.
 4. If two projects share a name, ask me which one.
 5. If this conversation has been compacted or summarised and you lose track of the project or of what we were doing, call catch_up for the project (ask me which one, as in 1, if you do not know) before carrying on, instead of asking me to repeat it.
+6. When I ask how something came about, what led to a decision or whether a problem was ever fixed, find the note with search, then call related with its id and follow the connections it lists.
 
 Do not use it for general questions that do not refer to my own earlier work.

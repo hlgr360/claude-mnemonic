@@ -219,6 +219,35 @@ func desktopTools() []Tool {
 			},
 		},
 		{
+			Name: "related",
+			Description: memoryPrefix + "how a saved note is connected to others: what it fixes, builds on or evolved from, and what came after it, each with the id, how sure the graph is and why. " +
+				"Use it to follow the history behind a decision or a fix (\"what led to this?\", \"was this ever fixed?\", \"what else is about this?\"). " +
+				"Give the id of a note (search results and earlier answers of this tool show ids), or a query and the project to find the note in. Read-only.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"id":             map[string]any{"type": "number", "description": "The note's id, from a search result or from an earlier answer of this tool"},
+					"query":          map[string]any{"type": "string", "description": "Instead of an id: words that find the note, within project"},
+					"project":        map[string]any{"type": "string", "description": "With query: the project's use value from project_suggest or project_list"},
+					"types":          map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": []string{"relates_to", "fixes", "depends_on", "evolves_from", "supersedes", "causes"}}, "description": "Only these kinds of relation (relation_types lists them)"},
+					"direction":      map[string]any{"type": "string", "enum": []string{"older", "newer"}, "description": "older: what this note came from; newer: what came after it"},
+					"min_confidence": map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Only relations the graph is at least this sure of"},
+					"limit":          map[string]any{"type": "number", "default": 20, "minimum": 1, "maximum": 100},
+				},
+			},
+		},
+		{
+			Name:        "relation_types",
+			Description: memoryPrefix + "the kinds of connection between notes (relates_to, fixes, depends_on, evolves_from, supersedes, causes), what each means, and how many there are in a project, around one note, or everywhere. Read-only.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"project": map[string]any{"type": "string", "description": "Count within this project (its use value from project_suggest or project_list)"},
+					"id":      map[string]any{"type": "number", "description": "Count the relations around this note"},
+				},
+			},
+		},
+		{
 			Name: "project_manage",
 			Description: "Inspect, alias, merge or delete projects. stats is read-only. delete and merge are DESTRUCTIVE: first call WITHOUT confirm to get a preview (nothing changes), " +
 				"show the user exactly what would be removed or moved and get their explicit approval, then repeat the same call with the confirm token from the preview. " +
@@ -294,7 +323,7 @@ func desktopTools() []Tool {
 // isDesktopTool reports whether name is one of the tools added by Desktop mode.
 func isDesktopTool(name string) bool {
 	switch name {
-	case "project_suggest", "project_resolve", "project_list", "context", "remember", "project_manage", "checkpoint", "catch_up":
+	case "project_suggest", "project_resolve", "project_list", "context", "remember", "project_manage", "checkpoint", "catch_up", "related", "relation_types":
 		return true
 	}
 	return false
@@ -319,6 +348,10 @@ func (s *Server) callDesktopTool(ctx context.Context, name string, args json.Raw
 		return s.toolCheckpoint(ctx, args)
 	case "catch_up":
 		return s.toolCatchUp(ctx, args)
+	case "related":
+		return s.toolRelated(ctx, args)
+	case "relation_types":
+		return s.toolRelationTypes(ctx, args)
 	}
 	return "", fmt.Errorf("unknown tool %q", name)
 }
