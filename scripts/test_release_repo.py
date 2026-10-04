@@ -181,7 +181,7 @@ class CommandNames(unittest.TestCase):
             except (OSError, UnicodeDecodeError):
                 continue
             for n, line in enumerate(text.split("\n"), 1):
-                if self.OLD.search(line) and "localhost" not in line and "/api/" not in line and "http" not in line:
+                if self.OLD.search(line) and "/api/" not in line and "http" not in line:
                     offenders.append(f"{rel}:{n}: {line.strip()[:100]}")
         self.assertEqual(offenders, [], "use /memory-dashboard and /memory-restart")
 
