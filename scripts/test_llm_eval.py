@@ -208,6 +208,43 @@ class Conflicts(unittest.TestCase):
         self.assertEqual(len(cf.build_pairs(obs, vectors, min_sim=0.0, per=3, cap=2)), 2)
         self.assertNotIn("epoch", pairs[0]["older"])
 
+    def test_a_model_without_structured_output_is_judged_on_its_plain_answer(self):
+        """gemma4's MLX build in Ollama answers 501 to a JSON schema; LLM_EVAL_NO_FORMAT=1 sends none."""
+        import io
+        from unittest import mock
+
+        sent = []
+
+        class Reply(io.BytesIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        def fake_urlopen(req, timeout=None):
+            sent.append(json.loads(req.data))
+            return Reply(json.dumps({"message": {"content": "```json\n{\"relation\": \"Supersedes\", \"confidence\": \"High\", \"reason\": \"changed\"}\n```"},
+                                     "done_reason": "stop", "eval_count": 5, "eval_duration": 10**9}).encode())
+
+        pair = cf.gold_pairs()[0]
+        kit = cf.ek  # the module conflicts.py itself uses (the test's own `ek` is a separate load)
+        with mock.patch.object(kit.urllib.request, "urlopen", fake_urlopen):
+            with mock.patch.object(kit, "NO_FORMAT", False):
+                cf.judge_pair("m", pair)
+            with mock.patch.object(kit, "NO_FORMAT", True):
+                got = cf.judge_pair("m", pair)
+        self.assertEqual(sent[0]["format"], cf.SCHEMA, "by default the schema is sent")
+        self.assertNotIn("format", sent[1], "in no-format mode it is not")
+        self.assertEqual((got["relation"], got["confidence"]), ("supersedes", "high"), "a fenced, capitalised answer is accepted")
+
+    def test_an_unknown_relation_is_not_an_answer(self):
+        from unittest import mock
+
+        with mock.patch.object(cf.ek, "run_ollama", return_value={"raw": '{"relation": "Increase", "confidence": "High", "reason": "x"}', "secs": 1}):
+            got = cf.judge_pair("m", cf.gold_pairs()[0])
+        self.assertIsNone(got["relation"])
+
     def test_pair_prompt(self):
         p = cf.gold_pairs()[0]
         prompt = cf.pair_prompt(p)

@@ -168,8 +168,9 @@ def judge_pair(model, pair):
     prompt = pair_prompt(pair)
     r = ek.run_haiku(prompt) if model == "haiku" else ek.run_ollama(model, "", prompt, schema=SCHEMA)
     d = ek.parse_json_object(r["raw"]) or {}
-    rel = d.get("relation") if d.get("relation") in RELATIONS else None
-    return {"id": pair["id"], "model": model, "relation": rel, "confidence": d.get("confidence"), "reason": d.get("reason", ""), "secs": r["secs"], "raw": r["raw"][:400]}
+    rel = d.get("relation").strip().lower() if isinstance(d.get("relation"), str) else None
+    rel = rel if rel in RELATIONS else None  # without a schema the model may capitalise it
+    return {"id": pair["id"], "model": model, "relation": rel, "confidence": d.get("confidence").strip().lower() if isinstance(d.get("confidence"), str) else None, "reason": d.get("reason", ""), "secs": r["secs"], "raw": r["raw"][:400]}
 
 
 # ------------------------------------------------------------------ commands
