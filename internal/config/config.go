@@ -192,9 +192,10 @@ func Default() *Config {
 		LLMFallbackToClaude:   true, // an unreachable Ollama falls back to the CLI
 		LLMBackendBrief:       BackendClaude,
 		LLMBackendConflict:    BackendClaude,
-		// Conflict proposals spend Claude usage, so they are opt-in. They only ever propose: nothing is hidden or
-		// deleted without the user's decision. Superseded notes are kept unless a retention is set.
-		ConflictProposalsEnabled:     false,
+		// Conflict proposals are on: a short Haiku call per new observation with close neighbours, at most
+		// ConflictProposalsMaxPerRun per pass. They only ever propose: nothing is hidden or deleted without the
+		// user's decision. Superseded notes are kept unless a retention is set.
+		ConflictProposalsEnabled:     true,
 		ConflictProposalsMaxPerRun:   20,
 		ConflictProposalsIntervalMin: 60,
 		ConflictProposalsMinSim:      0.65,
