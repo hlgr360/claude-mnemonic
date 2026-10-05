@@ -94,6 +94,16 @@ The Claude Code plugin is **thin**: no binaries, one platform-independent zip (`
 - **The name.** `claude plugin validate` rejects a third-party plugin name that starts with `claude-`. Claude Code installs and loads such a plugin all the same (only `validate`, `plugin init` and `plugin tag` check the name), and the name keeps existing installs working, so it stays. The build runs `claude plugin validate --strict` and accepts exactly that one error; any other error or warning fails it.
 - **Not both.** The plugin and an install from `install.sh` or `make install` are alternatives (both register the same hooks and commands).
 
+## The Desktop extension
+
+Claude Desktop does not give a plugin's local MCP server to chat, and Cowork starts it inside its VM (see #117), so chat and Cowork get the memory tools from a Desktop extension, a `.mcpb` file: `claude-mnemonic-desktop_<version>.mcpb`, built by `scripts/build-mcpb.sh <version>` from `desktop-extension/manifest.json.tpl`, the same `mcp-server` wrapper and the plugin's `lib/ensure-binaries.sh`, and published by the release next to the plugin zip under the same signed `checksums.txt`.
+
+- **Alongside the plugin, not instead of it.** The plugin is what Claude Code needs (hooks, skills, commands); the extension is what Desktop's chat and Cowork need. They share the worker.
+- **Version.** The manifest version must be semver: release `0.21.95.3` is `0.21.95-fork.3` (it increases with every release, which an organization's "Upload new version" needs). The downloader inside gets the plain release version from `server/.claude-plugin/plugin.json`.
+- **How it starts.** `/bin/sh server/mcp-server`, so the packed file needs no executable bit. macOS on Apple silicon only (what the downloader has a build for).
+- **Checks.** `npx @anthropic-ai/mcpb validate` runs in the build (and in the release workflow); `scripts/test_desktop_extension.py` covers the content, the version mapping, reproducibility and the wrapper (`RUN_MCPB_VALIDATE=1` also runs the real validator).
+- **Install / distribute.** Settings > Extensions > Install Extension (or drag the file onto Desktop); for an organization, Organization settings > Connectors > Desktop > "Add custom extension", and "Upload new version" for the next release. Neither is automated here.
+
 ## Security scanning
 
 Every PR runs `gosec` and CodeQL, and both comment on the PR. Run `gosec` locally before pushing:

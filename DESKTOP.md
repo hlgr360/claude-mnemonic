@@ -19,9 +19,9 @@ without an explicit project, whatever the model does.
 
 ## Install
 
-**With the plugin** (see the README), chat gets the connector from the plugin: the plugin's own MCP server is available in Claude Desktop chat (confirmed by the maintainer on 2026-10-04, with the plugin installed from a Claude org's inventory). The route below, which writes the connector into `claude_desktop_config.json`, is then **not needed**. The two are alternatives: with both, chat may list two claude-mnemonic connectors that talk to the same worker; if you move to the plugin, remove the configuration entry with `make uninstall-desktop` (it keeps a backup, see below). Chat still needs the instruction from "Making chat use it" either way.
+**The extension** (see the README) is the way to install it: download `claude-mnemonic-desktop_<version>.mcpb` from the release and install it with Settings > Extensions > Install Extension. It runs on your computer, and Desktop gives its tools to chat and to Cowork. The plugin cannot do this: Anthropic's documentation says a plugin's local MCP server runs in Cowork and Claude Code, not in chat, and in our logs the plugin's server fails in Cowork (it is started where it cannot reach the worker) while an extension is attached to both. The plugin still adds its skills and commands in Desktop, and it is what Claude Code needs (the hooks that save and load automatically), so use the plugin for Claude Code and the extension for Desktop; both talk to the same worker. Chat still needs the instruction from "Making chat use it" either way.
 
-**Without the plugin**, from a source checkout:
+**From a source checkout** (developers; this replaces the extension with a connector in `claude_desktop_config.json`, and with both chat lists two claude-mnemonic entries on the same worker; remove the configuration entry with `make uninstall-desktop`, it keeps a backup, see below):
 
 ```sh
 make install            # builds and installs the worker and MCP server (as before)

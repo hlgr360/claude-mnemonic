@@ -9,6 +9,10 @@ https://github.com/hlgr360/claude-mnemonic.
 
 - **In Claude Code**, hooks save what happens in a session and load the project's memory at the start, and the MCP
   server gives Claude the search and related tools.
+- **In Claude Desktop** the plugin adds its skills and commands only: Desktop does not give a plugin's tools to chat,
+  and Cowork cannot reach the worker from where it starts them. The memory **tools** for chat and Cowork come from the
+  Desktop extension, `claude-mnemonic-desktop_<version>.mcpb` on the same release (Settings > Extensions > Install
+  Extension). Both share one local worker.
 - **Skills:** `/memory-dashboard` opens the dashboard, `/memory-restart` restarts the local worker,
   and `project-memory` carries the instruction below.
 - **The memory is stored on your computer** (`~/.claude-mnemonic`), by a local worker that the hooks and the MCP server

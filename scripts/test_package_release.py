@@ -142,13 +142,20 @@ class ReleaseWorkflowTest(unittest.TestCase):
     def test_covers_the_three_platforms_with_native_runners(self):
         for platform in ("darwin-arm64", "linux-amd64", "windows-amd64"):
             self.assertIn(f"platform: {platform}", self.text)
-        self.assertIn("test \"$(wc -l < checksums.txt)\" -eq 4", self.text, "three platform archives and the plugin zip")
+        self.assertIn("test \"$(wc -l < checksums.txt)\" -eq 5", self.text, "three platform archives, the plugin zip and the Desktop extension")
 
     def test_the_plugin_zip_is_built_validated_and_signed_with_the_rest(self):
         self.assertRegex(self.text, r"needs: \[version, build, plugin\]")
         self.assertIn("scripts/build-plugin.sh", self.text)
         self.assertIn("name: archive-plugin", self.text)
-        self.assertIn("sha256sum claude-mnemonic_* claude-mnemonic-plugin_*", self.text)
+        self.assertIn("sha256sum claude-mnemonic_* claude-mnemonic-plugin_* claude-mnemonic-desktop_*", self.text)
+
+    def test_the_desktop_extension_is_built_validated_and_signed_with_the_rest(self):
+        self.assertIn("scripts/build-mcpb.sh", self.text)
+        self.assertIn("dist/claude-mnemonic-desktop_*.mcpb", self.text, "uploaded with the plugin zip, so the publish job signs it")
+        self.assertIn("desktop-extension/**", self.text, "a change to the extension is built on its pull request")
+        self.assertNotIn("install.sh | bash", self.text, "the release notes no longer tell people to pipe a script into bash")
+        self.assertIn("Settings > Extensions > Install Extension", self.text)
 
     def test_upstreams_own_workflows_only_run_in_upstreams_repository(self):
         # release.yaml needs a GoReleaser Pro key, autoupdate.yaml upstream's Renovate tokens and release pipeline,

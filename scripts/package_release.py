@@ -3,7 +3,7 @@
 
 Usage: package_release.py <stage-dir> <archive-path>
 
-The format follows the archive name: .zip (Windows) or .tar.gz. Entries are sorted and carry no owner and a fixed
+The format follows the archive name: .zip (Windows) or .mcpb (a Claude Desktop extension is a zip), or .tar.gz. Entries are sorted and carry no owner and a fixed
 time, so packing the same tree twice gives the same bytes, and files keep their executable bit. This replaces
 GoReleaser's archiver so the release can be built with plain tools on each native runner.
 """
@@ -57,7 +57,7 @@ def pack(stage, archive):
     if not entries(stage):
         raise SystemExit(f"nothing to pack in {stage}")
     os.makedirs(os.path.dirname(os.path.abspath(archive)), exist_ok=True)
-    if archive.endswith(".zip"):
+    if archive.endswith((".zip", ".mcpb")):
         pack_zip(stage, archive)
     elif archive.endswith(".tar.gz"):
         pack_tar_gz(stage, archive)

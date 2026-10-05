@@ -20,6 +20,8 @@ on:
             - "scripts/generate-plugin-config.sh"
             - "scripts/download-onnx-libs.sh"
             - "scripts/build-plugin.sh"
+            - "scripts/build-mcpb.sh"
+            - "desktop-extension/**"
             - "workflow-prepare.sh"
             - "plugin/**"
             - "hooks/**"
@@ -111,10 +113,11 @@ jobs:
                   if-no-files-found: error
                   retention-days: 7
 
-    # The plugin has no binaries: one zip for every platform. It is built and validated here (also on pull requests
-    # that touch it) and published next to the platform archives, so the signed checksums cover it too.
+    # The plugin and the Claude Desktop extension have no binaries: one file for every platform. They are built and
+    # validated here (also on pull requests that touch them) and published next to the platform archives, so the signed
+    # checksums cover them too.
     plugin:
-        name: Plugin
+        name: Plugin and Desktop extension
         needs: version
         runs-on: ubuntu-latest
         steps:
@@ -135,10 +138,20 @@ jobs:
                   MNEMONIC_REPO: ${{ github.repository }}
               run: scripts/build-plugin.sh "$VERSION"
 
+            # `npx @anthropic-ai/mcpb validate` checks the manifest the way Claude Desktop's installer does.
+            - name: Build and validate the Desktop extension
+              env:
+                  DIST: dist
+                  VERSION: ${{ needs.version.outputs.version }}
+                  MNEMONIC_REPO: ${{ github.repository }}
+              run: scripts/build-mcpb.sh "$VERSION"
+
             - uses: actions/upload-artifact@v7
               with:
                   name: archive-plugin
-                  path: dist/claude-mnemonic-plugin_*.zip
+                  path: |
+                      dist/claude-mnemonic-plugin_*.zip
+                      dist/claude-mnemonic-desktop_*.mcpb
                   if-no-files-found: error
                   retention-days: 7
 
@@ -160,9 +173,9 @@ jobs:
             - name: Checksums
               working-directory: dist
               run: |
-                  sha256sum claude-mnemonic_* claude-mnemonic-plugin_* | sort -k2 > checksums.txt
+                  sha256sum claude-mnemonic_* claude-mnemonic-plugin_* claude-mnemonic-desktop_* | sort -k2 > checksums.txt
                   cat checksums.txt
-                  test "$(wc -l < checksums.txt)" -eq 4
+                  test "$(wc -l < checksums.txt)" -eq 5
 
             - uses: sigstore/cosign-installer@v4.1.2
 
@@ -192,11 +205,9 @@ jobs:
                     echo
                     echo "Persistent memory system for Claude Code and Claude Desktop."
                     echo
-                    echo "\`claude-mnemonic-plugin_${VERSION}.zip\` is the Claude Code plugin (one zip for every platform); it fetches and verifies the binaries of this release on first use."
+                    echo "**Claude Code:** install the plugin from the marketplace (\`/plugin marketplace add hlgr360/agent-plugins\`, then \`/plugin install claude-mnemonic@hlgr360\`). \`claude-mnemonic-plugin_${VERSION}.zip\` is that plugin (one zip for every platform); it fetches and verifies the binaries of this release on first use."
                     echo
-                    echo '```bash'
-                    echo "curl -sSL https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/scripts/install.sh | bash"
-                    echo '```'
+                    echo "**Claude Desktop (chat and Cowork):** download \`claude-mnemonic-desktop_${VERSION}.mcpb\` and install it with Settings > Extensions > Install Extension. It is the memory tools for Desktop; the plugin does not provide them there."
                     echo
                   } > notes.md
                   gh release create "$GITHUB_REF_NAME" dist/* \
