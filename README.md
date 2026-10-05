@@ -42,10 +42,12 @@ It captures what Claude learns during your coding sessions - bug fixes, architec
 
 Claude Code and Claude Desktop (chat, Cowork and the Code tab) use **one local memory service**: a worker on your computer (port 37777, data in `~/.claude-mnemonic`) with one database and one dashboard. What Claude Code saves in a session, Desktop chat can search, and the other way round. Nothing is sent to a server.
 
-| App | How it reaches the memory | What you set up |
+| App | Install | What it gives |
 |---|---|---|
-| **Claude Code** (and the Desktop Code tab) | Hooks save what happens in a session and load the project's memory at the start; the MCP server gives Claude the search and related tools | Install the plugin (below) |
-| **Claude Desktop chat and Cowork** | The plugin's MCP server (the same one), with a few extra tools for choosing a project | Install the plugin in Desktop too, and paste the instruction under [Claude Desktop chat](#claude-desktop-chat-paste-this-once) once |
+| **Claude Code** (the terminal, and the Desktop Code tab) | the **plugin**, from the marketplace | Hooks that save what happens in a session and load the project's memory at the start, the MCP tools (search, related, ...), skills and commands |
+| **Claude Desktop chat and Cowork** | the **extension** (a `.mcpb` file) | The memory tools, with a few extra ones for choosing a project (Desktop does not give a plugin's tools to chat, and Cowork starts them where they cannot reach the worker) |
+
+Use the one for the app you use, or both: they share the worker and the database. The extension cannot replace the plugin in Claude Code (the automatic saving comes from the plugin's hooks), and the plugin cannot replace the extension in Desktop.
 
 Details for Desktop (the tools, project handling, what was measured): [DESKTOP.md](DESKTOP.md).
 
@@ -53,8 +55,7 @@ Details for Desktop (the tools, project handling, what was measured): [DESKTOP.m
 
 | Dependency | Required | Purpose |
 |------------|----------|---------|
-| **Claude Code CLI** or **Claude Desktop** | Yes (either, or both) | Host application (this is a plugin) |
-| **jq** | Yes | JSON processing during installation |
+| **Claude Code** or **Claude Desktop** | Yes (either, or both) | Where the memory is used |
 
 That's it. No Python. No external services. Everything runs locally.
 
@@ -62,25 +63,32 @@ That's it. No Python. No external services. Everything runs locally.
 
 ## Install
 
-Pick **one** of the two routes; they register the same hooks, so do not combine them.
+Install what you use. Both routes download the binaries of their own release on first use, check them against the release's checksums (and against the cosign signature when cosign is installed) and keep them in `~/.claude-mnemonic/bin`. Supported: macOS on Apple silicon (plugin and extension) and Linux on x86-64 (plugin). Your data (`~/.claude-mnemonic`: the database, settings and embeddings) is never touched by an install.
 
-### As a plugin (Claude Code and Claude Desktop)
+### Claude Code: the plugin
 
 ```
 /plugin marketplace add hlgr360/agent-plugins
 /plugin install claude-mnemonic@hlgr360
 ```
 
-Then **start a new Claude Code session**. Installing the plugin starts nothing: the first session downloads the binaries and starts the worker, and only then does the dashboard at **http://localhost:37777** answer (or run **`/claude-mnemonic:memory-dashboard`**).
+Then **start a new Claude Code session**. Installing the plugin starts nothing: the first session downloads the binaries and starts the worker, and only then does the dashboard at **http://localhost:37777** answer (or run **`/claude-mnemonic:memory-dashboard`**). The first session may start without memory until the download has finished.
 
-- Needs Claude Code 2.1.224 or later. An older version fails with `plugins.0.source: Invalid input`: update Claude Code. The plugin carries no binaries: on first use it downloads the binaries of its own version from this fork's release, checks them against the release's checksums (and against the cosign signature when cosign is installed), and installs them in `~/.claude-mnemonic/bin`. The first session may start without memory until the download has finished.
-- Supported: macOS on Apple silicon and Linux on x86-64.
-- **Claude Desktop chat needs one extra setting**, a text you paste once into your preferences: it is right below.
-- Your data (`~/.claude-mnemonic`: the database, settings and embeddings) is never touched by the plugin.
+Claude Code 2.1.224 or later is known to work; an older version fails with `plugins.0.source: Invalid input` on the original catalogue form, and was not tested since the catalogue changed. Do not install it next to another install of claude-mnemonic (upstream's plugin, a build from source): they register the same hooks.
+
+### Claude Desktop: the extension
+
+1. Download `claude-mnemonic-desktop_<version>.mcpb` from the [latest release](https://github.com/hlgr360/claude-mnemonic/releases/latest).
+2. In Claude Desktop open **Settings > Extensions > Install Extension** and choose the file (or drag it onto the window), then restart Desktop.
+3. Paste the instruction below into your preferences, once.
+
+Chat and Cowork then have the memory tools (`project_suggest`, `remember`, `checkpoint`, `catch_up`, `dashboard`, `restart`, ...), run on your computer and talking to the same worker as Claude Code. Details, the tools and how projects work: [DESKTOP.md](DESKTOP.md).
+
+For an organization: an owner uploads the file at Organization settings > Connectors > Desktop > "Add custom extension", and a new version is uploaded the same way ("Upload new version"; each release has a higher extension version, `0.21.95-fork.3` for release `0.21.95.3`). With the extension allowlist on, people cannot install the file themselves.
 
 ### Claude Desktop chat: paste this once
 
-The plugin serves Claude Desktop too (chat, Cowork and the Code tab use the same MCP server and the same memory as Claude Code). Chat has a built-in memory of its own and answers "search my memory" from that, without calling this plugin, so it needs one instruction. Paste the text below **once** into Claude Desktop: Settings, in your account's personal preferences (custom instructions) field. (Prefer it only in one place? Put it into the instructions of one Desktop project instead.)
+Chat has a built-in memory of its own and answers "search my memory" from that, without calling the memory tools, so it needs one instruction. Paste the text below **once** into Claude Desktop: Settings, in your account's personal preferences (custom instructions) field. (Prefer it only in one place? Put it into the instructions of one Desktop project instead.)
 
 ```text
 I keep a persistent memory of my project work in the claude-mnemonic connector. It is shared with Claude Code and holds decisions, findings and fixes from earlier sessions.
@@ -99,24 +107,10 @@ How to use it:
 Do not use it for general questions that do not refer to my own earlier work.
 ```
 
-It lives in your claude.ai account, so nothing can set it for you. The plugin's own README shows the same text, and `python3 scripts/install-desktop.py instructions --copy` puts it on your clipboard. Without it, expect chat to ignore claude-mnemonic for ordinary "memory" wording; Claude Code does not need it.
-
-### With the install script
-
-```bash
-curl -sSL https://raw.githubusercontent.com/hlgr360/claude-mnemonic/main/scripts/install.sh | bash
-```
+It lives in your claude.ai account, so nothing can set it for you, and `python3 scripts/install-desktop.py instructions --copy` (from a clone) puts it on your clipboard. Without it, expect chat to ignore claude-mnemonic for ordinary "memory" wording; Claude Code does not need it.
 
 <details>
-<summary>Windows (PowerShell)</summary>
-
-```powershell
-irm https://raw.githubusercontent.com/hlgr360/claude-mnemonic/main/scripts/install.ps1 | iex
-```
-</details>
-
-<details>
-<summary>Build from source</summary>
+<summary>Build from source (developers)</summary>
 
 ```bash
 git clone https://github.com/hlgr360/claude-mnemonic.git
@@ -124,19 +118,19 @@ cd claude-mnemonic
 make build && make install
 ```
 
-Requires: Go 1.24+, Node.js 18+, CGO-compatible compiler
+Requires: Go 1.24+, Node.js 18+, CGO-compatible compiler. `make install` registers the build as the plugin (for Claude Code); `make install-desktop` registers it as a connector in Claude Desktop's configuration instead of the extension.
 </details>
 
-With the install script the worker is already running: open **http://localhost:37777** to see the dashboard (it opens on the **Summaries** tab; **All**, Observations, Prompts, Graph and Conflicts are one click away) and start a new Claude Code session - memory is now active. (With the plugin route the worker starts with the first session, see above.)
+With either route the worker starts on its own: with the first Claude Code session, or the first memory tool call in Desktop. Then open **http://localhost:37777** to see the dashboard (it opens on the **Summaries** tab; **All**, Observations, Prompts, Graph and Conflicts are one click away).
 
 You do not have to remember the address:
 
 - **Claude Code:** run **`/memory-dashboard`**. It opens the dashboard in your browser (it finds a custom `WORKER_PORT` itself) and says so if the worker is not running. The first session after an install or an update also shows you a one-line message with the address (for you only; it is not added to what the model sees).
-- **Claude Desktop:** ask for your memory dashboard; the `dashboard` tool gives chat the link to click. `scripts/install-desktop.py` and `make install` print the address at the end too.
+- **Claude Desktop:** ask for your memory dashboard; the `dashboard` tool gives chat the link to click.
 
 ### Verifying Release Signatures
 
-All release checksums are signed with [cosign](https://github.com/sigstore/cosign) using keyless signing (the signature covers the platform archives and the plugin zip). To verify:
+All release checksums are signed with [cosign](https://github.com/sigstore/cosign) using keyless signing (the signature covers the platform archives, the plugin zip and the Desktop extension). To verify:
 
 ```bash
 # Download checksums.txt and checksums.txt.sigstore.json from the release
@@ -465,19 +459,13 @@ curl http://127.0.0.1:37777/api/selfcheck
 
 ## Uninstall
 
-Your data (`~/.claude-mnemonic`: the database, settings and embeddings) is **kept** unless you ask for it to go. This
-fork's scripts do that; upstream's `uninstall.sh` deletes the data by default, so use the fork's:
+Your data (`~/.claude-mnemonic`: the database, settings and embeddings) is **kept** unless you delete it yourself.
 
-```bash
-# Remove the plugin and the binaries, keep your data
-curl -sSL https://raw.githubusercontent.com/hlgr360/claude-mnemonic/main/scripts/uninstall.sh | bash
+- **Claude Code:** `/plugin uninstall claude-mnemonic@hlgr360`.
+- **Claude Desktop:** Settings > Extensions, remove Claude Mnemonic.
+- **Everything, including your data** (the database cannot be recovered): stop the worker (`lsof -ti :37777 | xargs kill`) and delete `~/.claude-mnemonic`.
 
-# Remove everything, including your data (the database cannot be recovered)
-curl -sSL https://raw.githubusercontent.com/hlgr360/claude-mnemonic/main/scripts/uninstall.sh | bash -s -- --purge
-```
-
-To only switch from one install route to another, use `claude plugin uninstall` (or `scripts/unregister-plugin.sh`,
-which keeps the data too) and never `--purge`.
+Switching between routes only needs the first two lines; never delete the data for that.
 
 ## Architecture
 
@@ -498,6 +486,8 @@ Everything runs locally. No Python. No external vector database. No API calls.
 | Linux amd64 | Supported |
 | Linux arm64 | Supported |
 | Windows amd64 | Supported |
+
+The table is what the worker builds for. Through the plugin and the extension the supported platforms are macOS on Apple silicon (both) and Linux on x86-64 (plugin only); anything else builds from source.
 
 ## Development
 
