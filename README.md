@@ -151,7 +151,7 @@ cosign verify-blob \
 | **Project Isolation** | Each project has its own knowledge base |
 | **Global Patterns** | Best practices are shared across all projects |
 | **Semantic Search** | Find relevant context with natural language (local embeddings) |
-| **Live Statusline** | Real-time metrics in Claude Code: `[mnemonic] ● served:42 | project:28 memories` |
+| **Live Statusline** | Real-time metrics in Claude Code: `[mnemonic] ● served:42 | project:28 memories`. While the worker is ready, the `[mnemonic]` tag is a link to the dashboard (Cmd+click on macOS, Ctrl+click elsewhere, in a terminal that supports hyperlinks such as iTerm2, Kitty or WezTerm; Terminal.app does not). `CLAUDE_MNEMONIC_STATUSLINE_LINK=false` turns the link off |
 | **Web Dashboard** | Browse and manage memories at `localhost:37777` (`/memory-dashboard` opens it) |
 | **Auto-Updates** | Automatically downloads and applies new versions |
 | **Slash Commands** | Control the worker directly from Claude Code |

@@ -102,7 +102,7 @@ func handleStatusline(input *StatusInput, port int) string {
 	stats := getWorkerStats(port, project)
 
 	// Format and return statusline
-	return formatStatusLine(stats, *input)
+	return formatStatusLine(stats, *input, port)
 }
 
 // getWorkerStats fetches stats from the worker service.
@@ -128,7 +128,7 @@ func getWorkerStats(port int, project string) *WorkerStats {
 }
 
 // formatStatusLine formats the status line output.
-func formatStatusLine(stats *WorkerStats, input StatusInput) string {
+func formatStatusLine(stats *WorkerStats, input StatusInput, port int) string {
 	// Check if colors are enabled (default: yes, unless TERM is dumb or NO_COLOR is set)
 	useColors := os.Getenv("NO_COLOR") == "" && os.Getenv("TERM") != "dumb"
 	if os.Getenv("CLAUDE_MNEMONIC_STATUSLINE_COLORS") == "false" {
@@ -151,26 +151,56 @@ func formatStatusLine(stats *WorkerStats, input StatusInput) string {
 		return formatStartingColored(useColors)
 	}
 
+	// The name tag links to the dashboard, but only while the worker can answer it.
+	link := ""
+	if linkEnabled() {
+		link = dashboardURL(port)
+	}
+
 	switch format {
 	case "compact":
-		return formatCompact(stats, useColors)
+		return formatCompact(stats, useColors, link)
 	case "minimal":
 		return formatMinimal(stats, useColors)
 	default:
-		return formatDefault(stats, useColors)
+		return formatDefault(stats, useColors, link)
 	}
 }
 
+// dashboardURL is the address of the dashboard the worker serves on port.
+func dashboardURL(port int) string {
+	if port <= 0 {
+		port = hooks.DefaultWorkerPort
+	}
+	return fmt.Sprintf("http://localhost:%d", port)
+}
+
+// linkEnabled says whether the name tag may be a hyperlink. CLAUDE_MNEMONIC_STATUSLINE_LINK=false turns it off, and a dumb
+// terminal never gets one. Claude Code only passes the sequence to a terminal that supports hyperlinks.
+func linkEnabled() bool {
+	return os.Getenv("CLAUDE_MNEMONIC_STATUSLINE_LINK") != "false" && os.Getenv("TERM") != "dumb"
+}
+
+// hyperlink wraps text in an OSC 8 terminal hyperlink to url (Cmd+click on macOS, Ctrl+click elsewhere), the form Claude
+// Code's status line documents. An empty url leaves the text as it is.
+func hyperlink(url, text string) string {
+	if url == "" {
+		return text
+	}
+	return "\033]8;;" + url + "\a" + text + "\033]8;;\a"
+}
+
 // formatDefault returns the default status line format.
-func formatDefault(stats *WorkerStats, useColors bool) string {
+func formatDefault(stats *WorkerStats, useColors bool, link string) string {
 	// [mnemonic] ● served:42 | injected:5 | searches:3 | project:28 memories
 	var prefix, indicator, reset string
+	tag := hyperlink(link, "[mnemonic]")
 	if useColors {
-		prefix = colorCyan + "[mnemonic]" + colorReset
+		prefix = colorCyan + tag + colorReset
 		indicator = colorGreen + "●" + colorReset
 		reset = colorReset
 	} else {
-		prefix = "[mnemonic]"
+		prefix = tag
 		indicator = "●"
 	}
 
@@ -212,14 +242,15 @@ func formatDefault(stats *WorkerStats, useColors bool) string {
 }
 
 // formatCompact returns a compact status line format.
-func formatCompact(stats *WorkerStats, useColors bool) string {
+func formatCompact(stats *WorkerStats, useColors bool, link string) string {
 	// [m] ● 42/5/3
 	var prefix, indicator string
+	tag := hyperlink(link, "[m]")
 	if useColors {
-		prefix = colorCyan + "[m]" + colorReset
+		prefix = colorCyan + tag + colorReset
 		indicator = colorGreen + "●" + colorReset
 	} else {
-		prefix = "[m]"
+		prefix = tag
 		indicator = "●"
 	}
 
