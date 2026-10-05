@@ -143,7 +143,7 @@ func (s *Service) handleCheckpoint(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if !known {
-			http.Error(w, fmt.Sprintf("unknown project %q: pick an existing project, or pass the folder path to start a new one", canonical),
+			http.Error(w, fmt.Sprintf("unknown project %q: pick an existing project, or pass the folder's full path on the user's computer (not a sandbox path) to start a new one", canonical),
 				http.StatusUnprocessableEntity)
 			return
 		}
