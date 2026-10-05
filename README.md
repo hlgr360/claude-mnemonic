@@ -74,6 +74,8 @@ Install what you use. Both routes download the binaries of their own release on 
 
 Then **start a new Claude Code session**. Installing the plugin starts nothing: the first session downloads the binaries and starts the worker, and only then does the dashboard at **http://localhost:37777** answer (or run **`/claude-mnemonic:memory-dashboard`**). The first session may start without memory until the download has finished.
 
+**Optional: the status line.** A plugin cannot turn the status line on (Claude Code applies only `agent` and `subagentStatusLine` from a plugin's settings), so run **`/claude-mnemonic:memory-statusline`** once. It sets `statusLine` in your `settings.json` when you have none, asks before replacing a status line you already use (and keeps the old file as `settings.json.mnemonic-backup`), and turns it off again on request.
+
 Claude Code 2.1.224 or later is known to work; an older version fails with `plugins.0.source: Invalid input` on the original catalogue form, and was not tested since the catalogue changed. Do not install it next to another install of claude-mnemonic (upstream's plugin, a build from source): they register the same hooks.
 
 ### Claude Desktop: the extension

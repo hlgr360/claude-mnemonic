@@ -45,6 +45,9 @@ python3 scripts/commands_to_skills.py commands "$TREE/skills"
 cp plugin/README.md "$TREE/README.md"
 cp plugin/lib/ensure-binaries.sh "$TREE/lib/ensure-binaries.sh"
 chmod 755 "$TREE/lib/ensure-binaries.sh"
+# The status line setup (a plugin cannot set `statusLine` itself): /claude-mnemonic:memory-statusline runs it.
+cp plugin/lib/statusline.sh "$TREE/lib/statusline.sh"
+chmod 755 "$TREE/lib/statusline.sh"
 cp LICENSE "$TREE/LICENSE"
 
 # A fork of the fork downloads from its own releases, and links to them.

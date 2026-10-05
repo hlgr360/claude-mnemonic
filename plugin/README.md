@@ -10,6 +10,8 @@ automatically, loads the project's memory at the start of a session, makes them 
 - Hooks save what happens in a session and load the project's memory at the start, and the MCP server gives Claude the
   search and related tools.
 - `/memory-dashboard` opens the dashboard and `/memory-restart` restarts the local worker.
+- `/memory-statusline` turns on the Claude Mnemonic status line (`[mnemonic] ● served:42 | project:28 memories`, the tag
+  links to the dashboard). A plugin cannot set a status line itself, so this asks first and never replaces yours silently.
 - **The memory is stored on your computer** (`~/.claude-mnemonic`), by a local worker that the hooks and the MCP server
   start when needed.
 - **The plugin carries no binaries.** On first use it downloads the binaries of its own version from the release,
