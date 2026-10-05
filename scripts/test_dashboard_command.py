@@ -98,7 +98,7 @@ class Manifest(unittest.TestCase):
         for rel in manifest.get("commands", []):
             self.assertTrue(os.path.isfile(os.path.join(ROOT, rel)), f"the manifest names {rel}, which does not exist")
         self.assertNotIn("commands", manifest, "the default scan of commands/ loads both; a list would replace it")
-        for name in ("memory-dashboard", "memory-restart"):
+        for name in ("memory-dashboard", "memory-restart", "memory-statusline"):
             self.assertTrue(os.path.isfile(os.path.join(ROOT, "commands", name + ".md")), name)
         for old in ("dashboard", "restart"):
             self.assertFalse(os.path.exists(os.path.join(ROOT, "commands", old + ".md")), f"{old}.md is the old name")

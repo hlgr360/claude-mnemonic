@@ -299,7 +299,7 @@ class BuildPlugin(unittest.TestCase):
         files = sorted(os.path.relpath(os.path.join(r, n), f.tree) for r, _d, ns in os.walk(f.tree) for n in ns)
         self.assertEqual(
             files,
-            sorted([".claude-plugin/plugin.json", "LICENSE", "README.md", "hooks/hooks.json", "lib/ensure-binaries.sh", "mcp-server", "skills/memory-dashboard/SKILL.md", "skills/memory-restart/SKILL.md"] + [f"hooks/{h}" for h in HOOKS]),
+            sorted([".claude-plugin/plugin.json", "LICENSE", "README.md", "hooks/hooks.json", "lib/ensure-binaries.sh", "lib/statusline.sh", "mcp-server", "skills/memory-dashboard/SKILL.md", "skills/memory-restart/SKILL.md", "skills/memory-statusline/SKILL.md"] + [f"hooks/{h}" for h in HOOKS]),
         )
         with open(os.path.join(f.tree, ".claude-plugin", "plugin.json"), encoding="utf-8") as fh:
             manifest = json.load(fh)
@@ -357,9 +357,9 @@ class Skills(unittest.TestCase):
         # Claude Desktop gets the memory tools from the Desktop extension and the instruction from the person's
         # preferences; the plugin is for Claude Code, where the hooks do the work and a skill would only step aside.
         f = Fixture(self)
-        self.assertEqual(sorted(os.listdir(os.path.join(f.tree, "skills"))), ["memory-dashboard", "memory-restart"])
+        self.assertEqual(sorted(os.listdir(os.path.join(f.tree, "skills"))), ["memory-dashboard", "memory-restart", "memory-statusline"])
 
-    def test_only_the_two_memory_commands_exist_and_can_be_run_by_hand(self):
+    def test_only_the_memory_commands_exist_and_can_be_run_by_hand(self):
         f = Fixture(self)
         runnable = []
         for name in sorted(os.listdir(os.path.join(f.tree, "skills"))):
@@ -367,7 +367,7 @@ class Skills(unittest.TestCase):
                 front = fh.read().split("---")[1]
             if "user-invocable: false" not in front:
                 runnable.append(name)
-        self.assertEqual(runnable, ["memory-dashboard", "memory-restart"])
+        self.assertEqual(runnable, ["memory-dashboard", "memory-restart", "memory-statusline"])
 
 
 class Overview(unittest.TestCase):
@@ -418,7 +418,7 @@ class CommandsAsSkills(unittest.TestCase):
     def test_every_command_becomes_a_user_only_skill_with_the_same_body(self):
         f = Fixture(self)
         names = sorted(n[:-3] for n in os.listdir(os.path.join(REPO_ROOT, "commands")) if n.endswith(".md"))
-        self.assertEqual(names, ["memory-dashboard", "memory-restart"])
+        self.assertEqual(names, ["memory-dashboard", "memory-restart", "memory-statusline"])
         for name in names:
             with open(os.path.join(REPO_ROOT, "commands", name + ".md"), encoding="utf-8") as fh:
                 source_front, source_body = self.front_and_body(fh.read())
