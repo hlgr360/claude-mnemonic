@@ -194,8 +194,12 @@ Config file: `~/.claude-mnemonic/settings.json`
 | `CONTEXT_RELEVANCE_THRESHOLD` | `0.3` | Minimum similarity score (0.0-1.0) for inclusion |
 | `CONTEXT_MAX_PROMPT_RESULTS` | `10` | Max results per prompt search |
 | `MAX_OBSERVATIONS_PER_PROJECT` | `0` | Cap on a project's live notes; `0` is **no cap**. With a cap, the oldest notes beyond it are **archived** (kept, out of search, context and lists; restore with `POST /api/observations/{id}/unarchive`), never deleted |
+| `SNAPSHOT_INTERVAL_HOURS` | `24` | How often a regular snapshot of the database is taken while the worker runs (half a minute after start if none is due-current); `0` is never |
+| `SNAPSHOTS_DAILY_KEEP` | `7` | How many of those regular snapshots are kept |
 
 **Notes are not deleted for being many.** Earlier versions (and upstream before v0.21.105) kept only the newest 100 notes of a project and deleted the rest permanently, without saying so. Now nothing is removed by default. An archived note keeps its row (an export includes it, and `GET /api/observations?include_archived=true` lists it) but is not searched, injected or counted; unarchiving puts it back, vectors included.
+
+**Snapshots.** A snapshot is a consistent copy of the database in `~/.claude-mnemonic/backups/`. One is taken before a project delete, merge or bulk re-scope, before the cap archives notes (at most one an hour), and once a day by default; the ones taken before an action (the newest 10) and the regular ones (the newest `SNAPSHOTS_DAILY_KEEP`) are pruned separately, so one kind never pushes out the other. `GET /api/stats` shows how many there are and how old the newest is. To go back to one: stop the worker, copy the snapshot over `~/.claude-mnemonic/claude-mnemonic.db` (and delete its `-wal` and `-shm` files), start a session.
 
 ### Reranking Settings (Two-Stage Retrieval)
 

@@ -39,6 +39,9 @@ var commonWords = map[string]struct{}{
 // Receives the IDs of deleted observations for downstream cleanup (e.g., vector DB).
 type CleanupFunc func(ctx context.Context, deletedIDs []int64)
 
+// BeforeArchiveFunc is called before the cap archives notes, so a snapshot can be taken first.
+type BeforeArchiveFunc func(ctx context.Context, reason string)
+
 // ObservationStore provides observation-related database operations using GORM.
 type ObservationStore struct {
 	conflictStore  any
@@ -46,6 +49,7 @@ type ObservationStore struct {
 	db             *gorm.DB
 	rawDB          *sql.DB
 	cleanupFunc    CleanupFunc
+	beforeArchive  BeforeArchiveFunc
 	cleanupQueue   chan string
 	stopCleanup    chan struct{}
 	cleanupWg      sync.WaitGroup
@@ -103,6 +107,11 @@ func (s *ObservationStore) cleanupWorker() {
 	}
 }
 
+// SetBeforeArchive sets what is called before the cap archives notes (the worker takes a snapshot).
+func (s *ObservationStore) SetBeforeArchive(fn BeforeArchiveFunc) {
+	s.beforeArchive = fn
+}
+
 // SetMaxObservationsPerProject sets the cap on a project's live notes. The oldest beyond it are archived, never
 // deleted. 0 (the default) is no cap.
 func (s *ObservationStore) SetMaxObservationsPerProject(n int) {
@@ -125,6 +134,16 @@ func (s *ObservationStore) processCleanup(project string) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+
+	if s.beforeArchive != nil {
+		var beyond int64
+		if err := s.db.WithContext(ctx).Model(&Observation{}).
+			Where("project = ?", project).
+			Where("COALESCE(is_archived, 0) = 0 AND COALESCE(is_superseded, 0) = 0").
+			Count(&beyond).Error; err == nil && beyond > int64(limit) {
+			s.beforeArchive(ctx, "cap")
+		}
+	}
 
 	archivedIDs, err := s.ArchiveBeyondLimit(ctx, project, limit)
 	if err != nil {

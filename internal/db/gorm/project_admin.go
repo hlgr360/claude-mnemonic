@@ -304,7 +304,7 @@ func resolveAliasIn(tx *gorm.DB, id string) (string, bool, error) {
 }
 
 // Snapshot writes a consistent copy of the database to dir and keeps only the
-// newest keep snapshots. It returns the new file's path. Take one before any
+// newest keep snapshots of its kind (scheduled ones with DailySnapshotLabel, all others together). It returns the new file's path. Take one before any
 // destructive project operation.
 func (s *Store) Snapshot(ctx context.Context, dir, label string, keep int) (string, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -325,7 +325,7 @@ func (s *Store) Snapshot(ctx context.Context, dir, label string, keep int) (stri
 	if _, err := s.sqlDB.ExecContext(ctx, "VACUUM INTO ?", dst); err != nil {
 		return "", fmt.Errorf("snapshot database: %w", err)
 	}
-	pruneSnapshots(dir, keep)
+	pruneSnapshots(dir, keep, label == DailySnapshotLabel)
 	return dst, nil
 }
 
@@ -345,26 +345,66 @@ func sanitizeLabel(label string) string {
 	return b.String()
 }
 
-// pruneSnapshots deletes all but the newest keep snapshot files in dir.
-func pruneSnapshots(dir string, keep int) {
-	if keep <= 0 {
-		return
-	}
+// DailySnapshotLabel is the label of the regular (scheduled) snapshot. Its files are pruned on their own, so a week of
+// daily snapshots never pushes out the snapshots taken before a delete, a merge or a cleanup, and the other way round.
+const DailySnapshotLabel = "daily"
+
+func isDailySnapshot(name string) bool {
+	return strings.HasSuffix(name, "-"+DailySnapshotLabel+".db")
+}
+
+// snapshotNames lists the snapshot files in dir, oldest first; daily selects the scheduled ones or all the others.
+func snapshotNames(dir string, daily bool) []string {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return
+		return nil
 	}
 	var names []string
 	for _, e := range entries {
-		if !e.IsDir() && strings.HasPrefix(e.Name(), "snapshot-") && strings.HasSuffix(e.Name(), ".db") {
-			names = append(names, e.Name())
+		n := e.Name()
+		if !e.IsDir() && strings.HasPrefix(n, "snapshot-") && strings.HasSuffix(n, ".db") && isDailySnapshot(n) == daily {
+			names = append(names, n)
 		}
 	}
 	sort.Strings(names) // timestamps sort lexically
+	return names
+}
+
+// pruneSnapshots deletes all but the newest keep snapshot files of one class in dir: the scheduled ones (daily) or the
+// ones taken before a destructive action.
+func pruneSnapshots(dir string, keep int, daily bool) {
+	if keep <= 0 {
+		return
+	}
+	names := snapshotNames(dir, daily)
 	for len(names) > keep {
 		_ = os.Remove(filepath.Join(dir, names[0]))
 		names = names[1:]
 	}
+}
+
+// SnapshotSummary says how many snapshots dir holds and when the newest was written (the zero time when there is none).
+func SnapshotSummary(dir string) (count int, newest time.Time) {
+	for _, daily := range []bool{false, true} {
+		for _, n := range snapshotNames(dir, daily) {
+			count++
+			if info, err := os.Stat(filepath.Join(dir, n)); err == nil && info.ModTime().After(newest) {
+				newest = info.ModTime()
+			}
+		}
+	}
+	return count, newest
+}
+
+// NewestDailySnapshot is when the newest scheduled snapshot in dir was written (the zero time when there is none).
+func NewestDailySnapshot(dir string) time.Time {
+	var newest time.Time
+	for _, n := range snapshotNames(dir, true) {
+		if info, err := os.Stat(filepath.Join(dir, n)); err == nil && info.ModTime().After(newest) {
+			newest = info.ModTime()
+		}
+	}
+	return newest
 }
 
 // DefaultSnapshotDir is where snapshots go: a "backups" folder beside the database.

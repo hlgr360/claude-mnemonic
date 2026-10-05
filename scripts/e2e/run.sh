@@ -50,7 +50,9 @@ stop_worker() { kill $(lsof -ti ":$WORKER_PORT") 2>/dev/null; sleep 1; }
 
 # The conflict proposer is on by default and would call a model for the notes the suites write. Only the conflict suite
 # wants it, with a fake claude; every other suite runs with it switched off.
-NO_PROPOSALS='"CLAUDE_MNEMONIC_CONFLICT_PROPOSALS_ENABLED": false'
+# Also no regular snapshot: it would put a copy of the database into backups/ half a minute after every worker start, where
+# the suites count the snapshots they cause. Only the snapshot suite switches it on.
+NO_PROPOSALS='"CLAUDE_MNEMONIC_CONFLICT_PROPOSALS_ENABLED": false, "CLAUDE_MNEMONIC_SNAPSHOT_INTERVAL_HOURS": 0'
 base_settings() {
   mkdir -p "$WORK/home/.claude-mnemonic"
   printf '{%s}\n' "$NO_PROPOSALS" > "$WORK/home/.claude-mnemonic/settings.json"
@@ -94,6 +96,12 @@ suite "Prune and merge with real embeddings and snapshots"             python3 "
 
 fresh_worker || exit 1
 suite "Notes are kept, and an archived note is out of search"          python3 "$HERE/drive_cap.py"
+
+# The regular snapshot: switched on here only, it runs half a minute after the worker starts.
+printf '{"CLAUDE_MNEMONIC_SNAPSHOT_INTERVAL_HOURS": 24, "CLAUDE_MNEMONIC_CONFLICT_PROPOSALS_ENABLED": false}\n' > "$WORK/home/.claude-mnemonic/settings.json"
+fresh_worker || exit 1
+suite "A regular snapshot of the database"                             python3 "$HERE/drive_snapshots.py"
+base_settings
 
 fresh_worker || exit 1
 suite "Project names, and projects that share a name"                  python3 "$HERE/drive_names.py"
@@ -157,7 +165,7 @@ base_settings
 
 # Conflict proposals: switched on with a low similarity bar, answered by the fake claude above. The first automatic
 # pass runs 45 s after the worker starts, so the suite seeds its data straight away and then waits for it.
-printf '{"CLAUDE_CODE_PATH": "%s/fake-claude", "CLAUDE_MNEMONIC_CONFLICT_PROPOSALS_ENABLED": true, "CLAUDE_MNEMONIC_CONFLICT_PROPOSALS_INTERVAL_MINUTES": 1, "CLAUDE_MNEMONIC_CONFLICT_PROPOSALS_MIN_SIMILARITY": 0.6}\n' "$WORK" > "$WORK/home/.claude-mnemonic/settings.json"
+printf '{"CLAUDE_CODE_PATH": "%s/fake-claude", "CLAUDE_MNEMONIC_CONFLICT_PROPOSALS_ENABLED": true, "CLAUDE_MNEMONIC_CONFLICT_PROPOSALS_INTERVAL_MINUTES": 1, "CLAUDE_MNEMONIC_CONFLICT_PROPOSALS_MIN_SIMILARITY": 0.6, "CLAUDE_MNEMONIC_SNAPSHOT_INTERVAL_HOURS": 0}\n' "$WORK" > "$WORK/home/.claude-mnemonic/settings.json"
 fresh_worker || exit 1
 suite "Conflict review: proposals, decisions, hiding, undo"            python3 "$HERE/drive_conflicts.py"
 base_settings

@@ -620,6 +620,31 @@ func TestLoad_ObservationCapIsOffByDefaultAndReadFromTheSettings(t *testing.T) {
 	}
 }
 
+func TestLoad_SnapshotSettings(t *testing.T) {
+	writeSettings(t, `{}`)
+	cfg, err := Load()
+	assert.NoError(t, err)
+	assert.Equal(t, 24, cfg.SnapshotIntervalHours, "a snapshot a day by default")
+	assert.Equal(t, 7, cfg.SnapshotsDailyKeep)
+
+	writeSettings(t, `{"CLAUDE_MNEMONIC_SNAPSHOT_INTERVAL_HOURS": 6, "CLAUDE_MNEMONIC_SNAPSHOTS_DAILY_KEEP": 14}`)
+	cfg, err = Load()
+	assert.NoError(t, err)
+	assert.Equal(t, 6, cfg.SnapshotIntervalHours)
+	assert.Equal(t, 14, cfg.SnapshotsDailyKeep)
+
+	writeSettings(t, `{"CLAUDE_MNEMONIC_SNAPSHOT_INTERVAL_HOURS": 0}`)
+	cfg, err = Load()
+	assert.NoError(t, err)
+	assert.Equal(t, 0, cfg.SnapshotIntervalHours, "zero switches the regular snapshot off")
+
+	writeSettings(t, `{"CLAUDE_MNEMONIC_SNAPSHOT_INTERVAL_HOURS": -1, "CLAUDE_MNEMONIC_SNAPSHOTS_DAILY_KEEP": 0}`)
+	cfg, err = Load()
+	assert.NoError(t, err)
+	assert.Equal(t, 24, cfg.SnapshotIntervalHours, "a negative interval is not one")
+	assert.Equal(t, 7, cfg.SnapshotsDailyKeep, "keeping none is not a keep")
+}
+
 func TestLoad_UnusableConflictSettingsKeepTheDefaults(t *testing.T) {
 	writeSettings(t, `{
 		"CLAUDE_MNEMONIC_CONFLICT_PROPOSALS_ENABLED": "yes",

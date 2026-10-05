@@ -329,6 +329,16 @@ func (s *Service) handleGetStats(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// The newest snapshots, so a missing backup is visible.
+	if s.store != nil {
+		count, newest := gorm.SnapshotSummary(s.store.DefaultSnapshotDir())
+		snapshots := map[string]any{"count": count}
+		if !newest.IsZero() {
+			snapshots["newest_age_seconds"] = int(time.Since(newest).Seconds())
+		}
+		response["snapshots"] = snapshots
+	}
+
 	// Include project-specific observation count if project is specified
 	if project != "" {
 		count, err := s.getCachedObservationCount(r.Context(), project)

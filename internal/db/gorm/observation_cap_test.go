@@ -214,3 +214,33 @@ func TestArchivedNotesAreKeptButOutOfSearchListsCountsAndTheVectorRebuild(t *tes
 	require.NoError(t, store.DB.Model(&Observation{}).Where("project = ?", "proj").Count(&rows).Error)
 	assert.EqualValues(t, 3, rows)
 }
+
+func TestCap_ASnapshotIsTakenBeforeNotesAreArchivedAndOnlyThen(t *testing.T) {
+	s, store, cleanup := testObservationStore(t)
+	defer cleanup()
+
+	var mu sync.Mutex
+	var calls []string
+	var liveWhenCalled []int64
+	s.SetBeforeArchive(func(_ context.Context, reason string) {
+		mu.Lock()
+		defer mu.Unlock()
+		calls = append(calls, reason)
+		live, _ := countNotes(t, store, "proj")
+		liveWhenCalled = append(liveWhenCalled, live)
+	})
+	s.SetMaxObservationsPerProject(10)
+
+	storeNotes(t, s, "proj", 10)
+	time.Sleep(150 * time.Millisecond)
+	mu.Lock()
+	assert.Empty(t, calls, "at the cap, nothing is archived, so nothing is snapshotted")
+	mu.Unlock()
+
+	storeNotes(t, s, "proj", 1)
+	require.Eventually(t, func() bool { _, a := countNotes(t, store, "proj"); return a == 1 }, 2*time.Second, 20*time.Millisecond)
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(t, []string{"cap"}, calls, "once, with the reason")
+	assert.Equal(t, []int64{11}, liveWhenCalled, "it ran before the archive: all eleven notes were still live")
+}
