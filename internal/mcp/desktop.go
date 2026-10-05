@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -507,7 +508,25 @@ func unresolvedMessage(tool, ref string, r resolution) string {
 	if len(r.Candidates) > 0 {
 		msg += "; did you mean one of: " + describeCandidates(r.CandidateDetails, r.Candidates)
 	}
-	return msg + "; use project_list or project_suggest to see the projects"
+	return msg + "; use project_list or project_suggest to see the projects. " + newProjectHint
+}
+
+// newProjectHint says how a project is started: its id comes from the folder's real path on the user's computer, so a
+// name alone cannot create one, and a path from Cowork's sandbox would give an id Claude Code never uses.
+const newProjectHint = "To start a new project, ask the user for the folder's full path on their computer " +
+	"(for example /Users/<name>/.../<folder>; not a sandbox path such as /sessions/...) and pass it as path."
+
+// isSandboxPath reports whether p is a path inside Cowork's sandbox (its folders are mounted under /sessions/), which
+// is not a folder on the user's computer.
+func isSandboxPath(p string) bool {
+	return strings.HasPrefix(filepath.ToSlash(filepath.Clean(strings.TrimSpace(p))), "/sessions/")
+}
+
+// sandboxPathError refuses a sandbox path, because the project id is built from the folder's real path.
+func sandboxPathError(tool, p string) error {
+	return fmt.Errorf("%s: %q is a path inside Cowork's sandbox, not a folder on the user's computer. A project's id comes from the folder's "+
+		"real path, so this would create a project that Claude Code never uses. Ask the user for the folder's full path on their computer "+
+		"(for example /Users/<name>/.../<folder>) and pass that as path", tool, p)
 }
 
 func (s *Server) resolveRef(ctx context.Context, key, value string) (resolution, error) {
@@ -531,6 +550,9 @@ func (s *Server) toolProjectResolve(ctx context.Context, args json.RawMessage) (
 	}
 	if a.Path == "" && a.Name == "" && a.ID == "" {
 		return "", fmt.Errorf("project_resolve: pass path, name or id")
+	}
+	if isSandboxPath(a.Path) {
+		return "", sandboxPathError("project_resolve", a.Path)
 	}
 	return s.proxyGetRaw(ctx, "/api/projects/resolve", map[string]string{"path": a.Path, "name": a.Name, "id": a.ID})
 }
@@ -561,6 +583,9 @@ func (s *Server) toolProjectSuggest(ctx context.Context, args json.RawMessage) (
 // alias or a unique name. allowNew is true only when the id came from a path.
 func (s *Server) projectFromArgs(ctx context.Context, tool, project, path string) (id string, allowNew bool, err error) {
 	switch {
+	case isSandboxPath(path):
+		return "", false, sandboxPathError(tool, path)
+
 	case strings.TrimSpace(path) != "":
 		r, rerr := s.resolveRef(ctx, "path", path)
 		if rerr != nil {

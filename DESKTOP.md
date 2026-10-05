@@ -10,9 +10,11 @@ what Code learned is available in Desktop and the other way round.
 | Mode | How the project is found | Capture |
 |---|---|---|
 | **Code tab** | Automatically, as in the terminal (hooks) | Automatic (hooks) |
-| **Cowork with a folder** | The folder path is hashed to the id Claude Code uses for the same folder | `remember` |
+| **Cowork with a folder** | The folder path **on your computer** is hashed to the id Claude Code uses for the same folder. Cowork itself only sees its sandbox path (`/sessions/...`), which is refused with a message asking for the real path | `remember` |
 | **Cowork without a folder, Chat** | `project_suggest` offers likely projects from your first message; you pick one | `remember`, after you pick |
 | **Declined** | none | none: read-only search across all projects |
+
+A new project is always started from a folder: a plain name cannot create one (its id contains a hash of the folder's path, so that Claude Code and Desktop agree on it). If you ask for a project that does not exist, the tools say so and ask for the folder's full path on your computer.
 
 If you decline to pick a project, **nothing can be written**: the server rejects `remember`
 without an explicit project, whatever the model does.
