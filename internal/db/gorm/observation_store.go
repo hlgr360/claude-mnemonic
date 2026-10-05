@@ -17,8 +17,8 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// MaxObservationsPerProject is the maximum number of observations to keep per project.
-const MaxObservationsPerProject = 100
+// ArchivedByCapReason is the reason recorded on a note the per-project cap archived.
+const ArchivedByCapReason = "cap: only the newest notes of a project stay live"
 
 // cleanupQueueSize is the buffer size for the cleanup queue.
 const cleanupQueueSize = 100
@@ -51,6 +51,8 @@ type ObservationStore struct {
 	cleanupWg      sync.WaitGroup
 	cleanupOnce    sync.Once
 	cleanupStarted atomic.Bool
+	// maxPerProject is the cap on a project's live notes; 0 is no cap (the default).
+	maxPerProject atomic.Int64
 }
 
 // NewObservationStore creates a new observation store.
@@ -101,20 +103,42 @@ func (s *ObservationStore) cleanupWorker() {
 	}
 }
 
-// processCleanup performs the actual cleanup for a project.
+// SetMaxObservationsPerProject sets the cap on a project's live notes. The oldest beyond it are archived, never
+// deleted. 0 (the default) is no cap.
+func (s *ObservationStore) SetMaxObservationsPerProject(n int) {
+	if n < 0 {
+		n = 0
+	}
+	s.maxPerProject.Store(int64(n))
+}
+
+// MaxObservationsPerProject returns the cap on a project's live notes; 0 is no cap.
+func (s *ObservationStore) MaxObservationsPerProject() int {
+	return int(s.maxPerProject.Load())
+}
+
+// processCleanup applies the cap to a project, when there is one: the oldest live notes beyond it are archived.
 func (s *ObservationStore) processCleanup(project string) {
+	limit := s.MaxObservationsPerProject()
+	if limit <= 0 {
+		return
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	deletedIDs, err := s.CleanupOldObservations(ctx, project)
+	archivedIDs, err := s.ArchiveBeyondLimit(ctx, project, limit)
 	if err != nil {
-		log.Warn().Err(err).Str("project", project).Msg("Failed to cleanup old observations")
+		log.Warn().Err(err).Str("project", project).Msg("Failed to apply the per-project cap")
 		return
 	}
 
-	if len(deletedIDs) > 0 && s.cleanupFunc != nil {
-		s.cleanupFunc(ctx, deletedIDs)
-		log.Debug().Str("project", project).Int("count", len(deletedIDs)).Msg("Cleaned up old observations")
+	if len(archivedIDs) > 0 {
+		log.Info().Str("project", project).Int("archived", len(archivedIDs)).Int("cap", limit).
+			Msg("Per-project cap: archived the oldest notes (they are kept and can be restored)")
+		if s.cleanupFunc != nil {
+			// An archived note leaves the vector index, so search cannot return it; unarchiving puts it back.
+			s.cleanupFunc(ctx, archivedIDs)
+		}
 	}
 }
 
@@ -292,7 +316,7 @@ func (s *ObservationStore) GetObservationsByIDs(ctx context.Context, ids []int64
 	}
 
 	var dbObservations []Observation
-	query := s.db.WithContext(ctx).Where("id IN ?", ids)
+	query := s.db.WithContext(ctx).Scopes(notArchivedFilter()).Where("id IN ?", ids)
 
 	// Apply ordering
 	switch orderBy {
@@ -331,7 +355,7 @@ func (s *ObservationStore) GetObservationsByIDsPreserveOrder(ctx context.Context
 
 	// Fetch all observations in a single query
 	var dbObservations []Observation
-	err := s.db.WithContext(ctx).Where("id IN ?", ids).Find(&dbObservations).Error
+	err := s.db.WithContext(ctx).Scopes(notArchivedFilter()).Where("id IN ?", ids).Find(&dbObservations).Error
 	if err != nil {
 		return nil, err
 	}
@@ -382,7 +406,7 @@ func (s *ObservationStore) BatchGetObservationsWithScores(ctx context.Context, i
 func (s *ObservationStore) GetRecentObservations(ctx context.Context, project string, limit int) ([]*models.Observation, error) {
 	var dbObservations []Observation
 	err := s.db.WithContext(ctx).
-		Scopes(projectScopeFilter(project), importanceOrdering()).
+		Scopes(projectScopeFilter(project), notArchivedFilter(), importanceOrdering()).
 		Limit(limit).
 		Find(&dbObservations).Error
 
@@ -432,7 +456,7 @@ func (s *ObservationStore) GetObservationsByProjectStrict(ctx context.Context, p
 	var dbObservations []Observation
 	err := s.db.WithContext(ctx).
 		Where("project = ?", project).
-		Scopes(importanceOrdering()).
+		Scopes(notArchivedFilter(), importanceOrdering()).
 		Limit(limit).
 		Find(&dbObservations).Error
 
@@ -449,6 +473,7 @@ func (s *ObservationStore) GetObservationCount(ctx context.Context, project stri
 	err := s.db.WithContext(ctx).
 		Model(&Observation{}).
 		Where("project = ?", project).
+		Scopes(notArchivedFilter()).
 		Count(&count).Error
 
 	return int(count), err
@@ -458,7 +483,7 @@ func (s *ObservationStore) GetObservationCount(ctx context.Context, project stri
 func (s *ObservationStore) GetAllRecentObservations(ctx context.Context, limit int) ([]*models.Observation, error) {
 	var dbObservations []Observation
 	err := s.db.WithContext(ctx).
-		Scopes(importanceOrdering()).
+		Scopes(notArchivedFilter(), importanceOrdering()).
 		Limit(limit).
 		Find(&dbObservations).Error
 
@@ -503,22 +528,23 @@ func (o ObservationOrder) scope() func(*gorm.DB) *gorm.DB {
 
 // GetAllRecentObservationsPaginated retrieves observations of every project with pagination, most important first.
 func (s *ObservationStore) GetAllRecentObservationsPaginated(ctx context.Context, limit, offset int) ([]*models.Observation, int64, error) {
-	return s.GetAllRecentObservationsOrdered(ctx, limit, offset, OrderByImportance)
+	return s.GetAllRecentObservationsOrdered(ctx, limit, offset, OrderByImportance, true)
 }
 
 // GetAllRecentObservationsOrdered retrieves observations of every project with pagination, in the given order.
-func (s *ObservationStore) GetAllRecentObservationsOrdered(ctx context.Context, limit, offset int, order ObservationOrder) ([]*models.Observation, int64, error) {
+func (s *ObservationStore) GetAllRecentObservationsOrdered(ctx context.Context, limit, offset int, order ObservationOrder, includeArchived bool) ([]*models.Observation, int64, error) {
 	var dbObservations []Observation
 	var total int64
+	visible := visibleScope(includeArchived)
 
 	// Get total count
-	if err := s.db.WithContext(ctx).Model(&Observation{}).Count(&total).Error; err != nil {
+	if err := s.db.WithContext(ctx).Model(&Observation{}).Scopes(visible).Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
 
 	// Get paginated results
 	err := s.db.WithContext(ctx).
-		Scopes(order.scope()).
+		Scopes(visible, order.scope()).
 		Limit(limit).
 		Offset(offset).
 		Find(&dbObservations).Error
@@ -532,23 +558,24 @@ func (s *ObservationStore) GetAllRecentObservationsOrdered(ctx context.Context, 
 
 // GetObservationsByProjectStrictPaginated retrieves observations strictly from a project with pagination, most important first.
 func (s *ObservationStore) GetObservationsByProjectStrictPaginated(ctx context.Context, project string, limit, offset int) ([]*models.Observation, int64, error) {
-	return s.GetObservationsByProjectStrictOrdered(ctx, project, limit, offset, OrderByImportance)
+	return s.GetObservationsByProjectStrictOrdered(ctx, project, limit, offset, OrderByImportance, true)
 }
 
 // GetObservationsByProjectStrictOrdered retrieves observations strictly from a project with pagination, in the given order.
-func (s *ObservationStore) GetObservationsByProjectStrictOrdered(ctx context.Context, project string, limit, offset int, order ObservationOrder) ([]*models.Observation, int64, error) {
+func (s *ObservationStore) GetObservationsByProjectStrictOrdered(ctx context.Context, project string, limit, offset int, order ObservationOrder, includeArchived bool) ([]*models.Observation, int64, error) {
 	var dbObservations []Observation
 	var total int64
+	visible := visibleScope(includeArchived)
 
 	// Get total count for project
-	if err := s.db.WithContext(ctx).Model(&Observation{}).Where("project = ?", project).Count(&total).Error; err != nil {
+	if err := s.db.WithContext(ctx).Model(&Observation{}).Where("project = ?", project).Scopes(visible).Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
 
 	// Get paginated results
 	err := s.db.WithContext(ctx).
 		Where("project = ?", project).
-		Scopes(order.scope()).
+		Scopes(visible, order.scope()).
 		Limit(limit).
 		Offset(offset).
 		Find(&dbObservations).Error
@@ -560,11 +587,13 @@ func (s *ObservationStore) GetObservationsByProjectStrictOrdered(ctx context.Con
 	return toModelObservations(dbObservations), total, nil
 }
 
-// GetAllObservations retrieves all observations (for vector rebuild).
+// GetAllObservations retrieves all observations that are not archived (for vector rebuild: an archived note stays out
+// of the vector index).
 // Note: For large datasets, prefer GetAllObservationsIterator to avoid memory issues.
 func (s *ObservationStore) GetAllObservations(ctx context.Context) ([]*models.Observation, error) {
 	var dbObservations []Observation
 	err := s.db.WithContext(ctx).
+		Scopes(notArchivedFilter()).
 		Order("id").
 		Find(&dbObservations).Error
 
@@ -650,6 +679,7 @@ func (s *ObservationStore) SearchObservationsFTS(ctx context.Context, query, pro
 		JOIN observations_fts fts ON o.id = fts.rowid
 		WHERE observations_fts MATCH ?
 		  AND (o.project = ? OR o.scope = 'global')
+		  AND COALESCE(o.is_archived, 0) = 0
 		ORDER BY rank, COALESCE(o.importance_score, 1.0) DESC
 		LIMIT ?
 	`
@@ -704,7 +734,7 @@ func (s *ObservationStore) searchObservationsLike(ctx context.Context, keywords 
 
 	// Build WHERE clause
 	whereClause := strings.Join(conditions, " OR ")
-	fullWhere := "(" + whereClause + ") AND (project = ? OR scope = 'global')"
+	fullWhere := "(" + whereClause + ") AND (project = ? OR scope = 'global') AND COALESCE(is_archived, 0) = 0"
 	args = append(args, project)
 
 	var dbObservations []Observation
@@ -942,52 +972,36 @@ type ArchivalStats struct {
 	NewestArchivedEpoch int64 `json:"newest_archived_epoch,omitempty"`
 }
 
-// CleanupOldObservations removes observations beyond the limit for a project.
-// Returns the IDs of deleted observations.
-func (s *ObservationStore) CleanupOldObservations(ctx context.Context, project string) ([]int64, error) {
-	// Use a transaction to prevent TOCTOU race condition
-	var idsToDelete []int64
-
+// ArchiveBeyondLimit archives the oldest live observations of a project beyond keep and returns their ids. Notes that
+// are already archived or superseded do not count, and nothing is deleted.
+func (s *ObservationStore) ArchiveBeyondLimit(ctx context.Context, project string, keep int) ([]int64, error) {
+	if keep <= 0 {
+		return nil, nil
+	}
+	var archived []int64
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		// Find IDs to keep (most recent MaxObservationsPerProject)
-		var idsToKeep []int64
+		// Everything after the newest `keep` live notes, in one transaction so the cap cannot race a store.
 		err := tx.Model(&Observation{}).
 			Where("project = ?", project).
-			Order("created_at_epoch DESC").
-			Limit(MaxObservationsPerProject).
-			Pluck("id", &idsToKeep).Error
-
-		if err != nil {
+			Where("COALESCE(is_archived, 0) = 0 AND COALESCE(is_superseded, 0) = 0").
+			Order("created_at_epoch DESC, id DESC").
+			Offset(keep).
+			Pluck("id", &archived).Error
+		if err != nil || len(archived) == 0 {
 			return err
 		}
-
-		if len(idsToKeep) == 0 {
-			return nil
-		}
-
-		// Find IDs to delete (all IDs not in the keep list)
-		// This happens in the same transaction to prevent race conditions
-		err = tx.Model(&Observation{}).
-			Where("project = ? AND id NOT IN ?", project, idsToKeep).
-			Pluck("id", &idsToDelete).Error
-
-		if err != nil {
-			return err
-		}
-
-		if len(idsToDelete) == 0 {
-			return nil
-		}
-
-		// Delete the observations
-		return tx.Delete(&Observation{}, idsToDelete).Error
+		return tx.Model(&Observation{}).
+			Where("id IN ?", archived).
+			Updates(map[string]any{
+				"is_archived":       1,
+				"archived_at_epoch": time.Now().UnixMilli(),
+				"archived_reason":   ArchivedByCapReason,
+			}).Error
 	})
-
 	if err != nil {
 		return nil, err
 	}
-
-	return idsToDelete, nil
+	return archived, nil
 }
 
 // ====================
@@ -1000,6 +1014,22 @@ func projectScopeFilter(project string) func(*gorm.DB) *gorm.DB {
 	return func(db *gorm.DB) *gorm.DB {
 		return db.Where("(project = ? AND (scope IS NULL OR scope = 'project')) OR scope = 'global'", project)
 	}
+}
+
+// notArchivedFilter hides archived notes. The cap, roll-ups and consolidation archive instead of deleting, so an
+// archived note is kept but must stay out of search, context and lists.
+func notArchivedFilter() func(*gorm.DB) *gorm.DB {
+	return func(db *gorm.DB) *gorm.DB {
+		return db.Where("COALESCE(is_archived, 0) = 0")
+	}
+}
+
+// visibleScope hides archived notes unless they are asked for (an export keeps them; lists and counts do not).
+func visibleScope(includeArchived bool) func(*gorm.DB) *gorm.DB {
+	if includeArchived {
+		return func(db *gorm.DB) *gorm.DB { return db }
+	}
+	return notArchivedFilter()
 }
 
 // activeObservationFilter filters for active (non-archived, non-superseded) observations.

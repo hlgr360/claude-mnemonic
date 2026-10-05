@@ -7,7 +7,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"sync"
 	"testing"
 	"time"
 
@@ -153,46 +152,6 @@ func TestObservationStore_StoreObservation_WithScope(t *testing.T) {
 			assert.Equal(t, tt.expectedScope, observations[0].Scope)
 		})
 	}
-}
-
-func TestObservationStore_StoreObservation_AsyncCleanup(t *testing.T) {
-	observationStore, _, cleanup := testObservationStore(t)
-	defer cleanup()
-
-	ctx := context.Background()
-
-	// Track cleanup calls
-	var cleanupMutex sync.Mutex
-	cleanupCalled := false
-	var cleanupIDs []int64
-
-	cleanupFunc := func(ctx context.Context, deletedIDs []int64) {
-		cleanupMutex.Lock()
-		defer cleanupMutex.Unlock()
-		cleanupCalled = true
-		cleanupIDs = deletedIDs
-	}
-
-	observationStore.cleanupFunc = cleanupFunc
-
-	// Store observations beyond the limit (MaxObservationsPerProject = 100)
-	for i := 0; i < 105; i++ {
-		observation := &models.ParsedObservation{
-			Type:  models.ObsTypeDiscovery,
-			Title: "Observation",
-		}
-		_, _, err := observationStore.StoreObservation(ctx, "claude-1", "test-project", observation, i, 50)
-		require.NoError(t, err)
-	}
-
-	// Wait for async cleanup to complete
-	time.Sleep(200 * time.Millisecond)
-
-	// Verify cleanup was called
-	cleanupMutex.Lock()
-	defer cleanupMutex.Unlock()
-	assert.True(t, cleanupCalled, "Cleanup function should have been called")
-	assert.NotEmpty(t, cleanupIDs, "Cleanup should have deleted some observations")
 }
 
 func TestObservationStore_GetObservationsByIDs(t *testing.T) {
@@ -500,46 +459,6 @@ func TestObservationStore_SearchObservationsFTS(t *testing.T) {
 		}
 	}
 	assert.True(t, found, "Should find the React observation")
-}
-
-func TestObservationStore_CleanupOldObservations(t *testing.T) {
-	observationStore, _, cleanup := testObservationStore(t)
-	defer cleanup()
-
-	ctx := context.Background()
-
-	// Store observations beyond the limit WITHOUT async cleanup
-	// We disable async cleanup by not setting cleanupFunc
-	for i := 0; i < 105; i++ {
-		observation := &models.ParsedObservation{
-			Type:  models.ObsTypeDiscovery,
-			Title: "Observation",
-		}
-		_, _, err := observationStore.StoreObservation(ctx, "claude-1", "test-project", observation, i, 10)
-		require.NoError(t, err)
-		time.Sleep(2 * time.Millisecond) // Ensure different timestamps
-	}
-
-	// Wait for any async cleanups to complete (even though cleanupFunc is nil)
-	time.Sleep(200 * time.Millisecond)
-
-	// Verify we have 105 observations initially (async cleanup should have run but deleted items)
-	initial, err := observationStore.GetRecentObservations(ctx, "test-project", 200)
-	require.NoError(t, err)
-
-	// If async cleanup already happened, we'll have <= 100
-	// Run cleanup manually to ensure cleanup logic works
-	deletedIDs, err := observationStore.CleanupOldObservations(ctx, "test-project")
-	require.NoError(t, err)
-
-	// After cleanup (manual or async), we should have at most 100
-	remaining, err := observationStore.GetRecentObservations(ctx, "test-project", 200)
-	require.NoError(t, err)
-	assert.LessOrEqual(t, len(remaining), 100, "Should have at most 100 observations after cleanup")
-
-	// The number deleted should match how many were over the limit
-	expectedDeleted := len(initial) - len(remaining)
-	assert.Len(t, deletedIDs, expectedDeleted, "Should delete observations beyond limit")
 }
 
 func TestObservationStore_DeleteObservations(t *testing.T) {

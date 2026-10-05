@@ -61,7 +61,7 @@ func TestObservationOrder_ANewLowScoreNoteIsFirstByDateAndBuriedByImportance(t *
 		assert.NotEqual(t, "proj_bbbbbb note 0", o.Title.String, "the importance order buries the fresh note")
 	}
 
-	byDate, _, err := obsStore.GetAllRecentObservationsOrdered(ctx, 3, 0, OrderByDate)
+	byDate, _, err := obsStore.GetAllRecentObservationsOrdered(ctx, 3, 0, OrderByDate, false)
 	require.NoError(t, err)
 	require.Len(t, byDate, 3)
 	assert.Equal(t, "proj_bbbbbb note 0", byDate[0].Title.String, "the date order lists the fresh note first")
@@ -77,16 +77,16 @@ func TestObservationOrder_OneProjectByDateAndByImportance(t *testing.T) {
 	require.NoError(t, obsStore.UpdateImportanceScore(ctx, 1, 2.0))
 	require.NoError(t, obsStore.UpdateImportanceScore(ctx, 2, 1.5))
 
-	imp, _, err := obsStore.GetObservationsByProjectStrictOrdered(ctx, "proj_aaaaaa", 10, 0, OrderByImportance)
+	imp, _, err := obsStore.GetObservationsByProjectStrictOrdered(ctx, "proj_aaaaaa", 10, 0, OrderByImportance, false)
 	require.NoError(t, err)
 	assert.Equal(t, []int64{1, 2, 4, 3}, ids(imp), "importance first, the newest first among equals")
 
-	date, _, err := obsStore.GetObservationsByProjectStrictOrdered(ctx, "proj_aaaaaa", 10, 0, OrderByDate)
+	date, _, err := obsStore.GetObservationsByProjectStrictOrdered(ctx, "proj_aaaaaa", 10, 0, OrderByDate, false)
 	require.NoError(t, err)
 	assert.Equal(t, []int64{4, 3, 2, 1}, ids(date))
 
 	// Only that project's notes, whatever the order.
-	other, _, err := obsStore.GetObservationsByProjectStrictOrdered(ctx, "proj_nothing", 10, 0, OrderByDate)
+	other, _, err := obsStore.GetObservationsByProjectStrictOrdered(ctx, "proj_nothing", 10, 0, OrderByDate, false)
 	require.NoError(t, err)
 	assert.Empty(t, other)
 }
@@ -99,7 +99,7 @@ func TestObservationOrder_PagesByDateDoNotOverlapAndCoverEverything(t *testing.T
 
 	var seen []int64
 	for offset := 0; offset < 7; offset += 3 {
-		page, _, err := obsStore.GetAllRecentObservationsOrdered(ctx, 3, offset, OrderByDate)
+		page, _, err := obsStore.GetAllRecentObservationsOrdered(ctx, 3, offset, OrderByDate, false)
 		require.NoError(t, err)
 		seen = append(seen, ids(page)...)
 	}

@@ -451,6 +451,8 @@ func (s *Service) initializeAsync() {
 
 	// Create observation store with conflict and relation stores for automatic detection
 	observationStore := gorm.NewObservationStore(store, nil, conflictStore, relationStore)
+	// 0 (the default) is no cap; a cap archives the oldest notes of a project, it never deletes them.
+	observationStore.SetMaxObservationsPerProject(s.config.MaxObservationsPerProject)
 
 	// Create session manager
 	sessionManager := session.NewManager(sessionStore)
@@ -765,6 +767,8 @@ func (s *Service) reinitializeDatabase() {
 
 	// Create observation store with conflict and relation stores for automatic detection
 	observationStore := gorm.NewObservationStore(store, nil, conflictStore, relationStore)
+	// 0 (the default) is no cap; a cap archives the oldest notes of a project, it never deletes them.
+	observationStore.SetMaxObservationsPerProject(s.config.MaxObservationsPerProject)
 
 	// Create new session manager
 	sessionManager := session.NewManager(sessionStore)
