@@ -3,13 +3,13 @@
 # Desktop's Settings > Extensions installs it. It gives Desktop's chat and Cowork the memory tools (Desktop does not
 # attach a plugin's local MCP server to chat, and Cowork starts it inside its VM).
 #
-# Usage: scripts/build-mcpb.sh <version>      (e.g. 0.21.95.3, with or without the leading v)
+# Usage: scripts/build-mcpb.sh <version>      (e.g. 0.21.95.3, 0.0.0-ci.15; with or without the leading v)
 #   DIST=dist            where the tree (dist/desktop-extension) and the file go
 #   MNEMONIC_REPO=o/n    release repository the binaries are downloaded from (default: this fork's)
 #   SKIP_VALIDATE=1      do not run `mcpb validate` (it needs node/npx and the network)
 #
 # The manifest's version must be semver, and a fork release is the upstream version plus a fork number: 0.21.95.3 becomes
-# 0.21.95-fork.3. That increases with every release (what an organization's "Upload new version" needs), and a new
+# 0.21.95-fork.3 (0.21.95.1-rc1 becomes 0.21.95-fork.1.rc1, and 0.0.0-ci.15 stays). That increases with every release (what an organization's "Upload new version" needs), and a new
 # upstream version (0.21.96-fork.1) is higher than every fork release of the one before. The downloader reads the plain
 # release version from server/.claude-plugin/plugin.json, so the extension fetches the binaries of its own release.
 #
@@ -25,15 +25,14 @@ if [[ -z "$VERSION" ]]; then
     exit 1
 fi
 VERSION="${VERSION#v}"
-if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
-    echo "build-mcpb: $VERSION is not a release version (X.Y.Z or X.Y.Z.N)" >&2
+# X.Y.Z, X.Y.Z.N (a fork release), and either with a pre-release suffix (0.0.0-ci.15 on pull requests, 0.21.95.1-rc1).
+if [[ ! "$VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)(\.([0-9]+))?(-([0-9A-Za-z.-]+))?$ ]]; then
+    echo "build-mcpb: $VERSION is not a release version (X.Y.Z or X.Y.Z.N, optionally with a -suffix)" >&2
     exit 1
 fi
-if [[ "$VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)\.([0-9]+)$ ]]; then
-    MANIFEST_VERSION="${BASH_REMATCH[1]}-fork.${BASH_REMATCH[2]}"
-else
-    MANIFEST_VERSION="$VERSION"
-fi
+BASE="${BASH_REMATCH[1]}" FORK="${BASH_REMATCH[3]}" PRE="${BASH_REMATCH[5]}"
+MANIFEST_VERSION="$BASE"
+if [[ -n "$FORK" ]]; then MANIFEST_VERSION="${MANIFEST_VERSION}-fork.${FORK}${PRE:+.${PRE}}"; elif [[ -n "$PRE" ]]; then MANIFEST_VERSION="${MANIFEST_VERSION}-${PRE}"; fi
 
 DIST="${DIST:-dist}"
 TREE="${DIST}/desktop-extension"

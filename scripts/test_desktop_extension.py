@@ -77,8 +77,13 @@ class BuildMcpb(unittest.TestCase):
     def test_a_plain_upstream_version_stays_as_it_is(self):
         self.assertEqual(self.manifest(self.built("0.21.95"))["version"], "0.21.95")
 
+    def test_the_versions_the_workflow_builds_are_accepted(self):
+        # Pull requests build 0.0.0-ci.N, release candidates are tagged 0.21.95.1-rc1: both are valid semver as they are.
+        self.assertEqual(self.manifest(self.built("0.0.0-ci.15"))["version"], "0.0.0-ci.15")
+        self.assertEqual(self.manifest(self.built("v0.21.95.1-rc1"))["version"], "0.21.95-fork.1.rc1")
+
     def test_a_version_that_is_not_a_release_is_refused(self):
-        for bad in ("0.21.95a", "0.21", "v1.2.3.4.5", "latest"):
+        for bad in ("0.21.95a", "0.21", "v1.2.3.4.5", "latest", "0.21.95.", "0.21.95.1-", "0.21.95 1"):
             with self.subTest(version=bad):
                 out = build(self.dist, bad)
                 self.assertNotEqual(out.returncode, 0)
