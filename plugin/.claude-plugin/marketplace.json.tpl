@@ -10,7 +10,7 @@
   "plugins": [
     {
       "name": "claude-mnemonic",
-      "description": "Persistent memory for Claude Code and Claude Desktop, with a local worker (SQLite and embeddings) and a web dashboard",
+      "description": "Persistent memory for Claude Code, with a local worker (SQLite and embeddings) and a web dashboard",
       "version": "{{ .Version }}",
       "author": {
         "name": "lukaszraczylo"

@@ -295,7 +295,7 @@ class BuildPlugin(unittest.TestCase):
         files = sorted(os.path.relpath(os.path.join(r, n), f.tree) for r, _d, ns in os.walk(f.tree) for n in ns)
         self.assertEqual(
             files,
-            sorted([".claude-plugin/plugin.json", "LICENSE", "README.md", "hooks/hooks.json", "lib/ensure-binaries.sh", "mcp-server", "skills/memory-dashboard/SKILL.md", "skills/memory-restart/SKILL.md", "skills/project-memory/SKILL.md"] + [f"hooks/{h}" for h in HOOKS]),
+            sorted([".claude-plugin/plugin.json", "LICENSE", "README.md", "hooks/hooks.json", "lib/ensure-binaries.sh", "mcp-server", "skills/memory-dashboard/SKILL.md", "skills/memory-restart/SKILL.md"] + [f"hooks/{h}" for h in HOOKS]),
         )
         with open(os.path.join(f.tree, ".claude-plugin", "plugin.json"), encoding="utf-8") as fh:
             manifest = json.load(fh)
@@ -348,38 +348,14 @@ class BuildPlugin(unittest.TestCase):
             self.assertIn('DEFAULT_REPO="hlgr360/claude-mnemonic"', fh.read(), "the source file is not changed")
 
 
-class MemorySkill(unittest.TestCase):
-    def skill(self):
+class Skills(unittest.TestCase):
+    def test_the_plugin_has_no_desktop_memory_skill_any_more(self):
+        # Claude Desktop gets the memory tools from the Desktop extension and the instruction from the person's
+        # preferences; the plugin is for Claude Code, where the hooks do the work and a skill would only step aside.
         f = Fixture(self)
-        with open(os.path.join(f.tree, "skills", "project-memory", "SKILL.md"), encoding="utf-8") as fh:
-            return fh.read()
+        self.assertEqual(sorted(os.listdir(os.path.join(f.tree, "skills"))), ["memory-dashboard", "memory-restart"])
 
-    def test_the_skill_carries_the_instruction_that_is_pasted_into_desktop(self):
-        text = self.skill()
-        with open(os.path.join(HERE, "desktop-instructions.txt"), encoding="utf-8") as fh:
-            template = fh.read()
-        rendered = template.replace("{connector}", "claude-mnemonic").replace("{name}", "claude-mnemonic")
-        self.assertIn(rendered, text, "one source: the skill body contains the pasted instruction word for word")
-        for tool in ("project_suggest", "catch_up", "checkpoint", "related", "dashboard"):
-            self.assertIn(tool, text)
-
-    def test_the_description_triggers_on_the_users_own_work_and_the_words_that_select_built_in_memory(self):
-        text = self.skill()
-        front = text.split("---")[1]
-        self.assertTrue(front.startswith("\nname: project-memory\n"))
-        description = json.loads(front.split("description: ", 1)[1])
-        for phrase in ("past work", "earlier decisions", '"memory"', '"remember"', "claude-mnemonic", "Not for general questions"):
-            self.assertIn(phrase, description)
-        self.assertLess(len(description), 1024, "the description is read in every conversation: keep it short")
-
-    def test_the_skill_is_background_knowledge_not_a_slash_command(self):
-        # Without this a person could run /claude-mnemonic:project-memory by hand; the plugin's slash commands are only
-        # memory-dashboard and memory-restart. The model still sees the description (that is what makes it use the skill).
-        front = self.skill().split("---")[1]
-        self.assertIn("\nuser-invocable: false\n", front)
-        self.assertNotIn("disable-model-invocation", front, "that would take the description out of the model's context")
-
-    def test_only_the_two_memory_commands_can_be_run_by_hand(self):
+    def test_only_the_two_memory_commands_exist_and_can_be_run_by_hand(self):
         f = Fixture(self)
         runnable = []
         for name in sorted(os.listdir(os.path.join(f.tree, "skills"))):
@@ -388,66 +364,6 @@ class MemorySkill(unittest.TestCase):
             if "user-invocable: false" not in front:
                 runnable.append(name)
         self.assertEqual(runnable, ["memory-dashboard", "memory-restart"])
-
-    def test_claude_code_is_told_to_step_aside(self):
-        text = self.skill()
-        self.assertIn("no project_suggest tool, you are in Claude Code", text)
-
-    def test_the_front_matter_is_valid_json_quoted_yaml(self):
-        front = self.skill().split("---")[1]
-        self.assertEqual(front.count("\n"), 4, "name, user-invocable and description, each on one line")
-
-
-class UploadLimits(unittest.TestCase):
-    """Claude's upload form rejects what `claude plugin validate` accepts: "Plugin description must be at most 500
-    characters". The build checks the limits the form is known to enforce."""
-
-    def tree_with_description(self, text):
-        tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(tmp.cleanup)
-        os.makedirs(os.path.join(tmp.name, ".claude-plugin"))
-        with open(os.path.join(tmp.name, ".claude-plugin", "plugin.json"), "w", encoding="utf-8") as fh:
-            json.dump({"name": "x", "version": "1.0.0", "description": text}, fh)
-        return tmp.name
-
-    def run_check(self, tree):
-        return subprocess.run([sys.executable, os.path.join(HERE, "check_plugin_manifest.py"), tree], capture_output=True, text=True)
-
-    def test_exactly_500_characters_pass_and_501_fail(self):
-        ok = self.run_check(self.tree_with_description("x" * 500))
-        self.assertEqual(ok.returncode, 0, ok.stderr)
-        bad = self.run_check(self.tree_with_description("x" * 501))
-        self.assertEqual(bad.returncode, 1)
-        self.assertIn("501 characters, 1 over the limit of 500", bad.stderr)
-        self.assertIn("Plugin description must be at most 500 characters", bad.stderr, "the form's own message is quoted")
-
-    def test_characters_are_counted_not_bytes(self):
-        # The form counts characters: 500 two-byte characters are fine.
-        self.assertEqual(self.run_check(self.tree_with_description("é" * 500)).returncode, 0)
-
-    def test_the_built_plugin_is_within_the_limit_and_the_build_runs_the_check(self):
-        f = Fixture(self)
-        with open(os.path.join(f.tree, ".claude-plugin", "plugin.json"), encoding="utf-8") as fh:
-            description = json.load(fh)["description"]
-        self.assertLessEqual(len(description), 500, f"the description is {len(description)} characters")
-        self.assertIn('check_plugin_manifest.py "$TREE"', read_file(os.path.join(HERE, "build-plugin.sh")), "the build must run the check")
-
-    def test_the_check_refuses_the_description_that_was_released_too_long(self):
-        # v0.21.95.1 shipped a 514-character description and could not be uploaded to an org.
-        released = (
-            "Persistent memory for Claude Code and Claude Desktop: the decisions, findings and fixes from your earlier sessions, "
-            "searchable and shared by both, with a local web dashboard. A local worker (SQLite and embeddings) stores it on your "
-            "computer; the binaries are downloaded from this fork's release on first use and verified. In Claude Desktop chat, "
-            "paste the instruction from README.md into your personal preferences once, or chat answers from its built-in memory "
-            "instead. Fork of lukaszraczylo/claude-mnemonic (MIT)."
-        )
-        self.assertEqual(len(released), 514)
-        self.assertEqual(self.run_check(self.tree_with_description(released)).returncode, 1)
-
-
-def read_file(path):
-    with open(path, encoding="utf-8") as fh:
-        return fh.read()
 
 
 class Overview(unittest.TestCase):
@@ -461,13 +377,14 @@ class Overview(unittest.TestCase):
             readme = fh.read()
         return manifest, readme
 
-    def test_the_description_is_current_and_points_at_the_one_setting_chat_needs(self):
+    def test_the_description_is_for_claude_code_and_points_at_the_desktop_extension(self):
         manifest, _ = self.built()
         description = manifest["description"]
         self.assertNotIn("ChromaDB", description)
         # Short on purpose (the upload form allows 500 characters); the README carries the explanation.
-        for phrase in ("Claude Code and Claude Desktop", "README.md", "Desktop chat", "lukaszraczylo/claude-mnemonic"):
+        for phrase in ("Claude Code", "Desktop extension", "lukaszraczylo/claude-mnemonic"):
             self.assertIn(phrase, description)
+        self.assertNotIn("Claude Code and Claude Desktop", description, "the plugin does not serve Desktop")
 
     def test_the_author_is_the_fork_and_upstream_stays_credited(self):
         manifest, readme = self.built()
@@ -478,24 +395,13 @@ class Overview(unittest.TestCase):
         with open(os.path.join(REPO_ROOT, "LICENSE"), encoding="utf-8") as fh:
             self.assertIn("Lukasz Raczylo", fh.read(), "upstream's copyright notice is kept")
 
-    def test_the_readme_carries_the_pasted_instruction_word_for_word(self):
+    def test_the_readme_says_what_it_installs_and_where_desktop_comes_from(self):
         _, readme = self.built()
-        with open(os.path.join(HERE, "desktop-instructions.txt"), encoding="utf-8") as fh:
-            template = fh.read()
-        rendered = template.replace("{connector}", "claude-mnemonic").replace("{name}", "claude-mnemonic").rstrip("\n")
-        self.assertIn("```text\n" + rendered + "\n```", readme, "one source: the README shows exactly the text to paste")
-        self.assertNotIn("{{", readme, "no placeholder is left")
-
-    def test_the_readme_says_what_it_installs_and_what_chat_needs(self):
-        _, readme = self.built()
-        for phrase in ("carries no binaries", "cosign", "never replaced", "Apple silicon", "built-in memory", "once", "lukaszraczylo/claude-mnemonic"):
+        for phrase in ("carries no binaries", "cosign", "never replaced", "Apple silicon", "lukaszraczylo/claude-mnemonic",
+                       "Desktop extension", ".mcpb", "separate install"):
             self.assertIn(phrase, readme)
-
-    def test_the_renderer_refuses_a_template_without_the_placeholder(self):
-        import render_readme
-
-        with self.assertRaises(ValueError):
-            render_readme.render("# no placeholder here\n")
+        self.assertNotIn("{{", readme, "no placeholder is left")
+        self.assertNotIn("```text", readme, "the pasted instruction lives in the project README, not in the plugin")
 
 
 class CommandsAsSkills(unittest.TestCase):

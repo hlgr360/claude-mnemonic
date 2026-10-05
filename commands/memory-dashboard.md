@@ -9,8 +9,6 @@ The dashboard shows your saved notes, session summaries, the knowledge graph, co
 
 ## Instructions
 
-0. **If you have the claude-mnemonic `dashboard` tool** (Claude Desktop chat and Cowork), call it and give the user the link it returns; they click it and it opens on their computer. Do not use a shell for this: in those apps the shell runs in a sandbox that cannot reach this computer, so the command below would wrongly report that the worker is not running. Otherwise (Claude Code) continue with step 1.
-
 1. Work out the dashboard address and open it with one command. The worker's port is `CLAUDE_MNEMONIC_WORKER_PORT` from the environment, else from `~/.claude-mnemonic/settings.json`, else 37777:
 
    ```bash
