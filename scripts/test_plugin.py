@@ -287,6 +287,10 @@ class Wrappers(unittest.TestCase):
         out = self.run_wrapper(f, "mcp-server", base="file:///nonexistent")
         self.assertEqual(out.returncode, 1)
         self.assertIn("mcp-server not found", out.stderr)
+        # One clear account of why it cannot start and where Desktop gets the tools instead (the log is where it is read).
+        self.assertIn("download did not succeed", out.stderr)
+        self.assertIn("sandbox", out.stderr)
+        self.assertIn("Desktop extension", out.stderr)
 
 
 class BuildPlugin(unittest.TestCase):
