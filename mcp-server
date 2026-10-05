@@ -7,6 +7,7 @@ if [ ! -x "$BIN" ] && [ -f "$ENSURE" ]; then
     sh "$ENSURE" >&2
 fi
 [ -x "$BIN" ] && exec "$BIN" "$@"
-echo "claude-mnemonic: mcp-server not found at $BIN" >&2
-echo "Install: cd $(dirname "$0") && make install" >&2
+echo "claude-mnemonic: mcp-server not found at $BIN and the download did not succeed (see above)." >&2
+echo "claude-mnemonic: it needs macOS on Apple silicon or Linux on x86-64 and network access to github.com; it cannot start in a sandbox such as Cowork's VM." >&2
+echo "claude-mnemonic: Claude Desktop (chat and Cowork) gets the tools from the Desktop extension (.mcpb on the release); a source checkout can run: make install" >&2
 exit 1

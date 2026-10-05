@@ -147,5 +147,36 @@ class Wrapper(unittest.TestCase):
             self.assertNotIn("curl was called", out.stderr)
 
 
+class DocsAgree(unittest.TestCase):
+    """The README, DESKTOP.md and the plugin's README tell the same story about who gets what: the plugin is for
+    Claude Code (from the marketplace), the extension is for Claude Desktop, and chat does not use the plugin's server."""
+
+    def doc(self, *parts):
+        with open(os.path.join(ROOT, *parts), encoding="utf-8") as f:
+            return f.read()
+
+    def test_every_document_names_both_routes(self):
+        readme, desktop, plugin = self.doc("README.md"), self.doc("DESKTOP.md"), self.doc("plugin", "README.md")
+        self.assertIn("/plugin install claude-mnemonic@hlgr360", readme)
+        self.assertIn("claude-mnemonic-desktop_<version>.mcpb", readme)
+        self.assertIn("Settings > Extensions > Install Extension", readme)
+        for name, text in (("DESKTOP.md", desktop), ("the plugin README", plugin)):
+            with self.subTest(document=name):
+                self.assertIn(".mcpb", text)
+                self.assertRegex(text, r"(?i)extension")
+        self.assertIn("Claude Code", plugin)
+        self.assertRegex(plugin, r"Claude Desktop is a separate install")
+
+    def test_no_document_claims_chat_uses_the_plugins_mcp_server_or_offers_a_curl_install(self):
+        for path in (("README.md",), ("DESKTOP.md",), ("plugin", "README.md"), ("CONTRIBUTING.md",)):
+            with self.subTest(document=path[-1]):
+                text = self.doc(*path)
+                self.assertNotRegex(text, r"(?i)chat gets the connector from the plugin")
+                self.assertNotRegex(text, r"(?i)plugin's own MCP server is available in Claude Desktop chat")
+                self.assertNotIn("curl -sSL https://raw.githubusercontent.com/hlgr360/claude-mnemonic/main/scripts/install.sh", text)
+                if path[-1] == "README.md":
+                    self.assertNotIn("| bash", text, "the README does not tell anyone to pipe a script into bash")
+
+
 if __name__ == "__main__":
     unittest.main()
