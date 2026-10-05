@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """The /memory-restart command: its shell snippet finds the worker's port (environment, then settings.json, then 37777),
-posts the restart and reports the version only when the worker answers again, and both commands tell a model that has
-the claude-mnemonic tool to use it instead of a shell (Claude Desktop's chat and Cowork run commands in a sandbox that
-cannot reach this computer)."""
+posts the restart and reports the version only when the worker answers again.
+
+The plugin is for Claude Code only. Claude Desktop's chat and Cowork get `dashboard` and `restart` as tools from the
+Desktop extension, because their shell is a sandbox that cannot reach this computer."""
 import json
 import os
 import re
@@ -101,14 +102,7 @@ class RestartCommand(unittest.TestCase):
         self.assertNotIn("curl -X POST http://127.0.0.1:37777", text, "the port was hard-coded before")
 
 
-class SandboxedApps(unittest.TestCase):
-    def test_both_commands_tell_a_model_with_the_tool_to_use_it_not_a_shell(self):
-        for path, tool in ((RESTART, "restart"), (DASHBOARD, "dashboard")):
-            text = read(path)
-            self.assertIn(f"claude-mnemonic `{tool}` tool", text, path)
-            self.assertIn("sandbox", text, path)
-            self.assertLess(text.index(f"`{tool}` tool"), text.index("```bash"), "the tool comes before the shell snippet")
-
+class Allowed(unittest.TestCase):
     def test_the_restart_command_only_allows_the_tools_it_needs(self):
         front = read(RESTART).split("---")[1]
         allowed = re.search(r"allowed-tools: (.+)", front).group(1)

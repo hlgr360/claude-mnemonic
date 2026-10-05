@@ -1,7 +1,7 @@
 {
   "name": "claude-mnemonic",
   "version": "{{ .Version }}",
-  "description": "Persistent memory for Claude Code and Claude Desktop: decisions, findings and fixes from earlier sessions, searchable and shared by both, with a local web dashboard. Binaries are downloaded and verified from this fork's release on first use. Desktop chat needs the instruction from README.md pasted into your preferences once. Fork of lukaszraczylo/claude-mnemonic (MIT).",
+  "description": "Persistent memory for Claude Code: decisions, findings and fixes from earlier sessions, saved and loaded automatically, searchable, with a local web dashboard. Binaries are downloaded and verified from this fork's release on first use. Claude Desktop is a separate install: the Desktop extension on the same release. Fork of lukaszraczylo/claude-mnemonic (MIT).",
   "author": {
     "name": "hlgr360",
     "url": "https://github.com/hlgr360"

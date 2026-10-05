@@ -9,9 +9,7 @@ Restart the claude-mnemonic worker process. Use this command when experiencing i
 
 ## Instructions
 
-1. **If you have the claude-mnemonic `restart` tool** (Claude Desktop chat and Cowork), call it and report what it says. Do not use a shell for this: in those apps the shell runs in a sandbox that cannot reach the worker on this computer, so the commands below would fail even though the worker is fine.
-
-2. Otherwise (Claude Code) restart it with one command. The worker's port is `CLAUDE_MNEMONIC_WORKER_PORT` from the environment, else from `~/.claude-mnemonic/settings.json`, else 37777:
+1. Restart it with one command. The worker's port is `CLAUDE_MNEMONIC_WORKER_PORT` from the environment, else from `~/.claude-mnemonic/settings.json`, else 37777:
 
    ```bash
    port="${CLAUDE_MNEMONIC_WORKER_PORT:-$(grep -o '"CLAUDE_MNEMONIC_WORKER_PORT"[[:space:]]*:[[:space:]]*[0-9]*' ~/.claude-mnemonic/settings.json 2>/dev/null | grep -o '[0-9]*$')}"
@@ -26,6 +24,6 @@ Restart the claude-mnemonic worker process. Use this command when experiencing i
    fi
    ```
 
-3. Report the result to the user. `RESTARTED` is followed by the worker's version. `NOT RUNNING` means the worker did not answer (nothing to restart: starting a new Claude Code session starts it). `NOT BACK` means it was asked to restart and has not come back within about 12 seconds.
+2. Report the result to the user. `RESTARTED` is followed by the worker's version. `NOT RUNNING` means the worker did not answer (nothing to restart: starting a new Claude Code session starts it). `NOT BACK` means it was asked to restart and has not come back within about 12 seconds.
 
 If the restart fails, suggest the user check `/tmp/claude-mnemonic-worker.log` for errors.
