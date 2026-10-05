@@ -85,23 +85,26 @@ type Config struct {
 	GraphRebuildIntervalMin      int      `json:"graph_rebuild_interval_min"`
 	HubThreshold                 int      `json:"hub_threshold"`
 	ObservationRetentionDays     int      `json:"observation_retention_days"`
-	MaintenanceIntervalHours     int      `json:"maintenance_interval_hours"`
-	WALCheckpointIntervalSeconds int      `json:"wal_checkpoint_interval_seconds"`
-	WALCheckpointThresholdBytes  int64    `json:"wal_checkpoint_threshold_bytes"`
-	ContextMaxTokensStartup      int      `json:"context_max_tokens_startup"`
-	ContextMaxTokensPrompt       int      `json:"context_max_tokens_prompt"`
-	ContextShowWorkTokens        bool     `json:"context_show_work_tokens"`
-	ContextShowReadTokens        bool     `json:"context_show_read_tokens"`
-	RerankingPureMode            bool     `json:"reranking_pure_mode"`
-	GraphEnabled                 bool     `json:"graph_enabled"`
-	DeduplicationEnabled         bool     `json:"deduplication_enabled"`
-	MaintenanceEnabled           bool     `json:"maintenance_enabled"`
-	RerankingEnabled             bool     `json:"reranking_enabled"`
-	ContextShowLastSummary       bool     `json:"context_show_last_summary"`
-	CleanupStaleObservations     bool     `json:"cleanup_stale_observations"`
-	LLMFallbackToClaude          bool     `json:"llm_fallback_to_claude"`
-	ProjectBriefEnabled          bool     `json:"project_brief_enabled"`
-	ConflictProposalsEnabled     bool     `json:"conflict_proposals_enabled"`
+	// MaxObservationsPerProject caps the live notes of one project: the oldest beyond it are archived (never deleted).
+	// 0 is no cap.
+	MaxObservationsPerProject    int   `json:"max_observations_per_project"`
+	MaintenanceIntervalHours     int   `json:"maintenance_interval_hours"`
+	WALCheckpointIntervalSeconds int   `json:"wal_checkpoint_interval_seconds"`
+	WALCheckpointThresholdBytes  int64 `json:"wal_checkpoint_threshold_bytes"`
+	ContextMaxTokensStartup      int   `json:"context_max_tokens_startup"`
+	ContextMaxTokensPrompt       int   `json:"context_max_tokens_prompt"`
+	ContextShowWorkTokens        bool  `json:"context_show_work_tokens"`
+	ContextShowReadTokens        bool  `json:"context_show_read_tokens"`
+	RerankingPureMode            bool  `json:"reranking_pure_mode"`
+	GraphEnabled                 bool  `json:"graph_enabled"`
+	DeduplicationEnabled         bool  `json:"deduplication_enabled"`
+	MaintenanceEnabled           bool  `json:"maintenance_enabled"`
+	RerankingEnabled             bool  `json:"reranking_enabled"`
+	ContextShowLastSummary       bool  `json:"context_show_last_summary"`
+	CleanupStaleObservations     bool  `json:"cleanup_stale_observations"`
+	LLMFallbackToClaude          bool  `json:"llm_fallback_to_claude"`
+	ProjectBriefEnabled          bool  `json:"project_brief_enabled"`
+	ConflictProposalsEnabled     bool  `json:"conflict_proposals_enabled"`
 	// ProjectAutoMergeEnabled merges projects that are certainly one (the same git remote, the old folder gone) by itself.
 	// Off by default: it only ever acts on the strongest evidence, with a backup and an alias, and says so.
 	ProjectAutoMergeEnabled     bool `json:"project_auto_merge_enabled"`
@@ -250,6 +253,7 @@ func Default() *Config {
 		MaintenanceEnabled:          true,  // Enable scheduled maintenance
 		MaintenanceIntervalHours:    6,     // Run every 6 hours
 		ObservationRetentionDays:    0,     // 0 = no age-based deletion (keep all)
+		MaxObservationsPerProject:   0,     // 0 = no cap; a cap archives the oldest notes, it never deletes
 		CleanupStaleObservations:    false, // Don't auto-cleanup stale observations
 		// WAL checkpoint loop tunables (issue #49). Defaults mirror the worker constants:
 		// check the WAL every 60s and TRUNCATE-checkpoint once it reaches 4 MiB.
@@ -384,6 +388,9 @@ func Load() (*Config, error) {
 	}
 	if v, ok := settings["CLAUDE_MNEMONIC_CONTEXT_OBSERVATIONS"].(float64); ok {
 		cfg.ContextObservations = int(v)
+	}
+	if v, ok := settings["CLAUDE_MNEMONIC_MAX_OBSERVATIONS_PER_PROJECT"].(float64); ok && v >= 0 {
+		cfg.MaxObservationsPerProject = int(v)
 	}
 	if v, ok := settings["CLAUDE_MNEMONIC_CONTEXT_FULL_COUNT"].(float64); ok {
 		cfg.ContextFullCount = int(v)

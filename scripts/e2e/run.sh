@@ -93,6 +93,9 @@ fresh_worker || exit 1
 suite "Prune and merge with real embeddings and snapshots"             python3 "$HERE/drive_admin.py"
 
 fresh_worker || exit 1
+suite "Notes are kept, and an archived note is out of search"          python3 "$HERE/drive_cap.py"
+
+fresh_worker || exit 1
 suite "Project names, and projects that share a name"                  python3 "$HERE/drive_names.py"
 
 fresh_worker || exit 1

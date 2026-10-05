@@ -601,6 +601,25 @@ func TestLoad_ConflictProposalsCanBeSwitchedOff(t *testing.T) {
 	assert.Equal(t, 20, cfg.ConflictProposalsMaxPerRun, "the other settings keep their defaults")
 }
 
+func TestLoad_ObservationCapIsOffByDefaultAndReadFromTheSettings(t *testing.T) {
+	writeSettings(t, `{}`)
+	cfg, err := Load()
+	assert.NoError(t, err)
+	assert.Equal(t, 0, cfg.MaxObservationsPerProject, "no cap by default: nothing is archived or removed")
+
+	writeSettings(t, `{"CLAUDE_MNEMONIC_MAX_OBSERVATIONS_PER_PROJECT": 250}`)
+	cfg, err = Load()
+	assert.NoError(t, err)
+	assert.Equal(t, 250, cfg.MaxObservationsPerProject)
+
+	for name, raw := range map[string]string{"negative": `-5`, "text": `"lots"`, "boolean": `true`} {
+		writeSettings(t, `{"CLAUDE_MNEMONIC_MAX_OBSERVATIONS_PER_PROJECT": `+raw+`}`)
+		cfg, err = Load()
+		assert.NoError(t, err, name)
+		assert.Equal(t, 0, cfg.MaxObservationsPerProject, "%s is not a cap, so the default stays", name)
+	}
+}
+
 func TestLoad_UnusableConflictSettingsKeepTheDefaults(t *testing.T) {
 	writeSettings(t, `{
 		"CLAUDE_MNEMONIC_CONFLICT_PROPOSALS_ENABLED": "yes",

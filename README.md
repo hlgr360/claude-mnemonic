@@ -193,6 +193,9 @@ Config file: `~/.claude-mnemonic/settings.json`
 | `CONTEXT_SESSION_COUNT` | `10` | Recent sessions to reference |
 | `CONTEXT_RELEVANCE_THRESHOLD` | `0.3` | Minimum similarity score (0.0-1.0) for inclusion |
 | `CONTEXT_MAX_PROMPT_RESULTS` | `10` | Max results per prompt search |
+| `MAX_OBSERVATIONS_PER_PROJECT` | `0` | Cap on a project's live notes; `0` is **no cap**. With a cap, the oldest notes beyond it are **archived** (kept, out of search, context and lists; restore with `POST /api/observations/{id}/unarchive`), never deleted |
+
+**Notes are not deleted for being many.** Earlier versions (and upstream before v0.21.105) kept only the newest 100 notes of a project and deleted the rest permanently, without saying so. Now nothing is removed by default. An archived note keeps its row (an export includes it, and `GET /api/observations?include_archived=true` lists it) but is not searched, injected or counted; unarchiving puts it back, vectors included.
 
 ### Reranking Settings (Two-Stage Retrieval)
 
