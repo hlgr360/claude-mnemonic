@@ -109,8 +109,7 @@ check("the oldest note is still there (the cap used to delete it first)", zebra_
 
 
 def search_full(q):
-    # Not scoped to the project: a search with a project argument returns a single unrelated note on main too (its own ticket).
-    err, text = tool("search", query=q)
+    err, text = tool("search", query=q, project=project)
     if err:
         return []
     return [(o["id"], o["title"][:40]) for o in json.loads(text)["observations"]]
