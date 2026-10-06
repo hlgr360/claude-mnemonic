@@ -1,7 +1,10 @@
 #!/bin/sh
 # Claude Mnemonic hook: run the installed binary. In the plugin, the binaries are fetched when they are missing, in
 # the background (a hook must not wait for a download), so this hook does nothing until the download has finished.
+# On Windows this runs in Git Bash, which Claude Code uses for hooks when Git for Windows is installed.
 BIN="$HOME/.claude-mnemonic/bin/hooks/subagent-stop"
+# Git Bash on Windows: the installed binary is the .exe.
+[ -x "$BIN.exe" ] && BIN="$BIN.exe"
 ENSURE="$(dirname "$0")/../lib/ensure-binaries.sh"
 [ -x "$BIN" ] && exec "$BIN" "$@"
 [ -f "$ENSURE" ] && sh "$ENSURE" --background

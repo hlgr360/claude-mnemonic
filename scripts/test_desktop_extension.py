@@ -49,7 +49,8 @@ class BuildMcpb(unittest.TestCase):
     def test_the_file_holds_the_manifest_the_wrapper_and_the_downloader_and_nothing_else(self):
         with zipfile.ZipFile(self.built()) as z:
             self.assertEqual(sorted(z.namelist()), ["LICENSE", "manifest.json", "server/.claude-plugin/plugin.json",
-                                                     "server/lib/ensure-binaries.sh", "server/mcp-server"])
+                                                     "server/lib/ensure-binaries.ps1", "server/lib/ensure-binaries.sh",
+                                                     "server/mcp-server", "server/mcp-server.cmd"])
 
     def test_the_manifest_is_what_desktop_needs_to_start_the_server_without_an_executable_bit(self):
         m = self.manifest(self.built())
@@ -59,9 +60,20 @@ class BuildMcpb(unittest.TestCase):
         self.assertEqual(m["server"]["entry_point"], "server/mcp-server")
         self.assertEqual(m["server"]["mcp_config"]["command"], "/bin/sh", "the script is run by sh, so it needs no executable bit after unpacking")
         self.assertEqual(m["server"]["mcp_config"]["args"], ["${__dirname}/server/mcp-server"])
-        self.assertEqual(m["compatibility"]["platforms"], ["darwin"], "the downloader has a build for macOS on Apple silicon (and Linux, which Desktop is not)")
+        self.assertEqual(m["compatibility"]["platforms"], ["darwin", "win32"], "the downloaders have a build for macOS on Apple silicon and Windows on x86-64 (Linux has no Desktop)")
+        win = m["server"]["mcp_config"]["platform_overrides"]["win32"]
+        self.assertEqual(win["command"], "cmd.exe", "Windows has no /bin/sh; a batch file hands stdio to the server unchanged")
+        self.assertEqual(win["args"], ["/c", "${__dirname}${/}server${/}mcp-server.cmd"])
         for field in ("description", "author", "version"):
             self.assertTrue(m[field])
+
+    def test_the_windows_launcher_is_packed_with_crlf_and_its_downloader(self):
+        with zipfile.ZipFile(self.built()) as z:
+            cmd = z.read("server/mcp-server.cmd")
+            self.assertIn(b"\r\n", cmd)
+            self.assertNotIn(b"\n", cmd.replace(b"\r\n", b""), "every line ends in CRLF")
+            self.assertIn(b"lib\\ensure-binaries.ps1", cmd, "it runs the downloader that is packed next to it")
+            self.assertIn(b"$DefaultRepo", z.read("server/lib/ensure-binaries.ps1"))
 
     def test_a_fork_number_becomes_a_semver_prerelease_that_increases(self):
         self.assertEqual(self.manifest(self.built("v0.21.95.3"))["version"], "0.21.95-fork.3")

@@ -7,7 +7,7 @@
 #   SKIP_VALIDATE=1      do not run `claude plugin validate` (it needs the claude CLI)
 #
 # The tree holds the manifest (version stamped), the hook definitions and wrappers, the MCP server wrapper, the slash
-# commands as skills, a README and lib/ensure-binaries.sh, which fetches and verifies the binaries of this release on first use (see that
+# commands as skills, a README and lib/ensure-binaries.sh (and its Windows twin .ps1), which fetches and verifies the binaries of this release on first use (see that
 # script for the rules). Try it without installing anything:  claude --plugin-dir dist/plugin
 # Note that the plugin runs the hooks: they start the worker and write to ~/.claude-mnemonic like any install.
 #
@@ -39,6 +39,10 @@ for hook in session-start user-prompt post-tool-use subagent-stop stop pre-compa
 done
 cp mcp-server "$TREE/mcp-server"
 chmod 755 "$TREE/mcp-server"
+# Windows: the MCP launcher next to the shell one (a spawn that resolves PATHEXT finds mcp-server.cmd), and the PowerShell
+# twin of the downloader, which ensure-binaries.sh hands over to under Git Bash.
+cp mcp-server.cmd "$TREE/mcp-server.cmd"
+cp plugin/lib/ensure-binaries.ps1 "$TREE/lib/ensure-binaries.ps1"
 # The slash commands ship as skills (commands/ is the older format); /claude-mnemonic:<name> does not change.
 python3 scripts/commands_to_skills.py commands "$TREE/skills"
 # The README (shows in the plugin's Contents): what it is, and that Claude Desktop is a separate install.
@@ -53,8 +57,9 @@ cp LICENSE "$TREE/LICENSE"
 # A fork of the fork downloads from its own releases, and links to them.
 if [[ -n "${MNEMONIC_REPO:-}" ]]; then
     sed -i.bak "s|^DEFAULT_REPO=.*|DEFAULT_REPO=\"${MNEMONIC_REPO}\"|" "$TREE/lib/ensure-binaries.sh"
+    sed -i.bak 's|^\$DefaultRepo = .*|$DefaultRepo = "'"${MNEMONIC_REPO}"'"|' "$TREE/lib/ensure-binaries.ps1"
     sed -i.bak "s|github.com/hlgr360/claude-mnemonic|github.com/${MNEMONIC_REPO}|g" "$TREE/.claude-plugin/plugin.json" "$TREE/README.md"
-    rm -f "$TREE/lib/ensure-binaries.sh.bak" "$TREE/.claude-plugin/plugin.json.bak" "$TREE/README.md.bak"
+    rm -f "$TREE/lib/ensure-binaries.sh.bak" "$TREE/lib/ensure-binaries.ps1.bak" "$TREE/.claude-plugin/plugin.json.bak" "$TREE/README.md.bak"
 fi
 
 # Limits of the upload form that `claude plugin validate` does not check (the description is at most 500 characters).

@@ -236,11 +236,59 @@ class EnsureBinaries(unittest.TestCase):
     def test_a_platform_without_a_release_build_is_refused_with_a_hint(self):
         f = Fixture(self)
         f.make_release()
-        write(os.path.join(f.tools, "uname"), '#!/bin/sh\ncase "$1" in -s) echo MINGW64_NT;; *) echo x86_64;; esac\n')
+        write(os.path.join(f.tools, "uname"), '#!/bin/sh\ncase "$1" in -s) echo FreeBSD;; *) echo amd64;; esac\n')
         out = f.ensure()
         self.assertNotEqual(out.returncode, 0)
         self.assertIn("no release build", out.stderr)
         self.assertFalse(f.installed())
+
+    def fake_windows(self, f):
+        """Git Bash as far as the script can tell: uname says MINGW, and powershell.exe records how it was called."""
+        write(os.path.join(f.tools, "uname"), '#!/bin/sh\ncase "$1" in -s) echo MINGW64_NT-10.0;; *) echo x86_64;; esac\n')
+        write(os.path.join(f.tools, "powershell.exe"), f'#!/bin/sh\necho "$@" > "{f.tools}/powershell.calls"\nexit 0\n')
+
+    def powershell_calls(self, f):
+        path = os.path.join(f.tools, "powershell.calls")
+        if not os.path.exists(path):
+            return None
+        with open(path, encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_on_windows_the_install_is_handed_to_the_powershell_script(self):
+        f = Fixture(self)
+        f.make_release()
+        self.fake_windows(f)
+        out = f.ensure()
+        self.assertEqual(out.returncode, 0, out.stderr)
+        calls = self.powershell_calls(f)
+        self.assertIn("-ExecutionPolicy Bypass -File", calls)
+        self.assertIn("ensure-binaries.ps1", calls)
+        self.assertNotIn("-Background", calls)
+        self.assertFalse(f.installed(), "the shell script itself installs nothing on Windows")
+
+    def test_on_windows_background_becomes_the_powershell_switch(self):
+        f = Fixture(self)
+        f.make_release()
+        self.fake_windows(f)
+        out = f.ensure("--background")
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertIn("ensure-binaries.ps1 -Background", self.powershell_calls(f))
+
+    def test_on_windows_exe_binaries_count_as_installed(self):
+        f = Fixture(self)
+        f.make_release()
+        self.fake_windows(f)
+        for name in ("worker.exe", "mcp-server.exe"):
+            write(os.path.join(f.bin, name), "x")
+        write(os.path.join(f.bin, ".plugin-version"), VERSION + "\n", 0o644)
+        for argv in ((), ("--background",)):
+            out = f.ensure(*argv)
+            self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertIsNone(self.powershell_calls(f), "up to date: PowerShell is not even started")
+        # An older marker makes the .exe install stale, exactly like the Unix one.
+        write(os.path.join(f.bin, ".plugin-version"), "0.0.1\n", 0o644)
+        f.ensure("--background")
+        self.assertIsNotNone(self.powershell_calls(f))
 
 
 @unittest.skipUnless(SYSTEM and shutil.which("bash") and shutil.which("curl") and shutil.which("tar"), "needs a supported platform, bash, curl and tar")
@@ -265,6 +313,28 @@ class Wrappers(unittest.TestCase):
         write(os.path.join(f.bin, "hooks", "stop"), '#!/bin/sh\necho "hook stop got $1"\n')
         out = self.run_wrapper(f, "hooks/stop", "arg1")
         self.assertEqual(out.stdout.strip(), "hook stop got arg1", out.stderr)
+
+    def test_on_windows_the_wrappers_run_the_exe_that_is_installed(self):
+        f = Fixture(self)
+        f.preinstall(marker=VERSION)
+        write(os.path.join(f.bin, "hooks", "stop.exe"), '#!/bin/sh\necho "exe stop got $1"\n')
+        out = self.run_wrapper(f, "hooks/stop", "a")
+        self.assertEqual(out.stdout.strip(), "exe stop got a", out.stderr)
+        write(os.path.join(f.bin, "mcp-server.exe"), '#!/bin/sh\necho "exe mcp got $1"\n')
+        os.remove(os.path.join(f.bin, "mcp-server"))
+        out = self.run_wrapper(f, "mcp-server", "--stdio", base="file:///nonexistent")
+        self.assertEqual(out.stdout.strip(), "exe mcp got --stdio", out.stderr)
+
+    def test_the_windows_launcher_is_a_crlf_batch_file_that_downloads_only_when_the_exe_is_missing(self):
+        with open(os.path.join(REPO_ROOT, "mcp-server.cmd"), "rb") as fh:
+            raw = fh.read()
+        self.assertNotIn(b"\n", raw.replace(b"\r\n", b""), "batch files need CRLF line endings")
+        text = raw.decode("ascii")
+        self.assertIn(r'set "BIN=%USERPROFILE%\.claude-mnemonic\bin\mcp-server.exe"', text)
+        self.assertIn(r'if not exist "%BIN%"', text)
+        self.assertIn(r'-File "%~dp0lib\ensure-binaries.ps1" 1>&2', text, "the download never writes to the server's stdout")
+        self.assertIn('"%BIN%" %*', text)
+        self.assertIn("exit /b %ERRORLEVEL%", text)
 
     def test_the_session_start_hook_does_not_download_when_the_installation_is_current(self):
         f = Fixture(self)
@@ -299,7 +369,7 @@ class BuildPlugin(unittest.TestCase):
         files = sorted(os.path.relpath(os.path.join(r, n), f.tree) for r, _d, ns in os.walk(f.tree) for n in ns)
         self.assertEqual(
             files,
-            sorted([".claude-plugin/plugin.json", "LICENSE", "README.md", "hooks/hooks.json", "lib/ensure-binaries.sh", "lib/statusline.sh", "mcp-server", "skills/memory-dashboard/SKILL.md", "skills/memory-restart/SKILL.md", "skills/memory-statusline/SKILL.md"] + [f"hooks/{h}" for h in HOOKS]),
+            sorted([".claude-plugin/plugin.json", "LICENSE", "README.md", "hooks/hooks.json", "lib/ensure-binaries.ps1", "lib/ensure-binaries.sh", "lib/statusline.sh", "mcp-server", "mcp-server.cmd", "skills/memory-dashboard/SKILL.md", "skills/memory-restart/SKILL.md", "skills/memory-statusline/SKILL.md"] + [f"hooks/{h}" for h in HOOKS]),
         )
         with open(os.path.join(f.tree, ".claude-plugin", "plugin.json"), encoding="utf-8") as fh:
             manifest = json.load(fh)

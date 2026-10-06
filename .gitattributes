@@ -1,2 +1,8 @@
 # Models are now downloaded at runtime from GitHub Releases.
 # LFS tracking removed. See internal/models/download.go
+
+# Windows launchers: batch files need CRLF; shell scripts must stay LF even when checked out on Windows.
+*.cmd text eol=crlf
+*.sh text eol=lf
+mcp-server text eol=lf
+hooks/* text eol=lf

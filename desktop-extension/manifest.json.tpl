@@ -24,12 +24,18 @@
     "mcp_config": {
       "command": "/bin/sh",
       "args": ["${__dirname}/server/mcp-server"],
-      "env": {}
+      "env": {},
+      "platform_overrides": {
+        "win32": {
+          "command": "cmd.exe",
+          "args": ["/c", "${__dirname}${/}server${/}mcp-server.cmd"]
+        }
+      }
     }
   },
   "tools_generated": true,
   "compatibility": {
     "claude_desktop": ">=0.8.0",
-    "platforms": ["darwin"]
+    "platforms": ["darwin", "win32"]
   }
 }

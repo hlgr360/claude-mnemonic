@@ -1,0 +1,52 @@
+name: Windows
+
+# The plugin and the Desktop extension run on Windows too (#150). Nobody develops on Windows here, so this job is what
+# proves it: the Go code that handles processes and paths, and the PowerShell downloader, run on a real Windows runner.
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "pkg/hooks/**"
+      - "plugin/**"
+      - "scripts/test_ensure_binaries.ps1"
+      - "mcp-server.cmd"
+      - "desktop-extension/**"
+      - ".github/workflows/windows.yaml"
+  push:
+    branches:
+      - "feat/windows-support"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: Windows (go + PowerShell)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Hooks package tests
+        run: go test ./pkg/hooks/...
+
+      - name: The hooks and the MCP server build
+        run: |
+          go build -o NUL ./cmd/mcp
+          foreach ($h in Get-ChildItem cmd/hooks -Directory) { go build -o NUL "./cmd/hooks/$($h.Name)"; if ($LASTEXITCODE -ne 0) { exit 1 } }
+        shell: pwsh
+
+      - name: Downloader tests (Windows PowerShell 5.1)
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts\test_ensure_binaries.ps1
+        shell: cmd
+
+      - name: Downloader tests (PowerShell 7)
+        run: pwsh -NoProfile -File scripts\test_ensure_binaries.ps1
+        shell: cmd

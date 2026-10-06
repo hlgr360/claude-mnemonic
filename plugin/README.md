@@ -17,7 +17,7 @@ automatically, loads the project's memory at the start of a session, makes them 
 - **The plugin carries no binaries.** On first use it downloads the binaries of its own version from the release,
   checks them against the release's checksums (and against the cosign signature when cosign is installed), and
   installs them in `~/.claude-mnemonic/bin`. Binaries from `make install` are never replaced. Supported: macOS on
-  Apple silicon and Linux on x86-64. The first session may run without memory until the download has finished.
+  Apple silicon, Linux on x86-64 and Windows on x86-64 (the hooks need Git for Windows; see the project README). The first session may run without memory until the download has finished.
 - Do not use it next to another install of claude-mnemonic (`make install`, upstream's plugin): they register the same
   hooks.
 

@@ -63,7 +63,7 @@ That's it. No Python. No external services. Everything runs locally.
 
 ## Install
 
-Install what you use. Both routes download the binaries of their own release on first use, check them against the release's checksums (and against the cosign signature when cosign is installed) and keep them in `~/.claude-mnemonic/bin`. Supported: macOS on Apple silicon (plugin and extension) and Linux on x86-64 (plugin). Your data (`~/.claude-mnemonic`: the database, settings and embeddings) is never touched by an install.
+Install what you use. Both routes download the binaries of their own release on first use, check them against the release's checksums (and against the cosign signature when cosign is installed) and keep them in `~/.claude-mnemonic/bin`. Supported: macOS on Apple silicon (plugin and extension), Windows on x86-64 (plugin and extension, see [Windows](#windows)) and Linux on x86-64 (plugin). Your data (`~/.claude-mnemonic`: the database, settings and embeddings) is never touched by an install.
 
 ### Claude Code: the plugin
 
@@ -142,6 +142,16 @@ cosign verify-blob \
   --bundle "checksums.txt.sigstore.json" \
   checksums.txt
 ```
+
+
+### Windows
+
+Both routes work on Windows 10 and 11 on x86-64 (Windows on ARM runs the same x64 build through its emulation; untested). Nothing to install first: the downloader is PowerShell, which Windows has. It was built without a Windows machine and is tested on a Windows runner in CI (`.github/workflows/windows.yaml`), so please report what you see in [#150](https://github.com/hlgr360/claude-mnemonic/issues/150).
+
+- **Desktop extension:** install the `.mcpb` as on macOS. Desktop runs `mcp-server.cmd`, which downloads the binaries on first use and then starts the server.
+- **Claude Code plugin:** the hooks run through Git Bash, which Claude Code uses when [Git for Windows](https://git-scm.com/download/win) is installed. Without it Claude Code runs hooks in PowerShell and the memory hooks do not run. The plugin's MCP server starts through `mcp-server.cmd`; if `/mcp` shows claude-mnemonic as failed, start a session once so the hooks fetch the binaries, then register the server by hand: `claude mcp add --scope user claude-mnemonic -- "%USERPROFILE%\.claude-mnemonic\bin\mcp-server.exe"`.
+- **What does not work yet on Windows:** `/memory-statusline` (it needs `python3`).
+- **Where to look:** `%USERPROFILE%\.claude-mnemonic\plugin-install.log` has the download's messages, and `/mcp` in Claude Code shows the server's state.
 
 ## What it does
 
@@ -552,7 +562,7 @@ Everything runs locally. No Python. No external vector database. No API calls.
 | Linux arm64 | Supported |
 | Windows amd64 | Supported |
 
-The table is what the worker builds for. Through the plugin and the extension the supported platforms are macOS on Apple silicon (both) and Linux on x86-64 (plugin only); anything else builds from source.
+The table is what the worker builds for. Through the plugin and the extension the supported platforms are macOS on Apple silicon (both), Windows on x86-64 (both) and Linux on x86-64 (plugin only); anything else builds from source.
 
 ## Development
 

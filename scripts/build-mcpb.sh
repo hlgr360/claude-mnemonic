@@ -47,6 +47,9 @@ cp mcp-server "$TREE/server/mcp-server"
 chmod 755 "$TREE/server/mcp-server"
 cp plugin/lib/ensure-binaries.sh "$TREE/server/lib/ensure-binaries.sh"
 chmod 755 "$TREE/server/lib/ensure-binaries.sh"
+# Windows: Desktop runs mcp-server.cmd (see platform_overrides in the manifest), which downloads with the PowerShell twin.
+cp mcp-server.cmd "$TREE/server/mcp-server.cmd"
+cp plugin/lib/ensure-binaries.ps1 "$TREE/server/lib/ensure-binaries.ps1"
 # The downloader takes the release to fetch from the plugin.json next to the server (name and version are all it reads).
 printf '{"name": "claude-mnemonic", "version": "%s"}\n' "$VERSION" >"$TREE/server/.claude-plugin/plugin.json"
 cp LICENSE "$TREE/LICENSE"
@@ -54,8 +57,9 @@ cp LICENSE "$TREE/LICENSE"
 # A fork of the fork downloads from its own releases, and links to them.
 if [[ -n "${MNEMONIC_REPO:-}" ]]; then
     sed -i.bak "s|^DEFAULT_REPO=.*|DEFAULT_REPO=\"${MNEMONIC_REPO}\"|" "$TREE/server/lib/ensure-binaries.sh"
+    sed -i.bak 's|^\$DefaultRepo = .*|$DefaultRepo = "'"${MNEMONIC_REPO}"'"|' "$TREE/server/lib/ensure-binaries.ps1"
     sed -i.bak "s|github.com/hlgr360/claude-mnemonic|github.com/${MNEMONIC_REPO}|g" "$TREE/manifest.json"
-    rm -f "$TREE/server/lib/ensure-binaries.sh.bak" "$TREE/manifest.json.bak"
+    rm -f "$TREE/server/lib/ensure-binaries.sh.bak" "$TREE/server/lib/ensure-binaries.ps1.bak" "$TREE/manifest.json.bak"
 fi
 
 if [[ "${SKIP_VALIDATE:-}" != "1" ]]; then

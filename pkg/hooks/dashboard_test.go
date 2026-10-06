@@ -45,6 +45,7 @@ func TestDashboardNotice_AMarkerThatCannotBeWrittenMeansItIsSaidAgainNotAnError(
 
 func TestDataDir_IsTheWorkersDirectory(t *testing.T) {
 	t.Setenv("HOME", "/home/someone")
+	t.Setenv("USERPROFILE", "/home/someone") // Windows
 	assert.Equal(t, filepath.Join("/home/someone", ".claude-mnemonic"), DataDir())
 }
 

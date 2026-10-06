@@ -317,7 +317,7 @@ name alone.
   written into each tool's description.
 - **`search` across all projects needs the vector index.** Without it the call fails clearly
   instead of returning nothing.
-- **Windows and Linux Desktop** are supported by the installer but have not been tested.
+- **Windows Desktop** is supported by the extension (it runs `mcp-server.cmd`, which downloads the binaries with PowerShell) but was built without a Windows machine; see the Windows section of the README. Linux has no Claude Desktop.
 - **"Server disconnected" after the connector sat unused.** Up to this fix the MCP server shut itself down after 30
   minutes without a message, and did it badly: it only closed its input, the read stayed blocked, and the next call from
   Desktop failed with `scanner error: read /dev/stdin: file already closed`, which ended the connection in the middle of

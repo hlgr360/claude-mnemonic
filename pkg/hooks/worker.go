@@ -12,7 +12,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 )
 
@@ -110,7 +109,7 @@ func IsWorkerRunning(port int) bool {
 
 // workerCachePath returns the path to the worker cache file.
 func workerCachePath() string {
-	home := os.Getenv("HOME")
+	home := homeDir()
 	if home == "" {
 		return ""
 	}
@@ -173,17 +172,6 @@ func writeWorkerCache(port, pid int) {
 	_ = os.MkdirAll(dir, 0o700)
 	data := fmt.Sprintf("%d:%d:%d", port, pid, time.Now().Unix())
 	_ = os.WriteFile(path, []byte(data), 0o600)
-}
-
-// isProcessAlive checks if a process with the given PID exists and is alive.
-func isProcessAlive(pid int) bool {
-	proc, err := os.FindProcess(pid)
-	if err != nil {
-		return false
-	}
-	// Signal 0 checks if process exists without actually sending a signal.
-	err = proc.Signal(syscall.Signal(0))
-	return err == nil
 }
 
 // isWorkerRunningWithRetries checks if the worker is running, retrying on timeout.
@@ -357,21 +345,12 @@ func ensureWorkerRunningCtx(ctx context.Context) (int, error) {
 
 // updateCacheFromPort finds the PID of the process on the port and updates the cache.
 func updateCacheFromPort(port int) {
-	cmd := exec.Command("lsof", "-t", "-i", fmt.Sprintf(":%d", port)) // #nosec G204 -- port is from internal config
-	output, err := cmd.Output()
-	if err != nil {
+	pids, err := pidsOnPort(port)
+	if err != nil || len(pids) == 0 {
 		return
 	}
-	pidStr := strings.TrimSpace(string(output))
 	// Take first PID if multiple
-	if idx := strings.Index(pidStr, "\n"); idx > 0 {
-		pidStr = pidStr[:idx]
-	}
-	pid, err := strconv.Atoi(pidStr)
-	if err != nil || pid <= 0 {
-		return
-	}
-	writeWorkerCache(port, pid)
+	writeWorkerCache(port, pids[0])
 }
 
 // GetWorkerVersion gets the version of the running worker.
@@ -405,53 +384,32 @@ func IsPortInUse(port int) bool {
 
 // KillProcessOnPort finds and kills the process using the given port.
 func KillProcessOnPort(port int) error {
-	// Use lsof to find the process (works on macOS and Linux)
-	cmd := exec.Command("lsof", "-t", "-i", fmt.Sprintf(":%d", port)) // #nosec G204 -- port is from internal config
-	output, err := cmd.Output()
+	pids, err := pidsOnPort(port)
 	if err != nil {
-		// lsof returns exit code 1 when no process is found - that's fine
-		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
-			return nil // No process found
-		}
-		return fmt.Errorf("failed to find process on port: %w", err)
+		return err
 	}
-
-	pidStr := strings.TrimSpace(string(output))
-	if pidStr == "" {
-		return nil // No process found
-	}
-
-	// Handle multiple PIDs (one per line)
-	pids := strings.Split(pidStr, "\n")
 	for _, pid := range pids {
-		pid = strings.TrimSpace(pid)
-		if pid == "" {
-			continue
-		}
-
-		// Kill the process
-		killCmd := exec.Command("kill", "-9", pid) // #nosec G204 -- pid is from lsof output
-		if err := killCmd.Run(); err != nil {
-			return fmt.Errorf("failed to kill process %s: %w", pid, err)
+		if err := killPID(pid); err != nil {
+			return fmt.Errorf("failed to kill process %d: %w", pid, err)
 		}
 	}
-
 	return nil
 }
 
 // findWorkerBinary finds the worker binary path.
 func findWorkerBinary() string {
-	home := os.Getenv("HOME")
+	home := homeDir()
+	exe := binaryName("worker")
 
 	// Stable binary location (primary, survives Claude Code updates)
-	stablePath := filepath.Join(home, ".claude-mnemonic", "bin", "worker")
+	stablePath := filepath.Join(home, ".claude-mnemonic", "bin", exe)
 	if _, err := os.Stat(stablePath); err == nil {
 		return stablePath
 	}
 
 	// Check CLAUDE_PLUGIN_ROOT (set by Claude Code when running hooks)
 	if pluginRoot := os.Getenv("CLAUDE_PLUGIN_ROOT"); pluginRoot != "" {
-		workerPath := filepath.Join(pluginRoot, "worker")
+		workerPath := filepath.Join(pluginRoot, exe)
 		if _, err := os.Stat(workerPath); err == nil {
 			return workerPath
 		}
@@ -459,8 +417,8 @@ func findWorkerBinary() string {
 
 	// Check common locations
 	locations := []string{
-		"./worker",
-		"./bin/worker",
+		"./" + exe,
+		"./bin/" + exe,
 	}
 
 	for _, loc := range locations {
@@ -470,13 +428,13 @@ func findWorkerBinary() string {
 	}
 
 	// Try cache directory with any version
-	matches, _ := filepath.Glob(filepath.Join(home, ".claude/plugins/cache/claude-mnemonic/claude-mnemonic/*/worker"))
+	matches, _ := filepath.Glob(filepath.Join(home, ".claude/plugins/cache/claude-mnemonic/claude-mnemonic/*", exe))
 	if len(matches) > 0 {
 		return matches[len(matches)-1]
 	}
 
 	// Try marketplaces directory
-	marketplacePath := filepath.Join(home, ".claude/plugins/marketplaces/claude-mnemonic/worker")
+	marketplacePath := filepath.Join(home, ".claude/plugins/marketplaces/claude-mnemonic", exe)
 	if _, err := os.Stat(marketplacePath); err == nil {
 		return marketplacePath
 	}

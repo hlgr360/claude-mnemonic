@@ -16,6 +16,9 @@
 #   - marker older than the plugin version                        -> install (the plugin is the floor)
 #   - marker equal or newer (the in-app updater moved on)        -> leave them alone
 #
+# On Windows (Git Bash) the work is done by ensure-binaries.ps1, next to this file: it downloads the .zip and can replace an
+# executable that is running, which a shell cannot do there.
+#
 # Environment (for forks and tests):
 #   MNEMONIC_REPO          release repository, default below
 #   MNEMONIC_RELEASE_BASE  base URL of the release's files, default https://github.com/<repo>/releases/download/v<version>
@@ -46,21 +49,38 @@ version_gt() {
     [ "$1" != "$2" ] && [ "$(printf '%s\n%s\n' "$1" "$2" | sort -t. -k1,1n -k2,2n -k3,3n -k4,4n | tail -n 1)" = "$1" ]
 }
 
+# true when the file, or its Windows .exe, is installed and executable.
+have() {
+    [ -x "$1" ] || [ -x "$1.exe" ]
+}
+
 needs_install() {
-    [ -x "$BIN/worker" ] && [ -x "$BIN/mcp-server" ] || return 0
+    have "$BIN/worker" && have "$BIN/mcp-server" || return 0
     [ -f "$MARKER" ] || return 1
     installed="$(head -n 1 "$MARKER")"
     version_gt "$VERSION" "$installed"
 }
 
+# Git Bash (MSYS or Cygwin) on Windows: hand over to the PowerShell script. $1 is --background or empty.
+run_windows_installer() {
+    PSFILE="$(dirname "$0")/ensure-binaries.ps1"
+    [ -f "$PSFILE" ] || { say "$PSFILE is missing"; exit 1; }
+    command -v cygpath >/dev/null 2>&1 && PSFILE="$(cygpath -w "$PSFILE")"
+    if [ "${1:-}" = "--background" ]; then set -- -Background; else set --; fi
+    exec powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PSFILE" "$@"
+}
+case "$(uname -s)" in MINGW* | MSYS* | CYGWIN*) ON_WINDOWS=1 ;; *) ON_WINDOWS=0 ;; esac
+
 if [ "${1:-}" = "--background" ]; then
     needs_install || exit 0
+    [ "$ON_WINDOWS" = 1 ] && run_windows_installer --background
     mkdir -p "$DATA"
     nohup sh "$0" </dev/null >>"$LOG" 2>&1 &
     exit 0
 fi
 
 needs_install || exit 0
+[ "$ON_WINDOWS" = 1 ] && run_windows_installer
 
 case "$(uname -s)-$(uname -m)" in
     Darwin-arm64) PLATFORM="darwin_arm64" ;;
