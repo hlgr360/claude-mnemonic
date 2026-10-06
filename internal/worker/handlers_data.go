@@ -51,12 +51,13 @@ func (s *Service) handleGetObservations(w http.ResponseWriter, r *http.Request) 
 
 	// Use vector search if query is provided and vector client is available
 	if query != "" && s.vectorClient != nil && s.vectorClient.IsConnected() {
-		where := sqlitevec.BuildWhereFilter(sqlitevec.DocTypeObservation, "")
+		where := sqlitevec.BuildWhereFilter(sqlitevec.DocTypeObservation, project)
 		vectorResults, vecErr := s.vectorClient.Query(ctx, query, pagination.Limit*2, where)
 		if vecErr == nil && len(vectorResults) > 0 {
 			obsIDs := sqlitevec.ExtractObservationIDs(vectorResults, project)
 			if len(obsIDs) > 0 {
-				observations, err = s.observationStore.GetObservationsByIDs(ctx, obsIDs, "date_desc", pagination.Limit)
+				// The vector results come best first; the cut to the page size keeps the best, not the newest.
+				observations, err = s.observationStore.GetObservationsByIDsPreserveOrder(ctx, topIDsByRelevance(obsIDs, nil, pagination.Limit))
 				if err == nil {
 					usedVector = true
 					total = int64(len(observations)) // Vector search doesn't have total, use returned count

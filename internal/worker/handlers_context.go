@@ -78,7 +78,9 @@ func (s *Service) handleSearchByPrompt(w http.ResponseWriter, r *http.Request) {
 	// Try vector search first if available
 	var vectorSearchFailed bool
 	if s.vectorClient != nil && s.vectorClient.IsConnected() {
-		where := sqlitevec.BuildWhereFilter(sqlitevec.DocTypeObservation, "")
+		// Ask for the project's own notes (and the global ones): scoped here, the best matches of other projects cannot
+		// crowd the candidates out before the project filter below.
+		where := sqlitevec.BuildWhereFilter(sqlitevec.DocTypeObservation, project)
 
 		// Search with each expanded query and merge results
 		// Pre-allocate with estimated capacity to avoid repeated reallocation
@@ -129,8 +131,9 @@ func (s *Service) handleSearchByPrompt(w http.ResponseWriter, r *http.Request) {
 			obsIDs := sqlitevec.ExtractObservationIDs(filteredResults, project)
 
 			if len(obsIDs) > 0 {
-				// Fetch full observations from SQLite
-				observations, err = s.observationStore.GetObservationsByIDs(ctx, obsIDs, "date_desc", limit)
+				// Fetch full observations from SQLite. The cut to limit is by relevance: a sort by date first would
+				// keep the newest notes and drop an older one that matches best.
+				observations, err = s.observationStore.GetObservationsByIDsPreserveOrder(ctx, topIDsByRelevance(obsIDs, similarityScores, limit))
 				if err == nil {
 					usedVector = true
 				}
@@ -403,7 +406,7 @@ func (s *Service) handleFileContext(w http.ResponseWriter, r *http.Request) {
 			// Build search query from file path
 			query := buildFileQuery(file)
 
-			where := sqlitevec.BuildWhereFilter(sqlitevec.DocTypeObservation, "")
+			where := sqlitevec.BuildWhereFilter(sqlitevec.DocTypeObservation, project)
 			vectorResults, vecErr := s.vectorClient.Query(ctx, query, limit*2, where)
 			if vecErr != nil {
 				log.Warn().Err(vecErr).Str("file", file).Msg("Vector search failed for file context")

@@ -97,6 +97,9 @@ suite "Prune and merge with real embeddings and snapshots"             python3 "
 fresh_worker || exit 1
 suite "Notes are kept, and an archived note is out of search"          python3 "$HERE/drive_cap.py"
 
+fresh_worker || exit 1
+suite "A search scoped to a project finds that project's notes"        python3 "$HERE/drive_project_search.py"
+
 # The regular snapshot: switched on here only, it runs half a minute after the worker starts.
 printf '{"CLAUDE_MNEMONIC_SNAPSHOT_INTERVAL_HOURS": 24, "CLAUDE_MNEMONIC_CONFLICT_PROPOSALS_ENABLED": false}\n' > "$WORK/home/.claude-mnemonic/settings.json"
 fresh_worker || exit 1
