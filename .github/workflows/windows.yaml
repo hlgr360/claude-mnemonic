@@ -38,15 +38,18 @@ jobs:
         run: go test ./pkg/hooks/...
 
       - name: The hooks and the MCP server build
+        if: success() || failure()
         run: |
           go build -o NUL ./cmd/mcp
           foreach ($h in Get-ChildItem cmd/hooks -Directory) { go build -o NUL "./cmd/hooks/$($h.Name)"; if ($LASTEXITCODE -ne 0) { exit 1 } }
         shell: pwsh
 
       - name: Downloader tests (Windows PowerShell 5.1)
+        if: success() || failure()
         run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts\test_ensure_binaries.ps1
         shell: cmd
 
       - name: Downloader tests (PowerShell 7)
+        if: success() || failure()
         run: pwsh -NoProfile -File scripts\test_ensure_binaries.ps1
         shell: cmd

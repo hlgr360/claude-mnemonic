@@ -70,3 +70,13 @@ func parseNetstatListeners(output string, port int) []int {
 	}
 	return pids
 }
+
+// projectKeyFor is the text a project's ID is hashed from. Windows paths are case-insensitive (C:\Users\X\Repo and
+// c:\users\x\repo are one directory), so they are lower-cased; elsewhere the path is used as it is, which keeps every
+// existing ID. The ID's name part is the directory's name as spelled.
+func projectKeyFor(goos, absPath string) string {
+	if goos == "windows" {
+		return strings.ToLower(absPath)
+	}
+	return absPath
+}

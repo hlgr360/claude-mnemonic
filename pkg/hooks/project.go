@@ -3,6 +3,7 @@ package hooks
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -55,15 +56,18 @@ func inCallerPathForm(root, mainRoot string) string {
 		return mainRoot
 	}
 
-	given := splitPath(root)
-	real := splitPath(realRoot)
+	givenVol, given := splitPath(root)
+	realVol, real := splitPath(realRoot)
+	if givenVol != realVol {
+		return mainRoot
+	}
 	shared := 0
 	for shared < len(given) && shared < len(real) &&
 		given[len(given)-1-shared] == real[len(real)-1-shared] {
 		shared++
 	}
-	givenPrefix := joinPath(given[:len(given)-shared])
-	realPrefix := joinPath(real[:len(real)-shared])
+	givenPrefix := joinPath(givenVol, given[:len(given)-shared])
+	realPrefix := joinPath(realVol, real[:len(real)-shared])
 
 	rest, ok := cutPathPrefix(mainRoot, realPrefix)
 	if !ok {
@@ -72,32 +76,48 @@ func inCallerPathForm(root, mainRoot string) string {
 	return filepath.Join(givenPrefix, rest)
 }
 
-func splitPath(p string) []string {
-	var parts []string
-	for _, e := range strings.Split(filepath.ToSlash(filepath.Clean(p)), "/") {
+// splitPath splits a cleaned path into its volume ("C:" on Windows, empty elsewhere) and its elements.
+func splitPath(p string) (vol string, parts []string) {
+	p = filepath.Clean(p)
+	vol = filepath.VolumeName(p)
+	for _, e := range strings.Split(filepath.ToSlash(p[len(vol):]), "/") {
 		if e != "" {
 			parts = append(parts, e)
 		}
 	}
-	return parts
+	return vol, parts
 }
 
-func joinPath(parts []string) string {
-	return string(filepath.Separator) + filepath.Join(parts...)
+func joinPath(vol string, parts []string) string {
+	return vol + string(filepath.Separator) + filepath.Join(parts...)
 }
 
 // cutPathPrefix reports whether p lies under prefix, comparing whole path
-// elements, and returns the remainder.
+// elements, and returns the remainder. Windows paths compare without regard to case.
 func cutPathPrefix(p, prefix string) (string, bool) {
+	return cutPathPrefixFold(p, prefix, runtime.GOOS == "windows")
+}
+
+func cutPathPrefixFold(p, prefix string, fold bool) (string, bool) {
 	p, prefix = filepath.Clean(p), filepath.Clean(prefix)
-	if prefix == string(filepath.Separator) {
-		return strings.TrimPrefix(p, string(filepath.Separator)), true
+	same := func(a, b string) bool {
+		if fold {
+			return strings.EqualFold(a, b)
+		}
+		return a == b
 	}
-	if p == prefix {
+	sep := string(filepath.Separator)
+	if strings.HasSuffix(prefix, sep) { // a root: "/" or `C:\`
+		if len(p) >= len(prefix) && same(p[:len(prefix)], prefix) {
+			return p[len(prefix):], true
+		}
+		return "", false
+	}
+	if same(p, prefix) {
 		return "", true
 	}
-	if rest, ok := strings.CutPrefix(p, prefix+string(filepath.Separator)); ok {
-		return rest, true
+	if len(p) > len(prefix) && p[len(prefix)] == filepath.Separator && same(p[:len(prefix)], prefix) {
+		return p[len(prefix)+1:], true
 	}
 	return "", false
 }
