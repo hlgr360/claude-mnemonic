@@ -85,16 +85,50 @@ for k, oid in enumerate(old_ids):
 con.commit()
 con.close()
 
+print("== the pressure ladder: two more projects with notes only 45 days old")
+# The target is 4 live notes (see run.sh). A project with 10 live notes is far over it (more than twice: 30 days), one with 8 is
+# over it (up to twice: 60 days). Both have notes 45 days old: only the first rolls them up. The dockyard above has 13 live notes.
+def project_with(name, n):
+    f = os.path.join(base, name)
+    os.makedirs(f)
+    pid = json.loads(tool("project_resolve", path=f)[1])["id"]
+    for i in range(n):
+        for _ in range(4):
+            err, text = tool("remember", path=f, title=f"{name} entry {i} about {words[i % 10]}", text=f"{name} {i}: the {words[(i * 3) % 10]} gauge was read, the {words[(i * 7) % 10]} valve turned, number {i * 6151}.", type="discovery")
+            if not err:
+                break
+            time.sleep(1.5)
+        if err:
+            raise SystemExit(f"setup step failed: remember: {text[:200]}")
+    return pid
+
+
+far = project_with("quay", 10)
+over = project_with("depot", 8)
+d45 = (now - datetime.timedelta(days=45)).replace(hour=12, minute=0, second=0, microsecond=0)
+con = sqlite3.connect(DB, timeout=30)
+for pid in (far, over):
+    ids45 = [o["id"] for o in api(f"/api/observations?project={pid}&limit=100")["observations"]]
+    for k, oid in enumerate(sorted(ids45)):
+        t = d45 + datetime.timedelta(minutes=k)
+        con.execute("UPDATE observations SET scope_source = 'auto', created_at_epoch = ?, created_at = ? WHERE id = ?", (int(t.timestamp() * 1000), t.isoformat(), oid))
+con.commit()
+con.close()
+
 print("== the worker's own pass does it")
-done = wait_until(lambda: len(api("/api/folds")["folds"]) >= 1, 240)
-check("a roll-up appeared without anyone asking", done)
+done = wait_until(lambda: len(api("/api/folds")["folds"]) >= 2, 240)
+check("roll-ups appeared without anyone asking", done)
 folds = api("/api/folds")["folds"]
-check("exactly one roll-up, of the ten old notes", len(folds) == 1 and sorted(folds[0]["sources"]) == sorted(old_ids), folds)
+dock = [f for f in folds if f["project"] == project]
+check("the dockyard's ten old notes were rolled up in one roll-up", len(dock) == 1 and sorted(dock[0]["sources"]) == sorted(old_ids), folds)
+quay = [f for f in folds if f["project"] == far]
+check("the quay, far over its target, rolled up notes that are only 45 days old", len(quay) == 1 and len(quay[0]["sources"]) == 10, folds)
+check("the depot, only over its target, did not (its 45-day-old notes are not old enough at the 60-day step)", not [f for f in folds if f["project"] == over], folds)
 live = {o["id"] for o in api(f"/api/observations?project={project}&limit=100")["observations"]}
 check("the old notes are archived and the fresh ones are not", not (set(old_ids) & live) and set(fresh_ids) <= live, sorted(live))
-check("the roll-up is live", folds and folds[0]["survivor"] in live)
+check("the dockyard's roll-up is live", dock and dock[0]["survivor"] in live)
 time.sleep(70)  # a second pass finds nothing left: no second roll-up, and the roll-up is not rolled up again
-check("a later pass changes nothing", len(api("/api/folds?include_undone=true")["folds"]) == 1)
+check("a later pass changes nothing: still two roll-ups, none for the depot", len(api("/api/folds?include_undone=true")["folds"]) == 2 and not api(f"/api/folds?project={over}")["folds"])
 
 proc.stdin.close()
 proc.wait(timeout=10)

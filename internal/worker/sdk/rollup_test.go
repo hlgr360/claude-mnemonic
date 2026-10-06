@@ -31,7 +31,7 @@ func rollupInput() RollupInput {
 const goodRollup = "TITLE: Pricing fixes and cache keys\n\n- Prices were rounded twice, fixed in one place [#12].\n- The cache key includes the currency [#40, #999].\n- Contact me@example.com about it.\n"
 
 func TestParseRollup_TitleBodyAndCleaning(t *testing.T) {
-	title, body := parseRollup(goodRollup, map[int64]bool{12: true, 40: true})
+	title, body := parseRollup(goodRollup, map[int64]bool{12: true, 40: true}, rollupMaxBodyChars)
 	assert.Equal(t, "Pricing fixes and cache keys", title)
 	assert.Contains(t, body, "rounded twice, fixed in one place [#12].")
 	assert.Contains(t, body, "[#40]", "a known citation stays")
@@ -40,24 +40,24 @@ func TestParseRollup_TitleBodyAndCleaning(t *testing.T) {
 	assert.NotContains(t, body, "TITLE:")
 
 	t.Run("a code fence around the answer", func(t *testing.T) {
-		title, body := parseRollup("```markdown\n"+goodRollup+"```", map[int64]bool{12: true})
+		title, body := parseRollup("```markdown\n"+goodRollup+"```", map[int64]bool{12: true}, rollupMaxBodyChars)
 		assert.Equal(t, "Pricing fixes and cache keys", title)
 		assert.NotContains(t, body, "```")
 	})
 	t.Run("no title line: the whole answer is the body", func(t *testing.T) {
-		title, body := parseRollup("- one point [#12] about something that was done.", map[int64]bool{12: true})
+		title, body := parseRollup("- one point [#12] about something that was done.", map[int64]bool{12: true}, rollupMaxBodyChars)
 		assert.Empty(t, title)
 		assert.Contains(t, body, "one point [#12]")
 	})
 	t.Run("a title with markup, a citation or an address is made plain and short", func(t *testing.T) {
-		title, _ := parseRollup("TITLE: **Fixes [#12] for a@b.org** "+strings.Repeat("x", 300)+"\n\n- a point that has enough words in it to be a body.", map[int64]bool{12: true})
+		title, _ := parseRollup("TITLE: **Fixes [#12] for a@b.org** "+strings.Repeat("x", 300)+"\n\n- a point that has enough words in it to be a body.", map[int64]bool{12: true}, rollupMaxBodyChars)
 		assert.NotContains(t, title, "[#")
 		assert.NotContains(t, title, "a@b.org")
 		assert.NotContains(t, title, "**")
 		assert.LessOrEqual(t, len([]rune(title)), rollupMaxTitleChars+1)
 	})
 	t.Run("a long body is bounded", func(t *testing.T) {
-		_, body := parseRollup("TITLE: t\n\n"+strings.Repeat("- a line of text for the roll-up\n", 400), nil)
+		_, body := parseRollup("TITLE: t\n\n"+strings.Repeat("- a line of text for the roll-up\n", 400), nil, rollupMaxBodyChars)
 		assert.LessOrEqual(t, len(body), rollupMaxBodyChars+4)
 	})
 }
@@ -117,4 +117,45 @@ func TestGenerateRollup(t *testing.T) {
 
 func TestRollupTaskIsRoutedLikeTheOthers(t *testing.T) {
 	assert.Contains(t, allTasks, TaskRollup)
+}
+
+func TestQuarterLevelUsesItsOwnPromptAndLimits(t *testing.T) {
+	in := rollupInput()
+	in.Level, in.Period = LevelQuarter, "2026-Q1"
+	prompt, err := buildRollupPrompt(in)
+	require.NoError(t, err)
+	assert.Contains(t, prompt, "ROLL-UP REQUEST", "the same request marker, so a backend that routes on it still answers")
+	assert.Contains(t, prompt, "LEVEL: quarter")
+	assert.Contains(t, prompt, "PERIOD: 2026-Q1")
+	assert.Contains(t, prompt, "MONTHLY ROLL-UPS (2,")
+	assert.NotContains(t, prompt, "NOTES (2,")
+
+	month := rollupInput()
+	month.Period = "2026-03"
+	monthPrompt, err := buildRollupPrompt(month)
+	require.NoError(t, err)
+	assert.NotContains(t, monthPrompt, "LEVEL: quarter")
+	assert.Contains(t, monthPrompt, "PERIOD: 2026-03")
+	assert.Contains(t, monthPrompt, "NOTES (2,")
+
+	t.Run("a monthly roll-up is shown in more detail than a raw note", func(t *testing.T) {
+		long := strings.Repeat("alpha beta gamma delta ", 80) // about 1800 characters
+		qi := RollupInput{Level: LevelQuarter, Now: briefNow, Name: "shop", Observations: []*models.Observation{briefObs(1, models.ObsTypeDiscovery, "March", long, 3)}}
+		mi := RollupInput{Now: briefNow, Name: "shop", Observations: []*models.Observation{briefObs(1, models.ObsTypeDiscovery, "March", long, 3)}}
+		qp, _ := buildRollupPrompt(qi)
+		mp, _ := buildRollupPrompt(mi)
+		assert.Greater(t, len(qp), len(mp)+500)
+	})
+
+	t.Run("the generator sends the quarter system prompt and keeps a longer body", func(t *testing.T) {
+		c := &recordingCompleter{out: "TITLE: The first quarter\n\n" + strings.Repeat("- a point about the quarter [#12]\n", 80)}
+		res, err := rollupProcessor(c).GenerateRollup(context.Background(), in)
+		require.NoError(t, err)
+		assert.Equal(t, quarterSystemPrompt, c.got.System)
+		assert.Contains(t, c.got.System, "final record")
+		assert.Greater(t, len(res.Body), rollupMaxBodyChars-200, "a quarter's body may be longer than a month's")
+		assert.LessOrEqual(t, len(res.Body), quarterMaxBodyChars+4)
+	})
+	assert.Equal(t, rollupSystemPrompt, systemPromptFor(""))
+	assert.Equal(t, rollupSystemPrompt, systemPromptFor(LevelMonth))
 }

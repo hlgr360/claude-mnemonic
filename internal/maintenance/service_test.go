@@ -831,3 +831,34 @@ func TestRunNow_CleanupStale_LeavesNotesAPersonSupersededToTheRetention(t *testi
 	assert.EqualValues(t, 1, observationCount(t, store, hidden), "a note a person superseded follows the retention setting, not the stale cleanup")
 	assert.EqualValues(t, 0, observationCount(t, store, automatic))
 }
+
+func TestRunNow_RetentionDays_NeverDeletesAQuarterNote(t *testing.T) {
+	cfg := defaultCfg()
+	cfg.ObservationRetentionDays = 1
+
+	svc, store, _, _, cleanup := testSetup(t, cfg)
+	defer cleanup()
+	ctx := context.Background()
+
+	old := time.Now().AddDate(0, 0, -2).Unix()
+	mk := func(session string, concepts models.JSONStringArray) {
+		require.NoError(t, store.GetDB().WithContext(ctx).Create(&gormdb.Observation{
+			SDKSessionID: session, Project: "proj", Type: models.ObsTypeDiscovery, CreatedAt: "2000-01-01T00:00:00Z",
+			CreatedAtEpoch: old, Scope: models.ScopeProject, ImportanceScore: 1.0, Concepts: concepts,
+		}).Error)
+	}
+	mk("plain", nil)
+	mk("month", models.JSONStringArray{gormdb.RollupConcept})
+	mk("quarter", models.JSONStringArray{gormdb.RollupConcept, gormdb.QuarterConcept})
+
+	svc.RunNow(ctx)
+	time.Sleep(300 * time.Millisecond)
+
+	var left []gormdb.Observation
+	require.NoError(t, store.GetDB().WithContext(ctx).Find(&left).Error)
+	var sessions []string
+	for _, o := range left {
+		sessions = append(sessions, o.SDKSessionID)
+	}
+	assert.ElementsMatch(t, []string{"quarter"}, sessions, "a quarter note is the final record: no rule deletes it (the plain note and the monthly roll-up age out as before)")
+}

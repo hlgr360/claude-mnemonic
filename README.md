@@ -247,6 +247,9 @@ curl -s localhost:37777/api/projects/<project>/brief              # read it
 A project's older notes pile up. A **roll-up** condenses a group of them into one note and **archives** the originals: they are kept, hidden from search and context, linked to the roll-up that replaced them, and restorable. Nothing is deleted.
 
 - **The selection is a rule; the model only writes the text.** Live notes older than `ROLLUP_MIN_AGE_DAYS` are grouped by month (a big month is split by session, at most 40 notes a group); a group needs `ROLLUP_MIN_GROUP_SIZE` notes. The newest `ROLLUP_KEEP_NEWEST` notes of a project are never rolled up, and neither are **decisions**, notes you **rated**, notes whose **scope was chosen on purpose** (that includes every note saved with the `remember` tool), global notes and roll-ups. Notes the cap archived are condensed too, so what they said comes back into search.
+- **More notes, more aggressive (optional).** Set `ROLLUP_TARGET_LIVE_NOTES` to how many live notes a project should hold. Then how old a note must be depends on how far over that target the project is: **90 days** while it is at or under the target, **60 days** up to twice the target, **30 days** beyond that, and a pass may write 1x, 2x or 3x `ROLLUP_MAX_GROUPS_PER_RUN` groups. The projects furthest over go first. Without a target (the default) the fixed `ROLLUP_MIN_AGE_DAYS` applies, whatever the size.
+- **Quarters are the final record.** Once a calendar quarter (UTC) ended more than 90 days ago, its monthly roll-ups (at least two) are condensed once more into one **quarter record** ("2026-Q1"); the monthly roll-ups are archived into it, so the chain is notes, month, quarter, each step restorable. A quarter record is **kept forever**: no roll-up, consolidation, cap, age-based archive or maintenance cleanup touches it; only a person deleting it, or restoring its fold, changes it. `ROLLUP_QUARTERS_ENABLED=false` keeps the monthly roll-ups as they are.
+- **A restore sticks.** Notes of a roll-up or consolidation that you restored are left alone for 30 days, so the next pass does not fold them again straight away.
 - **The roll-up is an ordinary note** (concept `rollup`, titled "Roll-up: ...", scoped to its project) that cites its sources like `[#12, #40]`. The model's text is cleaned like a brief: no citation of a note that was not in the request, no email addresses, no private text, a bounded length. It is dated at the newest note it condenses (unless a cap is set), so it does not look like new work.
 - **Safe by order.** A snapshot is taken first; the roll-up is stored, then the originals are archived, then the record is kept; if any step fails the roll-up note is removed again and every note stays live. If no model answers, nothing is archived and the log says so.
 - **Restore** brings the originals back (vectors included) and archives the roll-up. A note you archived yourself for another reason in the meantime stays archived.
@@ -267,7 +270,9 @@ Roll-ups spend model usage and change what is injected, so the automatic pass is
 | Variable | Default | What it does |
 |----------|---------|--------------|
 | `ROLLUP_ENABLED` | `false` | Roll up old notes automatically in the background |
-| `ROLLUP_MIN_AGE_DAYS` | `60` | A note must be this old to be rolled up |
+| `ROLLUP_MIN_AGE_DAYS` | `60` | A note must be this old to be rolled up (without a target; see below) |
+| `ROLLUP_TARGET_LIVE_NOTES` | `0` | How many live notes a project should hold; `0` is no target. With one, notes qualify at 90 days (at or under it), 60 (up to twice) or 30 (beyond), and `ROLLUP_MIN_AGE_DAYS` does not apply |
+| `ROLLUP_QUARTERS_ENABLED` | `true` | Condense the monthly roll-ups of a finished quarter into one quarter record, kept forever |
 | `ROLLUP_MIN_GROUP_SIZE` | `8` | A group needs at least this many notes |
 | `ROLLUP_KEEP_NEWEST` | `30` | The newest notes of a project that are never rolled up, whatever their age |
 | `ROLLUP_MAX_GROUPS_PER_RUN` | `3` | At most this many roll-ups per pass (and per manual request unless it says otherwise) |

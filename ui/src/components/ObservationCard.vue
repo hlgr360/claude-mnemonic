@@ -216,7 +216,18 @@ const splitPath = (path: string, components = 3) => {
             SUPERSEDED
           </Badge>
           <Badge
-            v-if="observation.concepts?.includes('rollup')"
+            v-if="observation.concepts?.includes('rollup-quarter')"
+            data-testid="quarter-badge"
+            icon="fa-calendar-check"
+            color-class="text-fuchsia-300"
+            bg-class="bg-fuchsia-500/15"
+            border-class="border-fuchsia-500/40"
+            title="The final record of a finished quarter, written from its monthly roll-ups. It is kept forever and never rolled up or archived by any rule"
+          >
+            QUARTER RECORD
+          </Badge>
+          <Badge
+            v-else-if="observation.concepts?.includes('rollup')"
             data-testid="rollup-badge"
             icon="fa-boxes-stacked"
             color-class="text-violet-300"

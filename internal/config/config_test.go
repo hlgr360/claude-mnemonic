@@ -778,3 +778,30 @@ func TestLoad_ConsolidationSettings(t *testing.T) {
 		assert.False(t, cfg.ConsolidationEnabled, "text is not a switch")
 	}
 }
+
+func TestLoad_RollupLadderAndQuarterSettings(t *testing.T) {
+	writeSettings(t, `{}`)
+	cfg, err := Load()
+	assert.NoError(t, err)
+	assert.Equal(t, 0, cfg.RollupTargetLiveNotes, "no target by default: the fixed age applies")
+	assert.True(t, cfg.RollupQuartersEnabled, "quarter notes are on (they only matter when roll-ups are used)")
+
+	writeSettings(t, `{"CLAUDE_MNEMONIC_ROLLUP_TARGET_LIVE_NOTES": 300, "CLAUDE_MNEMONIC_ROLLUP_QUARTERS_ENABLED": false}`)
+	cfg, err = Load()
+	assert.NoError(t, err)
+	assert.Equal(t, 300, cfg.RollupTargetLiveNotes)
+	assert.False(t, cfg.RollupQuartersEnabled)
+
+	writeSettings(t, `{"CLAUDE_MNEMONIC_ROLLUP_TARGET_LIVE_NOTES": 0}`)
+	cfg, err = Load()
+	assert.NoError(t, err)
+	assert.Equal(t, 0, cfg.RollupTargetLiveNotes, "zero switches the ladder off")
+
+	for name, raw := range map[string]string{"negative": `-5`, "text": `"lots"`, "boolean": `true`} {
+		writeSettings(t, `{"CLAUDE_MNEMONIC_ROLLUP_TARGET_LIVE_NOTES": `+raw+`, "CLAUDE_MNEMONIC_ROLLUP_QUARTERS_ENABLED": "no"}`)
+		cfg, err = Load()
+		assert.NoError(t, err, name)
+		assert.Equal(t, 0, cfg.RollupTargetLiveNotes, "%s is not a target", name)
+		assert.True(t, cfg.RollupQuartersEnabled, "text is not a switch, so the default stays")
+	}
+}

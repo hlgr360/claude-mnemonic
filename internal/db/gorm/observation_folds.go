@@ -32,6 +32,14 @@ const (
 // ordinary note that carries this concept (and is listed in ObservationFold).
 const RollupConcept = "rollup"
 
+// QuarterConcept marks a quarter note: the final record of a calendar quarter, written from that quarter's monthly
+// roll-ups. It also carries RollupConcept, so nothing rolls it up or consolidates it again, and it is exempt from every
+// rule that archives or deletes notes (the cap, the age-based archive, the maintenance cleanup).
+const QuarterConcept = "rollup-quarter"
+
+// NotFinalRecordSQL is the clause that leaves quarter notes out of a rule that archives or deletes notes.
+const NotFinalRecordSQL = `COALESCE(concepts, '') NOT LIKE '%"` + QuarterConcept + `"%'`
+
 // FoldReason is the archive reason of the sources of a fold, for the note that stands for them.
 func FoldReason(kind string, survivorID int64) string {
 	prefix := RolledUpReasonPrefix
@@ -288,4 +296,57 @@ func (s *ObservationStore) ListArchivedObservations(ctx context.Context, project
 		return nil, 0, err
 	}
 	return toModelObservations(rows), total, nil
+}
+
+// MonthlyRollups returns a project's live roll-up notes that are not quarter notes, oldest first: what a quarter note is
+// written from.
+func (s *ObservationStore) MonthlyRollups(ctx context.Context, project string) ([]*models.Observation, error) {
+	var rows []Observation
+	err := s.db.WithContext(ctx).
+		Where("project = ?", project).
+		Where("COALESCE(is_archived, 0) = 0 AND COALESCE(is_superseded, 0) = 0").
+		Where("COALESCE(concepts, '') LIKE ?", `%"`+RollupConcept+`"%`).
+		Where(NotFinalRecordSQL).
+		Order("created_at_epoch ASC, id ASC").
+		Find(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	return toModelObservations(rows), nil
+}
+
+// RollupLabels returns the label of every roll-up of the project that was not undone, by the roll-up note's id: "2026-03"
+// for a month, "2026-Q1" for a quarter. It tells which month a roll-up stands for even when its own date was not moved.
+func (s *ObservationFoldStore) RollupLabels(ctx context.Context, project string) (map[int64]string, error) {
+	var rows []ObservationFold
+	err := s.db.WithContext(ctx).
+		Where("project = ? AND kind = ? AND undone_at_epoch IS NULL", project, FoldRollup).
+		Find(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[int64]string, len(rows))
+	for _, r := range rows {
+		out[r.SurvivorID] = r.Note
+	}
+	return out, nil
+}
+
+// UndoneSourceIDs returns the ids of the notes of the project's folds that were restored since sinceEpoch (milliseconds):
+// what a person put back on purpose, which an automatic pass should not fold again straight away.
+func (s *ObservationFoldStore) UndoneSourceIDs(ctx context.Context, project string, sinceEpoch int64) (map[int64]bool, error) {
+	var rows []ObservationFold
+	err := s.db.WithContext(ctx).
+		Where("project = ? AND undone_at_epoch IS NOT NULL AND undone_at_epoch >= ?", project, sinceEpoch).
+		Find(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	out := map[int64]bool{}
+	for _, r := range rows {
+		for _, id := range r.Sources() {
+			out[id] = true
+		}
+	}
+	return out, nil
 }

@@ -220,6 +220,7 @@ func (s *Service) cleanupOldObservations(ctx context.Context) (int64, error) {
 	err := s.store.GetDB().WithContext(ctx).
 		Model(&gorm.Observation{}).
 		Where("created_at_epoch < ?", cutoffEpoch).
+		Where(gorm.NotFinalRecordSQL). // a quarter note is the final record and is never deleted by a rule
 		Pluck("id", &deletedIDs).Error
 	if err != nil {
 		return 0, err
@@ -277,6 +278,7 @@ func (s *Service) cleanupStaleObservations(ctx context.Context) (int64, error) {
 	err := s.store.GetDB().WithContext(ctx).
 		Model(&gorm.Observation{}).
 		Where("is_superseded = ?", true).
+		Where(gorm.NotFinalRecordSQL).
 		Where("id NOT IN (SELECT superseded_obs_id FROM observation_conflicts WHERE resolved = 1 AND superseded_obs_id != 0)").
 		Pluck("id", &deletedIDs).Error
 	if err != nil {
