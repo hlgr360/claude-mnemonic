@@ -750,3 +750,31 @@ func TestLoad_RollupSettings(t *testing.T) {
 	assert.Equal(t, 30, cfg.RollupKeepNewest, "a negative count is not one")
 	assert.Equal(t, 3, cfg.RollupMaxGroupsPerRun)
 }
+
+func TestLoad_ConsolidationSettings(t *testing.T) {
+	writeSettings(t, `{}`)
+	cfg, err := Load()
+	assert.NoError(t, err)
+	assert.False(t, cfg.ConsolidationEnabled, "it archives notes: off by default")
+	assert.Equal(t, 0.92, cfg.ConsolidationMinSimilarity)
+	assert.Equal(t, 5, cfg.ConsolidationMaxPerRun)
+	assert.Equal(t, 360, cfg.ConsolidationIntervalMinutes)
+
+	writeSettings(t, `{"CLAUDE_MNEMONIC_CONSOLIDATION_ENABLED": true, "CLAUDE_MNEMONIC_CONSOLIDATION_MIN_SIMILARITY": 0.85,
+		"CLAUDE_MNEMONIC_CONSOLIDATION_MAX_PER_RUN": 2, "CLAUDE_MNEMONIC_CONSOLIDATION_INTERVAL_MINUTES": 30}`)
+	cfg, err = Load()
+	assert.NoError(t, err)
+	assert.True(t, cfg.ConsolidationEnabled)
+	assert.Equal(t, 0.85, cfg.ConsolidationMinSimilarity)
+	assert.Equal(t, 2, cfg.ConsolidationMaxPerRun)
+	assert.Equal(t, 30, cfg.ConsolidationIntervalMinutes)
+
+	for name, raw := range map[string]string{"too low": `0.2`, "above one": `1.5`, "text": `"high"`} {
+		writeSettings(t, `{"CLAUDE_MNEMONIC_CONSOLIDATION_MIN_SIMILARITY": `+raw+`, "CLAUDE_MNEMONIC_CONSOLIDATION_MAX_PER_RUN": 0, "CLAUDE_MNEMONIC_CONSOLIDATION_ENABLED": "yes"}`)
+		cfg, err = Load()
+		assert.NoError(t, err, name)
+		assert.Equal(t, 0.92, cfg.ConsolidationMinSimilarity, "%s is not a similarity, so the default stays", name)
+		assert.Equal(t, 5, cfg.ConsolidationMaxPerRun, name)
+		assert.False(t, cfg.ConsolidationEnabled, "text is not a switch")
+	}
+}

@@ -271,6 +271,22 @@ Roll-ups spend model usage and change what is injected, so the automatic pass is
 | `ROLLUP_MAX_GROUPS_PER_RUN` | `3` | At most this many roll-ups per pass (and per manual request unless it says otherwise) |
 | `ROLLUP_INTERVAL_MINUTES` | `360` | How often a pass looks for notes to roll up |
 
+### Consolidation
+
+Near-identical notes pile up too (the same fix noted in three sessions). **Consolidating** a group keeps one note, the **survivor**, and archives the others: kept, hidden from search and context, linked to the survivor, restorable. It uses no model.
+
+- **The survivor** is a protected note if there is one (a decision, a rated note, one saved on purpose), then the highest importance, then the newest. It takes over the duplicates' facts, concepts and files (what it already has is not repeated, and a line records the merge) and the relations they had to notes outside the group.
+- **By hand, with a preview.** Take a group from `memory_admin` `suggest_consolidations` and call `consolidate` with its `ids`: you get the plan and a token, and nothing changes. Calling it again with the same ids and `confirm` set to that token applies exactly that plan; if a note changed in between, the token no longer fits and nothing happens. A snapshot is taken first. The same over HTTP: `POST /api/observations/consolidate` with `{"ids": [...], "confirm": "<token>"}`.
+- **Undo** is `restore_fold` (or `POST /api/folds/{id}/restore`, the same as for roll-ups): the duplicates are live again, and the survivor gives back exactly what it took over, relations included.
+- **Automatically,** when `CONSOLIDATION_ENABLED` is on: the worker compares each project's newest notes (up to 600) with each other and folds groups that are at least `CONSOLIDATION_MIN_SIMILARITY` alike by their terms and of the same type. It never touches a **protected** note (decisions, rated notes, notes whose scope was chosen on purpose, which includes every note saved with `remember`, global notes, roll-ups), and takes a snapshot before the first fold of a pass. By hand you can consolidate any live notes of one project, protected or not; you are choosing them.
+
+| Variable | Default | What it does |
+|----------|---------|--------------|
+| `CONSOLIDATION_ENABLED` | `false` | Fold near-identical notes automatically in the background |
+| `CONSOLIDATION_MIN_SIMILARITY` | `0.92` | How alike two notes must be (0.5-1.0) for the automatic pass |
+| `CONSOLIDATION_MAX_PER_RUN` | `5` | At most this many groups per pass |
+| `CONSOLIDATION_INTERVAL_MINUTES` | `360` | How often a pass looks for near-identical notes |
+
 ### Conflict Review
 
 Over time notes go out of date: a newer note says the cache now lives for a day, and the older one still says an
@@ -436,7 +452,7 @@ Four tools are exposed via MCP:
 - `memory_admin` - administration and analytics. Set `action` to one of:
   `stats`, `health`, `maintenance_stats`, `run_maintenance`, `importance`,
   `search_patterns`, `explain_ranking`, `temporal_trends`, `data_quality`,
-  `export`, `suggest_consolidations`, `patterns`, `rollup`, `folds`, `restore_fold`.
+  `export`, `suggest_consolidations`, `patterns`, `rollup`, `folds`, `restore_fold`, `consolidate`.
 
 Using Claude Desktop (chat, Cowork, Code tab)? See [DESKTOP.md](DESKTOP.md): it adds
 project selection, explicit `remember`, and project management.

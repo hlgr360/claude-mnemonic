@@ -69,6 +69,46 @@ func (s *RelationStore) StoreRelation(ctx context.Context, relation *models.Obse
 	return dbRelation.ID, nil
 }
 
+// StoreRelationIfNew stores a relation like StoreRelation and says whether it was new: false means the same
+// (source, target, type) existed already and its id is returned. A caller that may have to take its relations back
+// (undoing a consolidation) keeps only the ones it created.
+func (s *RelationStore) StoreRelationIfNew(ctx context.Context, relation *models.ObservationRelation) (id int64, created bool, err error) {
+	dbRelation := &ObservationRelation{
+		SourceID: relation.SourceID, TargetID: relation.TargetID, RelationType: relation.RelationType,
+		Confidence: relation.Confidence, DetectionSource: relation.DetectionSource,
+		CreatedAt: relation.CreatedAt, CreatedAtEpoch: relation.CreatedAtEpoch,
+	}
+	if relation.Reason != "" {
+		dbRelation.Reason = sql.NullString{String: relation.Reason, Valid: true}
+	}
+	result := s.db.WithContext(ctx).
+		Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "source_id"}, {Name: "target_id"}, {Name: "relation_type"}},
+			DoNothing: true,
+		}).
+		Create(dbRelation)
+	if result.Error != nil {
+		return 0, false, result.Error
+	}
+	if result.RowsAffected > 0 {
+		return dbRelation.ID, true, nil
+	}
+	var existing ObservationRelation
+	if err := s.db.WithContext(ctx).Where("source_id = ? AND target_id = ? AND relation_type = ?",
+		relation.SourceID, relation.TargetID, relation.RelationType).First(&existing).Error; err != nil {
+		return 0, false, err
+	}
+	return existing.ID, false, nil
+}
+
+// DeleteRelationsByIDs deletes the relations with the given ids.
+func (s *RelationStore) DeleteRelationsByIDs(ctx context.Context, ids []int64) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	return s.db.WithContext(ctx).Where("id IN ?", ids).Delete(&ObservationRelation{}).Error
+}
+
 // StoreRelations stores multiple relations in a single transaction.
 func (s *RelationStore) StoreRelations(ctx context.Context, relations []*models.ObservationRelation) error {
 	if len(relations) == 0 {

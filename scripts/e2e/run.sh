@@ -187,6 +187,12 @@ fresh_worker || exit 1
 suite "Roll-ups: the worker's own pass"                                  python3 "$HERE/drive_rollup_auto.py"
 base_settings
 
+# Consolidation: switched on with a lower similarity bar and a pass every minute (the first one 45 s after the worker starts).
+printf '{"CLAUDE_MNEMONIC_CONSOLIDATION_ENABLED": true, "CLAUDE_MNEMONIC_CONSOLIDATION_INTERVAL_MINUTES": 1, "CLAUDE_MNEMONIC_CONSOLIDATION_MIN_SIMILARITY": 0.8, %s}\n' "$NO_PROPOSALS" > "$WORK/home/.claude-mnemonic/settings.json"
+fresh_worker || exit 1
+suite "Consolidation: near-duplicates folded, by hand and by the worker"  python3 "$HERE/drive_consolidate.py"
+base_settings
+
 # Conflict proposals: switched on with a low similarity bar, answered by the fake claude above. The first automatic
 # pass runs 45 s after the worker starts, so the suite seeds its data straight away and then waits for it.
 printf '{"CLAUDE_CODE_PATH": "%s/fake-claude", "CLAUDE_MNEMONIC_CONFLICT_PROPOSALS_ENABLED": true, "CLAUDE_MNEMONIC_CONFLICT_PROPOSALS_INTERVAL_MINUTES": 1, "CLAUDE_MNEMONIC_CONFLICT_PROPOSALS_MIN_SIMILARITY": 0.6, "CLAUDE_MNEMONIC_SNAPSHOT_INTERVAL_HOURS": 0}\n' "$WORK" > "$WORK/home/.claude-mnemonic/settings.json"

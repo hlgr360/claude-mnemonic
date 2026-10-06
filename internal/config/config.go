@@ -89,6 +89,12 @@ type Config struct {
 	// MaxObservationsPerProject caps the live notes of one project: the oldest beyond it are archived (never deleted).
 	// 0 is no cap.
 	MaxObservationsPerProject int `json:"max_observations_per_project"`
+	// ConsolidationMinSimilarity is how alike two notes must be (0.5-1.0, by their terms) for the automatic pass to fold one into the other.
+	ConsolidationMinSimilarity float64 `json:"consolidation_min_similarity"`
+	// ConsolidationMaxPerRun bounds how many groups one automatic pass consolidates.
+	ConsolidationMaxPerRun int `json:"consolidation_max_per_run"`
+	// ConsolidationIntervalMinutes is how often the automatic pass looks for near-identical notes.
+	ConsolidationIntervalMinutes int `json:"consolidation_interval_minutes"`
 	// RollupMinAgeDays is how old a note must be before it can be rolled up.
 	RollupMinAgeDays int `json:"rollup_min_age_days"`
 	// RollupMaxGroupsPerRun bounds how many roll-ups one pass writes, so the usage stays small.
@@ -119,6 +125,8 @@ type Config struct {
 	CleanupStaleObservations     bool  `json:"cleanup_stale_observations"`
 	LLMFallbackToClaude          bool  `json:"llm_fallback_to_claude"`
 	ProjectBriefEnabled          bool  `json:"project_brief_enabled"`
+	// ConsolidationEnabled turns on the automatic consolidation of near-identical notes (no model is used).
+	ConsolidationEnabled bool `json:"consolidation_enabled"`
 	// RollupEnabled turns on the automatic roll-up of old notes (a model condenses them, the originals are archived).
 	RollupEnabled            bool `json:"rollup_enabled"`
 	ConflictProposalsEnabled bool `json:"conflict_proposals_enabled"`
@@ -243,46 +251,52 @@ func Default() *Config {
 		ProjectBriefIntervalMinutes: 60,
 		// Roll-ups spend model usage and archive notes, so they are off. When on, notes older than 60 days are
 		// condensed in groups of at least 8, at most 3 groups per pass, never the newest 30 notes of a project.
-		RollupEnabled:             false,
-		RollupMinAgeDays:          60,
-		RollupMaxGroupsPerRun:     3,
-		RollupMinGroupSize:        8,
-		RollupKeepNewest:          30,
-		RollupIntervalMinutes:     360,
-		RerankingEnabled:          true,  // Enable by default for improved relevance
-		RerankingCandidates:       100,   // Retrieve top 100 candidates
-		RerankingResults:          10,    // Return top 10 after reranking
-		RerankingAlpha:            0.7,   // Favor cross-encoder score
-		RerankingMinImprovement:   0,     // Always apply reranking
-		GraphEnabled:              true,  // Enable graph-aware search by default
-		GraphMaxHops:              2,     // Two-hop traversal
-		GraphBranchFactor:         5,     // Expand top 5 neighbors per node
-		GraphEdgeWeight:           0.3,   // Minimum edge weight to follow
-		GraphRebuildIntervalMin:   60,    // Rebuild graph every 60 minutes
-		VectorStorageStrategy:     "hub", // Hub storage strategy (LEANN-inspired)
-		HubThreshold:              5,     // Require 5+ accesses to store embedding
-		ContextObservations:       100,
-		ContextFullCount:          25,
-		ContextSessionCount:       10,
-		ContextShowReadTokens:     true,
-		ContextShowWorkTokens:     true,
-		ContextFullField:          "narrative",
-		ContextShowLastSummary:    true,
-		ContextObsTypes:           DefaultObservationTypes,
-		ContextObsConcepts:        DefaultObservationConcepts,
-		ContextRelevanceThreshold: 0.3,   // Minimum 30% similarity to include
-		ContextMaxPromptResults:   10,    // Cap at 10 results max (0 = no cap, threshold only)
-		ContextMaxTokensStartup:   16000, // Max tokens for SessionStart context injection
-		ContextMaxTokensPrompt:    8000,  // Max tokens for UserPromptSubmit context injection
-		DeduplicationEnabled:      true,  // Enable write-time vector dedup
-		DeduplicationThreshold:    0.9,   // Similarity threshold for merging (0.9 = very similar)
-		MaintenanceEnabled:        true,  // Enable scheduled maintenance
-		MaintenanceIntervalHours:  6,     // Run every 6 hours
-		ObservationRetentionDays:  0,     // 0 = no age-based deletion (keep all)
-		MaxObservationsPerProject: 0,     // 0 = no cap; a cap archives the oldest notes, it never deletes
-		SnapshotIntervalHours:     24,    // a snapshot at most once a day while the worker runs
-		SnapshotsDailyKeep:        7,     // and the newest seven of them
-		CleanupStaleObservations:  false, // Don't auto-cleanup stale observations
+		// Consolidation is off: it archives notes (reversibly). When on, notes at least 92% alike by their terms, of the
+		// same type and none protected, are folded together, at most 5 groups per pass.
+		ConsolidationEnabled:         false,
+		ConsolidationMinSimilarity:   0.92,
+		ConsolidationMaxPerRun:       5,
+		ConsolidationIntervalMinutes: 360,
+		RollupEnabled:                false,
+		RollupMinAgeDays:             60,
+		RollupMaxGroupsPerRun:        3,
+		RollupMinGroupSize:           8,
+		RollupKeepNewest:             30,
+		RollupIntervalMinutes:        360,
+		RerankingEnabled:             true,  // Enable by default for improved relevance
+		RerankingCandidates:          100,   // Retrieve top 100 candidates
+		RerankingResults:             10,    // Return top 10 after reranking
+		RerankingAlpha:               0.7,   // Favor cross-encoder score
+		RerankingMinImprovement:      0,     // Always apply reranking
+		GraphEnabled:                 true,  // Enable graph-aware search by default
+		GraphMaxHops:                 2,     // Two-hop traversal
+		GraphBranchFactor:            5,     // Expand top 5 neighbors per node
+		GraphEdgeWeight:              0.3,   // Minimum edge weight to follow
+		GraphRebuildIntervalMin:      60,    // Rebuild graph every 60 minutes
+		VectorStorageStrategy:        "hub", // Hub storage strategy (LEANN-inspired)
+		HubThreshold:                 5,     // Require 5+ accesses to store embedding
+		ContextObservations:          100,
+		ContextFullCount:             25,
+		ContextSessionCount:          10,
+		ContextShowReadTokens:        true,
+		ContextShowWorkTokens:        true,
+		ContextFullField:             "narrative",
+		ContextShowLastSummary:       true,
+		ContextObsTypes:              DefaultObservationTypes,
+		ContextObsConcepts:           DefaultObservationConcepts,
+		ContextRelevanceThreshold:    0.3,   // Minimum 30% similarity to include
+		ContextMaxPromptResults:      10,    // Cap at 10 results max (0 = no cap, threshold only)
+		ContextMaxTokensStartup:      16000, // Max tokens for SessionStart context injection
+		ContextMaxTokensPrompt:       8000,  // Max tokens for UserPromptSubmit context injection
+		DeduplicationEnabled:         true,  // Enable write-time vector dedup
+		DeduplicationThreshold:       0.9,   // Similarity threshold for merging (0.9 = very similar)
+		MaintenanceEnabled:           true,  // Enable scheduled maintenance
+		MaintenanceIntervalHours:     6,     // Run every 6 hours
+		ObservationRetentionDays:     0,     // 0 = no age-based deletion (keep all)
+		MaxObservationsPerProject:    0,     // 0 = no cap; a cap archives the oldest notes, it never deletes
+		SnapshotIntervalHours:        24,    // a snapshot at most once a day while the worker runs
+		SnapshotsDailyKeep:           7,     // and the newest seven of them
+		CleanupStaleObservations:     false, // Don't auto-cleanup stale observations
 		// WAL checkpoint loop tunables (issue #49). Defaults mirror the worker constants:
 		// check the WAL every 60s and TRUNCATE-checkpoint once it reaches 4 MiB.
 		WALCheckpointIntervalSeconds: 60,
@@ -411,6 +425,21 @@ func Load() (*Config, error) {
 	}
 	if v, ok := settings["CLAUDE_MNEMONIC_RERANKING_MIN_IMPROVEMENT"].(float64); ok && v >= 0 {
 		cfg.RerankingMinImprovement = v
+	}
+	// Consolidation settings
+	if v, ok := settings["CLAUDE_MNEMONIC_CONSOLIDATION_ENABLED"].(bool); ok {
+		cfg.ConsolidationEnabled = v
+	}
+	if v, ok := settings["CLAUDE_MNEMONIC_CONSOLIDATION_MIN_SIMILARITY"].(float64); ok && v >= 0.5 && v <= 1 {
+		cfg.ConsolidationMinSimilarity = v
+	}
+	for key, target := range map[string]*int{
+		"CLAUDE_MNEMONIC_CONSOLIDATION_MAX_PER_RUN":      &cfg.ConsolidationMaxPerRun,
+		"CLAUDE_MNEMONIC_CONSOLIDATION_INTERVAL_MINUTES": &cfg.ConsolidationIntervalMinutes,
+	} {
+		if v, ok := settings[key].(float64); ok && v > 0 {
+			*target = int(v)
+		}
 	}
 	// Roll-up settings
 	if v, ok := settings["CLAUDE_MNEMONIC_ROLLUP_ENABLED"].(bool); ok {

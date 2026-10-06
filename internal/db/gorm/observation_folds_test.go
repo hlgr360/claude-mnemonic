@@ -144,9 +144,9 @@ func TestObservationFoldStore(t *testing.T) {
 	ctx := context.Background()
 	folds := NewObservationFoldStore(store)
 
-	id, err := folds.Record(ctx, "p", FoldRollup, 42, []int64{1, 2, 3}, "March")
+	id, err := folds.Record(ctx, "p", FoldRollup, 42, []int64{1, 2, 3}, "March", "")
 	require.NoError(t, err)
-	other, err := folds.Record(ctx, "q", FoldConsolidation, 50, []int64{4}, "")
+	other, err := folds.Record(ctx, "q", FoldConsolidation, 50, []int64{4}, "", `{"facts":["x"]}`)
 	require.NoError(t, err)
 
 	got, err := folds.Get(ctx, id)
@@ -160,7 +160,7 @@ func TestObservationFoldStore(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, missing)
 
-	_, err = folds.Record(ctx, "p", FoldRollup, 1, nil, "")
+	_, err = folds.Record(ctx, "p", FoldRollup, 1, nil, "", "")
 	assert.Error(t, err, "a fold with no sources is refused")
 
 	all, err := folds.List(ctx, "", "", false, 0)
@@ -188,4 +188,43 @@ func TestObservationFoldStore(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, withUndone, 1)
 	assert.True(t, withUndone[0].Undone())
+}
+
+func TestConsolidationCandidates(t *testing.T) {
+	s, _, cleanup := testObservationStore(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	plain1 := foldNote(t, s, "p", "plain one", models.ObsTypeDiscovery, "", 5)
+	plain2 := foldNote(t, s, "p", "plain two", models.ObsTypeBugfix, "", 3)
+	foldNote(t, s, "p", "decision", models.ObsTypeDecision, "", 3)
+	foldNote(t, s, "p", "saved on purpose", models.ObsTypeDiscovery, models.ScopeProject, 3)
+	foldNote(t, s, "p", "global", models.ObsTypeDiscovery, models.ScopeGlobal, 3)
+	rated := foldNote(t, s, "p", "rated", models.ObsTypeDiscovery, "", 3)
+	require.NoError(t, s.UpdateObservationFeedback(ctx, rated, 1))
+	archived := foldNote(t, s, "p", "archived", models.ObsTypeDiscovery, "", 3)
+	require.NoError(t, s.ArchiveObservation(ctx, archived, "x"))
+	superseded := foldNote(t, s, "p", "superseded", models.ObsTypeDiscovery, "", 3)
+	require.NoError(t, s.MarkAsSuperseded(ctx, superseded))
+	foldNote(t, s, "q", "other project", models.ObsTypeDiscovery, "", 3)
+
+	got, err := s.ConsolidationCandidates(ctx, "p", 0)
+	require.NoError(t, err)
+	assert.Equal(t, []int64{plain2, plain1}, idsOf(got), "live, unprotected notes of the project, newest first")
+
+	limited, err := s.ConsolidationCandidates(ctx, "p", 1)
+	require.NoError(t, err)
+	assert.Equal(t, []int64{plain2}, idsOf(limited), "bounded to the newest")
+}
+
+func TestFoldDetailIsKept(t *testing.T) {
+	_, store, cleanup := testObservationStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	folds := NewObservationFoldStore(store)
+	id, err := folds.Record(ctx, "p", FoldConsolidation, 1, []int64{2}, "", `{"facts":["x"],"relations":[7]}`)
+	require.NoError(t, err)
+	got, err := folds.Get(ctx, id)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"facts":["x"],"relations":[7]}`, got.Detail)
 }

@@ -214,6 +214,10 @@ deleted, and can be restored). Ask for it through `memory_admin`: `action: rollu
 `restore_fold` undoes one. Notes saved with `remember`, decisions and rated notes are never rolled up. See the README
 for the settings and the rules.
 
+Near-duplicate notes can be folded the same way: take a group from `suggest_consolidations` and call `consolidate`
+with its `ids`. Without `confirm` it only shows the plan and a token; show the user the survivor and what is archived,
+and call again with `confirm` set to that token only if they approve. `restore_fold` undoes it.
+
 ## Superseded notes
 
 When you decide in the dashboard's **Conflicts** tab that a newer note replaces an older one, the older note is no
