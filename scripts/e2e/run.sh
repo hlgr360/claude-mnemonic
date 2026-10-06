@@ -221,6 +221,12 @@ fresh_worker || exit 1
 suite "Automatic project merge (switched on)"                          python3 "$HERE/drive_automerge.py"
 base_settings
 
+# Prompt retention: a month, so the maintenance run through the tool deletes the prompts older than that (after a snapshot).
+printf '{"CLAUDE_MNEMONIC_PROMPT_RETENTION_DAYS": 30, %s}\n' "$NO_PROPOSALS" > "$WORK/home/.claude-mnemonic/settings.json"
+fresh_worker || exit 1
+suite "Prompt retention: old prompts deleted after a snapshot"          python3 "$HERE/drive_retention.py"
+base_settings
+
 if [ "$RUN_UI" = "1" ]; then
   if [ ! -d "$ROOT/ui/dist" ] || ! command -v node >/dev/null; then
     echo; echo "######## dashboard: skipped (needs ui/dist from 'npm run build' in ui/, and node)"

@@ -367,7 +367,7 @@ func TestRunNow_RetentionDays_DeletesExpiredObservations(t *testing.T) {
 		Project:         "proj",
 		Type:            models.ObsTypeDiscovery,
 		CreatedAt:       "2000-01-01T00:00:00Z",
-		CreatedAtEpoch:  time.Now().AddDate(0, 0, -2).Unix(),
+		CreatedAtEpoch:  time.Now().AddDate(0, 0, -2).UnixMilli(),
 		Scope:           models.ScopeProject,
 		ImportanceScore: 1.0,
 	}
@@ -379,7 +379,7 @@ func TestRunNow_RetentionDays_DeletesExpiredObservations(t *testing.T) {
 		Project:         "proj",
 		Type:            models.ObsTypeDiscovery,
 		CreatedAt:       time.Now().Format(time.RFC3339),
-		CreatedAtEpoch:  time.Now().Unix(),
+		CreatedAtEpoch:  time.Now().UnixMilli(),
 		Scope:           models.ScopeProject,
 		ImportanceScore: 1.0,
 	}
@@ -438,7 +438,7 @@ func TestRunNow_RetentionDays_VectorCleanupCalled(t *testing.T) {
 		Project:         "proj",
 		Type:            models.ObsTypeDiscovery,
 		CreatedAt:       "2000-01-01T00:00:00Z",
-		CreatedAtEpoch:  time.Now().AddDate(0, 0, -2).Unix(),
+		CreatedAtEpoch:  time.Now().AddDate(0, 0, -2).UnixMilli(),
 		Scope:           models.ScopeProject,
 		ImportanceScore: 1.0,
 	}
@@ -539,7 +539,9 @@ func TestRunNow_CleanupStale_NoStaleRows_NothingChanged(t *testing.T) {
 // ---- cleanupOldPrompts (via RunNow) ----
 
 func TestRunNow_CleanupOldPrompts_DeletesExpiredPrompts(t *testing.T) {
-	svc, store, _, _, cleanup := testSetup(t, defaultCfg())
+	cfg := defaultCfg()
+	cfg.PromptRetentionDays = 30
+	svc, store, _, _, cleanup := testSetup(t, cfg)
 	defer cleanup()
 
 	ctx := context.Background()
@@ -550,7 +552,7 @@ func TestRunNow_CleanupOldPrompts_DeletesExpiredPrompts(t *testing.T) {
 		PromptText:      "old prompt",
 		PromptNumber:    1,
 		CreatedAt:       "2000-01-01T00:00:00Z",
-		CreatedAtEpoch:  time.Now().AddDate(0, 0, -31).Unix(),
+		CreatedAtEpoch:  time.Now().AddDate(0, 0, -31).UnixMilli(),
 	}
 	require.NoError(t, store.GetDB().WithContext(ctx).Create(oldPrompt).Error)
 
@@ -560,7 +562,7 @@ func TestRunNow_CleanupOldPrompts_DeletesExpiredPrompts(t *testing.T) {
 		PromptText:      "recent prompt",
 		PromptNumber:    1,
 		CreatedAt:       time.Now().Format(time.RFC3339),
-		CreatedAtEpoch:  time.Now().Unix(),
+		CreatedAtEpoch:  time.Now().UnixMilli(),
 	}
 	require.NoError(t, store.GetDB().WithContext(ctx).Create(recentPrompt).Error)
 
@@ -674,7 +676,7 @@ func TestRunNow_RetentionDays_BatchDeletion_MoreThan100Rows(t *testing.T) {
 			Project:         "proj",
 			Type:            models.ObsTypeDiscovery,
 			CreatedAt:       "2000-01-01T00:00:00Z",
-			CreatedAtEpoch:  time.Now().AddDate(0, 0, -2).Unix(),
+			CreatedAtEpoch:  time.Now().AddDate(0, 0, -2).UnixMilli(),
 			Scope:           models.ScopeProject,
 			ImportanceScore: 1.0,
 		}
@@ -710,7 +712,7 @@ func TestRunNow_CleanupStale_BatchDeletion_MoreThan100Rows(t *testing.T) {
 			Project:         "proj",
 			Type:            models.ObsTypeDiscovery,
 			CreatedAt:       time.Now().Format(time.RFC3339),
-			CreatedAtEpoch:  time.Now().Unix(),
+			CreatedAtEpoch:  time.Now().UnixMilli(),
 			Scope:           models.ScopeProject,
 			ImportanceScore: 1.0,
 			IsSuperseded:    1,
@@ -840,7 +842,7 @@ func TestRunNow_RetentionDays_NeverDeletesAQuarterNote(t *testing.T) {
 	defer cleanup()
 	ctx := context.Background()
 
-	old := time.Now().AddDate(0, 0, -2).Unix()
+	old := time.Now().AddDate(0, 0, -2).UnixMilli()
 	mk := func(session string, concepts models.JSONStringArray) {
 		require.NoError(t, store.GetDB().WithContext(ctx).Create(&gormdb.Observation{
 			SDKSessionID: session, Project: "proj", Type: models.ObsTypeDiscovery, CreatedAt: "2000-01-01T00:00:00Z",
@@ -861,4 +863,141 @@ func TestRunNow_RetentionDays_NeverDeletesAQuarterNote(t *testing.T) {
 		sessions = append(sessions, o.SDKSessionID)
 	}
 	assert.ElementsMatch(t, []string{"quarter"}, sessions, "a quarter note is the final record: no rule deletes it (the plain note and the monthly roll-up age out as before)")
+}
+
+// ---- retention compares milliseconds, takes a snapshot first, and prompts are kept unless asked otherwise ----
+
+func countRows(t *testing.T, store *gormdb.Store, model any) int64 {
+	t.Helper()
+	var n int64
+	require.NoError(t, store.GetDB().Model(model).Count(&n).Error)
+	return n
+}
+
+func snapshotFiles(t *testing.T, store *gormdb.Store) []string {
+	t.Helper()
+	files, _ := filepath.Glob(filepath.Join(store.DefaultSnapshotDir(), "*"))
+	return files
+}
+
+func createObservationAt(t *testing.T, store *gormdb.Store, session string, at time.Time) {
+	t.Helper()
+	require.NoError(t, store.GetDB().Create(&gormdb.Observation{
+		SDKSessionID: session, Project: "proj", Type: models.ObsTypeDiscovery, CreatedAt: at.Format(time.RFC3339),
+		CreatedAtEpoch: at.UnixMilli(), Scope: models.ScopeProject, ImportanceScore: 1.0,
+	}).Error)
+}
+
+func TestRunNow_RetentionDays_CutsAtTheDayInMilliseconds(t *testing.T) {
+	cfg := defaultCfg()
+	cfg.ObservationRetentionDays = 30
+	svc, store, _, _, cleanup := testSetup(t, cfg)
+	defer cleanup()
+	ctx := context.Background()
+
+	createObservationAt(t, store, "forty-days", time.Now().AddDate(0, 0, -40))
+	createObservationAt(t, store, "just-past", time.Now().AddDate(0, 0, -30).Add(-time.Hour))
+	createObservationAt(t, store, "just-inside", time.Now().AddDate(0, 0, -30).Add(time.Hour))
+	createObservationAt(t, store, "today", time.Now())
+
+	svc.RunNow(ctx)
+	time.Sleep(300 * time.Millisecond)
+
+	var left []gormdb.Observation
+	require.NoError(t, store.GetDB().Find(&left).Error)
+	var sessions []string
+	for _, o := range left {
+		sessions = append(sessions, o.SDKSessionID)
+	}
+	assert.ElementsMatch(t, []string{"just-inside", "today"}, sessions, "the day is a day, not a thousandth of one: only what is older than 30 days goes")
+}
+
+func TestRunNow_RetentionDays_TakesASnapshotBeforeDeletingAndNoneWhenThereIsNothingToDelete(t *testing.T) {
+	cfg := defaultCfg()
+	cfg.ObservationRetentionDays = 30
+	svc, store, _, _, cleanup := testSetup(t, cfg)
+	defer cleanup()
+	ctx := context.Background()
+
+	createObservationAt(t, store, "fresh", time.Now())
+	svc.RunNow(ctx)
+	time.Sleep(200 * time.Millisecond)
+	assert.Empty(t, snapshotFiles(t, store), "nothing expired: nothing deleted, no snapshot")
+
+	createObservationAt(t, store, "old", time.Now().AddDate(0, 0, -90))
+	svc.RunNow(ctx)
+	time.Sleep(300 * time.Millisecond)
+	files := snapshotFiles(t, store)
+	require.Len(t, files, 1, "one snapshot, taken before the deletion")
+	assert.Contains(t, files[0], "before-retention")
+	assert.EqualValues(t, 1, countRows(t, store, &gormdb.Observation{}), "and the old note is gone")
+}
+
+func TestRunNow_RetentionDays_AFailedSnapshotDeletesNothing(t *testing.T) {
+	cfg := defaultCfg()
+	cfg.ObservationRetentionDays = 30
+	svc, store, _, _, cleanup := testSetup(t, cfg)
+	defer cleanup()
+	ctx := context.Background()
+
+	// A file where the snapshot directory should be: the snapshot cannot be made.
+	require.NoError(t, os.WriteFile(store.DefaultSnapshotDir(), []byte("in the way"), 0o600))
+	createObservationAt(t, store, "old", time.Now().AddDate(0, 0, -90))
+
+	svc.RunNow(ctx)
+	time.Sleep(300 * time.Millisecond)
+	assert.EqualValues(t, 1, countRows(t, store, &gormdb.Observation{}), "deleting is permanent: without its safety copy nothing is deleted")
+}
+
+func TestRunNow_RetentionDays_ARecentSnapshotIsEnough(t *testing.T) {
+	cfg := defaultCfg()
+	cfg.ObservationRetentionDays = 30
+	svc, store, _, _, cleanup := testSetup(t, cfg)
+	defer cleanup()
+	ctx := context.Background()
+
+	_, err := store.Snapshot(ctx, store.DefaultSnapshotDir(), "regular", 7)
+	require.NoError(t, err)
+	before := len(snapshotFiles(t, store))
+	createObservationAt(t, store, "old", time.Now().AddDate(0, 0, -90))
+
+	svc.RunNow(ctx)
+	time.Sleep(300 * time.Millisecond)
+	assert.Len(t, snapshotFiles(t, store), before, "a snapshot under an hour old covers it")
+	assert.EqualValues(t, 0, countRows(t, store, &gormdb.Observation{}))
+}
+
+func TestRunNow_PromptRetention_OffByDefaultAndAMonthWhenSet(t *testing.T) {
+	mk := func(t *testing.T, store *gormdb.Store, session string, at time.Time) {
+		t.Helper()
+		require.NoError(t, store.GetDB().Create(&gormdb.UserPrompt{
+			ClaudeSessionID: session, PromptText: "p", PromptNumber: 1, CreatedAt: at.Format(time.RFC3339), CreatedAtEpoch: at.UnixMilli(),
+		}).Error)
+	}
+
+	t.Run("by default every prompt is kept, however old", func(t *testing.T) {
+		svc, store, _, _, cleanup := testSetup(t, defaultCfg())
+		defer cleanup()
+		mk(t, store, "ancient", time.Now().AddDate(-2, 0, 0))
+		mk(t, store, "recent", time.Now())
+		svc.RunNow(context.Background())
+		time.Sleep(300 * time.Millisecond)
+		assert.EqualValues(t, 2, countRows(t, store, &gormdb.UserPrompt{}))
+		assert.Empty(t, snapshotFiles(t, store))
+	})
+	t.Run("with a retention only the older ones go, after a snapshot", func(t *testing.T) {
+		cfg := defaultCfg()
+		cfg.PromptRetentionDays = 30
+		svc, store, _, _, cleanup := testSetup(t, cfg)
+		defer cleanup()
+		mk(t, store, "ancient", time.Now().AddDate(-2, 0, 0))
+		mk(t, store, "last-month", time.Now().AddDate(0, 0, -29))
+		mk(t, store, "recent", time.Now())
+		svc.RunNow(context.Background())
+		time.Sleep(300 * time.Millisecond)
+		assert.EqualValues(t, 2, countRows(t, store, &gormdb.UserPrompt{}), "the one 29 days old stays")
+		files := snapshotFiles(t, store)
+		require.Len(t, files, 1)
+		assert.Contains(t, files[0], "before-prompt-retention")
+	})
 }
