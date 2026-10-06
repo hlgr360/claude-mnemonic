@@ -16,6 +16,8 @@ what Code learned is available in Desktop and the other way round.
 
 A new project is always started from a folder: a plain name cannot create one (its id contains a hash of the folder's path, so that Claude Code and Desktop agree on it). If you ask for a project that does not exist, the tools say so and ask for the folder's full path on your computer.
 
+In Chat or Cowork, start a new project by giving that path, for example "remember this in a new project in my `app` folder, whose full path is ...". The path must be the one on your computer: a Cowork sandbox path (`/sessions/...`) is refused, because it would hash to a different id than the one Claude Code uses for the same folder and leave you with a duplicate. A project that belongs to no folder (a topic, a deck) cannot be created by name; use a folder to hold it, for example a notes folder.
+
 If you decline to pick a project, **nothing can be written**: the server rejects `remember`
 without an explicit project, whatever the model does.
 
