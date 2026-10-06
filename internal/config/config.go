@@ -86,6 +86,8 @@ type Config struct {
 	GraphRebuildIntervalMin      int      `json:"graph_rebuild_interval_min"`
 	HubThreshold                 int      `json:"hub_threshold"`
 	ObservationRetentionDays     int      `json:"observation_retention_days"`
+	// PromptRetentionDays deletes user prompts older than this many days during maintenance; 0 keeps them all.
+	PromptRetentionDays int `json:"prompt_retention_days"`
 	// MaxObservationsPerProject caps the live notes of one project: the oldest beyond it are archived (never deleted).
 	// 0 is no cap.
 	MaxObservationsPerProject int `json:"max_observations_per_project"`
@@ -302,6 +304,7 @@ func Default() *Config {
 		MaintenanceEnabled:           true,  // Enable scheduled maintenance
 		MaintenanceIntervalHours:     6,     // Run every 6 hours
 		ObservationRetentionDays:     0,     // 0 = no age-based deletion (keep all)
+		PromptRetentionDays:          0,     // 0 = keep every prompt
 		MaxObservationsPerProject:    0,     // 0 = no cap; a cap archives the oldest notes, it never deletes
 		SnapshotIntervalHours:        24,    // a snapshot at most once a day while the worker runs
 		SnapshotsDailyKeep:           7,     // and the newest seven of them
@@ -415,6 +418,9 @@ func Load() (*Config, error) {
 	}
 	if v, ok := settings["CLAUDE_MNEMONIC_GRAPH_RELATIONS_MAX_PER_OBSERVATION"].(float64); ok && v >= 1 {
 		cfg.GraphRelationsMaxPerObs = int(v)
+	}
+	if v, ok := settings["CLAUDE_MNEMONIC_PROMPT_RETENTION_DAYS"].(float64); ok && v >= 0 {
+		cfg.PromptRetentionDays = int(v) // 0 keeps every prompt
 	}
 	if v, ok := settings["CLAUDE_MNEMONIC_SUPERSEDED_RETENTION_DAYS"].(float64); ok && v >= 0 {
 		cfg.SupersededRetentionDays = int(v)

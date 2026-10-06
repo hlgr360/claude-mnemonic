@@ -3,12 +3,20 @@ package maintenance
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
 	"github.com/lukaszraczylo/claude-mnemonic/internal/config"
 	"github.com/lukaszraczylo/claude-mnemonic/internal/db/gorm"
 	"github.com/rs/zerolog"
+)
+
+const (
+	// retentionSnapshotMinGap is how recent a snapshot of any kind must be for a deletion to skip taking its own.
+	retentionSnapshotMinGap = time.Hour
+	// retentionSnapshotsKept is how many snapshots taken before an action are kept.
+	retentionSnapshotsKept = 10
 )
 
 // Service handles scheduled maintenance tasks.
@@ -187,7 +195,7 @@ func (s *Service) runMaintenance(ctx context.Context) {
 		optimized = true
 	}
 
-	// Task 4: Clean up old prompts (keep last 1000 per session)
+	// Task 4: Delete prompts past PromptRetentionDays (off by default)
 	cleanedPrompts, err := s.cleanupOldPrompts(ctx)
 	if err != nil {
 		s.log.Error().Err(err).Msg("Failed to cleanup old prompts")
@@ -211,9 +219,25 @@ func (s *Service) runMaintenance(ctx context.Context) {
 		Msg("Maintenance run completed")
 }
 
-// cleanupOldObservations deletes observations older than the retention period.
+// snapshotBeforeDeleting takes a copy of the database before a retention rule deletes anything, unless a snapshot of any
+// kind is under an hour old. Deleting is permanent, so a failed snapshot is an error and the caller deletes nothing.
+func (s *Service) snapshotBeforeDeleting(ctx context.Context, reason string, count int64) error {
+	dir := s.store.DefaultSnapshotDir()
+	if _, newest := gorm.SnapshotSummary(dir); !newest.IsZero() && time.Since(newest) < retentionSnapshotMinGap {
+		return nil
+	}
+	path, err := s.store.Snapshot(ctx, dir, "before-"+reason, retentionSnapshotsKept)
+	if err != nil {
+		return fmt.Errorf("snapshot before deleting %d rows (%s): %w", count, reason, err)
+	}
+	s.log.Info().Str("path", path).Str("reason", reason).Int64("rows", count).Msg("Snapshot taken before a retention rule deletes")
+	return nil
+}
+
+// cleanupOldObservations deletes observations older than the retention period. created_at_epoch holds milliseconds, so
+// the cutoff is in milliseconds too. A snapshot is taken first; quarter records are never deleted.
 func (s *Service) cleanupOldObservations(ctx context.Context) (int64, error) {
-	cutoffEpoch := time.Now().AddDate(0, 0, -s.config.ObservationRetentionDays).Unix()
+	cutoffEpoch := time.Now().AddDate(0, 0, -s.config.ObservationRetentionDays).UnixMilli()
 
 	// Get IDs of old observations
 	var deletedIDs []int64
@@ -229,9 +253,14 @@ func (s *Service) cleanupOldObservations(ctx context.Context) (int64, error) {
 	if len(deletedIDs) == 0 {
 		return 0, nil
 	}
+	s.log.Warn().Int("rows", len(deletedIDs)).Int("retention_days", s.config.ObservationRetentionDays).
+		Msg("Deleting observations older than the retention period")
+	if err := s.snapshotBeforeDeleting(ctx, "retention", int64(len(deletedIDs))); err != nil {
+		return 0, err
+	}
 
 	// Delete in batches to avoid long transactions
-	batchSize := 100
+	const batchSize = 100
 	for i := 0; i < len(deletedIDs); i += batchSize {
 		end := min(i+batchSize, len(deletedIDs))
 		batch := deletedIDs[i:end]
@@ -241,8 +270,6 @@ func (s *Service) cleanupOldObservations(ctx context.Context) (int64, error) {
 			Delete(&gorm.Observation{}).Error; err != nil {
 			return int64(i), err
 		}
-
-		// Sync vector DB deletions
 		if s.vectorCleanupFn != nil {
 			s.vectorCleanupFn(ctx, batch)
 		}
@@ -310,10 +337,24 @@ func (s *Service) cleanupStaleObservations(ctx context.Context) (int64, error) {
 	return int64(len(deletedIDs)), nil
 }
 
-// cleanupOldPrompts removes old prompts keeping only the most recent per session.
+// cleanupOldPrompts deletes the user prompts older than PromptRetentionDays; zero keeps them all. created_at_epoch holds
+// milliseconds, so the cutoff is in milliseconds too. A snapshot is taken first.
 func (s *Service) cleanupOldPrompts(ctx context.Context) (int64, error) {
-	// Delete prompts older than 30 days that aren't the most recent in their session
-	cutoffEpoch := time.Now().AddDate(0, 0, -30).Unix()
+	days := s.config.PromptRetentionDays
+	if days <= 0 {
+		return 0, nil
+	}
+	cutoffEpoch := time.Now().AddDate(0, 0, -days).UnixMilli()
+
+	var count int64
+	if err := s.store.GetDB().WithContext(ctx).Model(&gorm.UserPrompt{}).
+		Where("created_at_epoch < ?", cutoffEpoch).Count(&count).Error; err != nil || count == 0 {
+		return 0, err
+	}
+	s.log.Warn().Int64("rows", count).Int("retention_days", days).Msg("Deleting prompts older than the retention period")
+	if err := s.snapshotBeforeDeleting(ctx, "prompt-retention", count); err != nil {
+		return 0, err
+	}
 
 	result := s.store.GetDB().WithContext(ctx).
 		Where("created_at_epoch < ?", cutoffEpoch).

@@ -805,3 +805,22 @@ func TestLoad_RollupLadderAndQuarterSettings(t *testing.T) {
 		assert.True(t, cfg.RollupQuartersEnabled, "text is not a switch, so the default stays")
 	}
 }
+
+func TestLoad_PromptRetentionSetting(t *testing.T) {
+	writeSettings(t, `{}`)
+	cfg, err := Load()
+	assert.NoError(t, err)
+	assert.Equal(t, 0, cfg.PromptRetentionDays, "every prompt is kept by default")
+
+	writeSettings(t, `{"CLAUDE_MNEMONIC_PROMPT_RETENTION_DAYS": 90}`)
+	cfg, err = Load()
+	assert.NoError(t, err)
+	assert.Equal(t, 90, cfg.PromptRetentionDays)
+
+	for name, raw := range map[string]string{"negative": `-1`, "text": `"month"`, "boolean": `true`} {
+		writeSettings(t, `{"CLAUDE_MNEMONIC_PROMPT_RETENTION_DAYS": `+raw+`}`)
+		cfg, err = Load()
+		assert.NoError(t, err, name)
+		assert.Equal(t, 0, cfg.PromptRetentionDays, "%s is not a retention, so every prompt is kept", name)
+	}
+}

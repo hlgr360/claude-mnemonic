@@ -332,6 +332,7 @@ curl -s -X POST localhost:37777/api/conflicts/7/undo
 | `CONFLICT_PROPOSALS_MAX_PER_RUN` | `20` | At most this many observations are looked at per pass, newest first |
 | `CONFLICT_PROPOSALS_INTERVAL_MINUTES` | `60` | How often a pass runs |
 | `CONFLICT_PROPOSALS_MIN_SIMILARITY` | `0.65` | How close an older note must be to the new one to be compared with it |
+| `PROMPT_RETENTION_DAYS` | `0` | **Deletes** the prompts you typed that are older than this many days, during maintenance (after a snapshot). `0` keeps every prompt. Earlier versions meant to delete after 30 days but a unit mix-up (milliseconds compared with seconds) meant they never did, so nothing is deleted unless you set this |
 | `SUPERSEDED_RETENTION_DAYS` | `0` | Delete a note this many days after you superseded it. `0` keeps hidden notes for ever |
 | `LLM_BACKEND_CONFLICT` | `claude` | `claude` or `ollama`, for the proposer. No local model passed our checks, so keep `claude` |
 
