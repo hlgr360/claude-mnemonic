@@ -59,7 +59,7 @@ func TestHandleLLMStatus_ReportsInstalledAndLoadedModels(t *testing.T) {
 
 	rec, st := llmStatus(t, svc)
 	assert.Equal(t, "no-store", rec.Header().Get("Cache-Control"))
-	assert.Equal(t, map[string]string{"summary": "ollama", "observation": "claude", "verify": "claude", "brief": "claude", "conflict": "claude"}, st.Backends)
+	assert.Equal(t, map[string]string{"summary": "ollama", "observation": "claude", "verify": "claude", "brief": "claude", "conflict": "claude", "rollup": "claude"}, st.Backends)
 	assert.True(t, st.Fallback)
 	assert.True(t, st.Ollama.Reachable)
 	assert.Equal(t, "0.12.3", st.Ollama.Version)

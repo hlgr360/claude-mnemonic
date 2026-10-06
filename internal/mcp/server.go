@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -383,12 +384,12 @@ func (s *Server) handleToolsList(req *Request) *Response {
 		},
 		{
 			Name:        "memory_admin",
-			Description: "Memory system administration and analytics. Set 'action': stats, health, maintenance_stats, run_maintenance, importance, search_patterns, explain_ranking, temporal_trends, data_quality, export, suggest_consolidations, patterns.",
+			Description: "Memory system administration and analytics. Set 'action': stats, health, maintenance_stats, run_maintenance, importance, search_patterns, explain_ranking, temporal_trends, data_quality, export, suggest_consolidations, patterns, rollup, folds, restore_fold.",
 			InputSchema: map[string]any{
 				"type":     "object",
 				"required": []string{"action"},
 				"properties": map[string]any{
-					"action":                  map[string]any{"type": "string", "enum": []string{"stats", "health", "maintenance_stats", "run_maintenance", "importance", "search_patterns", "explain_ranking", "temporal_trends", "data_quality", "export", "suggest_consolidations", "patterns"}, "description": "Operation to perform"},
+					"action":                  map[string]any{"type": "string", "enum": []string{"stats", "health", "maintenance_stats", "run_maintenance", "importance", "search_patterns", "explain_ranking", "temporal_trends", "data_quality", "export", "suggest_consolidations", "patterns", "rollup", "folds", "restore_fold"}, "description": "Operation to perform"},
 					"project":                 map[string]any{"type": "string", "description": "Filter by project (importance, temporal_trends, data_quality, export, suggest_consolidations, patterns, explain_ranking)"},
 					"query":                   map[string]any{"type": "string", "description": "explain_ranking: query to analyze; patterns: search by name/description"},
 					"top_n":                   map[string]any{"type": "number", "description": "Top results (explain_ranking, search_patterns)"},
@@ -404,6 +405,11 @@ func (s *Server) handleToolsList(req *Request) *Response {
 					"include_top_scored":      map[string]any{"type": "boolean", "description": "importance: include top-scoring (default true)"},
 					"include_most_retrieved":  map[string]any{"type": "boolean", "description": "importance: include most-retrieved (default true)"},
 					"include_concept_weights": map[string]any{"type": "boolean", "description": "importance: include concept weights (default true)"},
+					"dry_run":                 map[string]any{"type": "boolean", "description": "rollup: only list the groups of old notes a run would condense (default true). Pass false to write the roll-ups: a model condenses each group and the originals are archived (kept, hidden, restorable). Only with the user's approval."},
+					"max_groups":              map[string]any{"type": "number", "description": "rollup: most groups to condense in this run (default from settings)"},
+					"kind":                    map[string]any{"type": "string", "enum": []string{"rollup", "consolidation"}, "description": "folds: only this kind"},
+					"include_undone":          map[string]any{"type": "boolean", "description": "folds: include the ones that were restored"},
+					"id":                      map[string]any{"type": "number", "description": "restore_fold: the id of the roll-up or consolidation (from folds) to undo: the originals are live again"},
 				},
 			},
 		},
@@ -515,6 +521,9 @@ var adminActions = map[string]string{
 	"export":                 "export_observations",
 	"suggest_consolidations": "suggest_consolidations",
 	"patterns":               "get_patterns",
+	"rollup":                 "rollup_project",
+	"folds":                  "list_folds",
+	"restore_fold":           "restore_fold",
 }
 
 // dispatchAction routes a multiplexed tool call to its underlying implementation by reading the "action" field.
@@ -652,6 +661,12 @@ func (s *Server) callTool(ctx context.Context, name string, args json.RawMessage
 		return s.handleSuggestConsolidationsProxy(ctx, args)
 	case "batch_tag_by_pattern":
 		return s.handleBatchTagProxy(ctx, args)
+	case "rollup_project":
+		return s.handleRollupProxy(ctx, args)
+	case "list_folds":
+		return s.handleListFoldsProxy(ctx, args)
+	case "restore_fold":
+		return s.handleRestoreFoldProxy(ctx, args)
 
 	default:
 		return "", fmt.Errorf("unknown tool: %s", name)
@@ -701,7 +716,12 @@ func (s *Server) proxyGetRaw(ctx context.Context, path string, params map[string
 
 // proxyPostRaw performs a POST request to the worker and returns the raw JSON response body.
 func (s *Server) proxyPostRaw(ctx context.Context, path string, payload any) (string, error) {
-	if s.client == nil {
+	return s.proxyPostRawWith(ctx, s.client, path, payload)
+}
+
+// proxyPostRawWith is proxyPostRaw on the given client, for the calls that need a longer timeout than the shared one.
+func (s *Server) proxyPostRawWith(ctx context.Context, client *http.Client, path string, payload any) (string, error) {
+	if client == nil {
 		return "", fmt.Errorf("worker unavailable at %s: http client not configured", s.workerURL)
 	}
 	var bodyReader io.Reader
@@ -721,7 +741,7 @@ func (s *Server) proxyPostRaw(ctx context.Context, path string, payload any) (st
 		req.Header.Set("Content-Type", "application/json")
 	}
 
-	resp, err := s.client.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("worker unavailable at %s: %w", s.workerURL, err)
 	}
@@ -1531,6 +1551,83 @@ func (s *Server) handleSuggestConsolidationsProxy(ctx context.Context, args json
 	}
 
 	return s.proxyGetRaw(ctx, "/api/observations/duplicates", qp)
+}
+
+// rollupTimeout is how long the MCP server waits for a roll-up that writes: a model condenses each group, which can
+// take minutes. The ordinary 30 s of the shared client would end the call while the worker is still working.
+const rollupTimeout = 12 * time.Minute
+
+// handleRollupProxy previews or writes a project's roll-ups. It previews unless dry_run is false.
+func (s *Server) handleRollupProxy(ctx context.Context, args json.RawMessage) (string, error) {
+	var params struct {
+		DryRun    *bool  `json:"dry_run"`
+		Project   string `json:"project"`
+		MaxGroups int    `json:"max_groups"`
+	}
+	if err := json.Unmarshal(args, &params); err != nil {
+		return "", fmt.Errorf("invalid arguments: %w", err)
+	}
+	if params.Project == "" {
+		params.Project = s.defaultProject()
+	}
+	if params.Project == "" {
+		return "", fmt.Errorf("rollup: a project is required")
+	}
+	dryRun := params.DryRun == nil || *params.DryRun
+	body := map[string]any{"dry_run": dryRun}
+	if params.MaxGroups > 0 {
+		body["max_groups"] = params.MaxGroups
+	}
+	if dryRun {
+		return s.proxyPostRaw(ctx, "/api/projects/"+url.PathEscape(params.Project)+"/rollup", body)
+	}
+	if s.client == nil {
+		return s.proxyPostRaw(ctx, "/api/projects/"+url.PathEscape(params.Project)+"/rollup", body) // reports "not configured"
+	}
+	long := *s.client
+	long.Timeout = rollupTimeout
+	return s.proxyPostRawWith(ctx, &long, "/api/projects/"+url.PathEscape(params.Project)+"/rollup", body)
+}
+
+// handleListFoldsProxy lists roll-ups and consolidations.
+func (s *Server) handleListFoldsProxy(ctx context.Context, args json.RawMessage) (string, error) {
+	var params struct {
+		Project       string `json:"project"`
+		Kind          string `json:"kind"`
+		Limit         int    `json:"limit"`
+		IncludeUndone bool   `json:"include_undone"`
+	}
+	if err := json.Unmarshal(args, &params); err != nil {
+		return "", fmt.Errorf("invalid arguments: %w", err)
+	}
+	qp := map[string]string{}
+	if params.Project != "" {
+		qp["project"] = params.Project
+	}
+	if params.Kind != "" {
+		qp["kind"] = params.Kind
+	}
+	if params.Limit > 0 {
+		qp["limit"] = strconv.Itoa(params.Limit)
+	}
+	if params.IncludeUndone {
+		qp["include_undone"] = "true"
+	}
+	return s.proxyGetRaw(ctx, "/api/folds", qp)
+}
+
+// handleRestoreFoldProxy undoes a roll-up or consolidation.
+func (s *Server) handleRestoreFoldProxy(ctx context.Context, args json.RawMessage) (string, error) {
+	var params struct {
+		ID int64 `json:"id"`
+	}
+	if err := json.Unmarshal(args, &params); err != nil {
+		return "", fmt.Errorf("invalid arguments: %w", err)
+	}
+	if params.ID <= 0 {
+		return "", fmt.Errorf("restore_fold: id is required (list them with the folds action)")
+	}
+	return s.proxyPostRaw(ctx, "/api/folds/"+strconv.FormatInt(params.ID, 10)+"/restore", nil)
 }
 
 // handleBatchTagProxy proxies batch tag operations.

@@ -53,6 +53,7 @@ type Config struct {
 	LLMBackendVerify             string   `json:"llm_backend_verify"`
 	LLMBackendBrief              string   `json:"llm_backend_brief"`
 	LLMBackendConflict           string   `json:"llm_backend_conflict"`
+	LLMBackendRollup             string   `json:"llm_backend_rollup"`
 	ContextObsConcepts           []string `json:"context_obs_concepts"`
 	ContextObsTypes              []string `json:"context_obs_types"`
 	ContextFullCount             int      `json:"context_full_count"`
@@ -88,6 +89,16 @@ type Config struct {
 	// MaxObservationsPerProject caps the live notes of one project: the oldest beyond it are archived (never deleted).
 	// 0 is no cap.
 	MaxObservationsPerProject int `json:"max_observations_per_project"`
+	// RollupMinAgeDays is how old a note must be before it can be rolled up.
+	RollupMinAgeDays int `json:"rollup_min_age_days"`
+	// RollupMaxGroupsPerRun bounds how many roll-ups one pass writes, so the usage stays small.
+	RollupMaxGroupsPerRun int `json:"rollup_max_groups_per_run"`
+	// RollupMinGroupSize is how many notes a group needs before it is worth a roll-up.
+	RollupMinGroupSize int `json:"rollup_min_group_size"`
+	// RollupKeepNewest is how many of a project's newest live notes are never rolled up, whatever their age.
+	RollupKeepNewest int `json:"rollup_keep_newest"`
+	// RollupIntervalMinutes is how often the automatic pass looks for notes to roll up.
+	RollupIntervalMinutes int `json:"rollup_interval_minutes"`
 	// SnapshotIntervalHours is how often a regular snapshot of the database is taken while the worker runs; 0 is never.
 	SnapshotIntervalHours int `json:"snapshot_interval_hours"`
 	// SnapshotsDailyKeep is how many of those regular snapshots are kept.
@@ -108,7 +119,9 @@ type Config struct {
 	CleanupStaleObservations     bool  `json:"cleanup_stale_observations"`
 	LLMFallbackToClaude          bool  `json:"llm_fallback_to_claude"`
 	ProjectBriefEnabled          bool  `json:"project_brief_enabled"`
-	ConflictProposalsEnabled     bool  `json:"conflict_proposals_enabled"`
+	// RollupEnabled turns on the automatic roll-up of old notes (a model condenses them, the originals are archived).
+	RollupEnabled            bool `json:"rollup_enabled"`
+	ConflictProposalsEnabled bool `json:"conflict_proposals_enabled"`
 	// ProjectAutoMergeEnabled merges projects that are certainly one (the same git remote, the old folder gone) by itself.
 	// Off by default: it only ever acts on the strongest evidence, with a backup and an alias, and says so.
 	ProjectAutoMergeEnabled     bool `json:"project_auto_merge_enabled"`
@@ -205,6 +218,7 @@ func Default() *Config {
 		LLMFallbackToClaude:   true, // an unreachable Ollama falls back to the CLI
 		LLMBackendBrief:       BackendClaude,
 		LLMBackendConflict:    BackendClaude,
+		LLMBackendRollup:      BackendClaude,
 		// Conflict proposals are on: a short Haiku call per new observation with close neighbours, at most
 		// ConflictProposalsMaxPerRun per pass. They only ever propose: nothing is hidden or deleted without the
 		// user's decision. Superseded notes are kept unless a retention is set.
@@ -227,40 +241,48 @@ func Default() *Config {
 		ProjectBriefMaxAgeDays:      7,
 		ProjectBriefMaxPerRun:       3,
 		ProjectBriefIntervalMinutes: 60,
-		RerankingEnabled:            true,  // Enable by default for improved relevance
-		RerankingCandidates:         100,   // Retrieve top 100 candidates
-		RerankingResults:            10,    // Return top 10 after reranking
-		RerankingAlpha:              0.7,   // Favor cross-encoder score
-		RerankingMinImprovement:     0,     // Always apply reranking
-		GraphEnabled:                true,  // Enable graph-aware search by default
-		GraphMaxHops:                2,     // Two-hop traversal
-		GraphBranchFactor:           5,     // Expand top 5 neighbors per node
-		GraphEdgeWeight:             0.3,   // Minimum edge weight to follow
-		GraphRebuildIntervalMin:     60,    // Rebuild graph every 60 minutes
-		VectorStorageStrategy:       "hub", // Hub storage strategy (LEANN-inspired)
-		HubThreshold:                5,     // Require 5+ accesses to store embedding
-		ContextObservations:         100,
-		ContextFullCount:            25,
-		ContextSessionCount:         10,
-		ContextShowReadTokens:       true,
-		ContextShowWorkTokens:       true,
-		ContextFullField:            "narrative",
-		ContextShowLastSummary:      true,
-		ContextObsTypes:             DefaultObservationTypes,
-		ContextObsConcepts:          DefaultObservationConcepts,
-		ContextRelevanceThreshold:   0.3,   // Minimum 30% similarity to include
-		ContextMaxPromptResults:     10,    // Cap at 10 results max (0 = no cap, threshold only)
-		ContextMaxTokensStartup:     16000, // Max tokens for SessionStart context injection
-		ContextMaxTokensPrompt:      8000,  // Max tokens for UserPromptSubmit context injection
-		DeduplicationEnabled:        true,  // Enable write-time vector dedup
-		DeduplicationThreshold:      0.9,   // Similarity threshold for merging (0.9 = very similar)
-		MaintenanceEnabled:          true,  // Enable scheduled maintenance
-		MaintenanceIntervalHours:    6,     // Run every 6 hours
-		ObservationRetentionDays:    0,     // 0 = no age-based deletion (keep all)
-		MaxObservationsPerProject:   0,     // 0 = no cap; a cap archives the oldest notes, it never deletes
-		SnapshotIntervalHours:       24,    // a snapshot at most once a day while the worker runs
-		SnapshotsDailyKeep:          7,     // and the newest seven of them
-		CleanupStaleObservations:    false, // Don't auto-cleanup stale observations
+		// Roll-ups spend model usage and archive notes, so they are off. When on, notes older than 60 days are
+		// condensed in groups of at least 8, at most 3 groups per pass, never the newest 30 notes of a project.
+		RollupEnabled:             false,
+		RollupMinAgeDays:          60,
+		RollupMaxGroupsPerRun:     3,
+		RollupMinGroupSize:        8,
+		RollupKeepNewest:          30,
+		RollupIntervalMinutes:     360,
+		RerankingEnabled:          true,  // Enable by default for improved relevance
+		RerankingCandidates:       100,   // Retrieve top 100 candidates
+		RerankingResults:          10,    // Return top 10 after reranking
+		RerankingAlpha:            0.7,   // Favor cross-encoder score
+		RerankingMinImprovement:   0,     // Always apply reranking
+		GraphEnabled:              true,  // Enable graph-aware search by default
+		GraphMaxHops:              2,     // Two-hop traversal
+		GraphBranchFactor:         5,     // Expand top 5 neighbors per node
+		GraphEdgeWeight:           0.3,   // Minimum edge weight to follow
+		GraphRebuildIntervalMin:   60,    // Rebuild graph every 60 minutes
+		VectorStorageStrategy:     "hub", // Hub storage strategy (LEANN-inspired)
+		HubThreshold:              5,     // Require 5+ accesses to store embedding
+		ContextObservations:       100,
+		ContextFullCount:          25,
+		ContextSessionCount:       10,
+		ContextShowReadTokens:     true,
+		ContextShowWorkTokens:     true,
+		ContextFullField:          "narrative",
+		ContextShowLastSummary:    true,
+		ContextObsTypes:           DefaultObservationTypes,
+		ContextObsConcepts:        DefaultObservationConcepts,
+		ContextRelevanceThreshold: 0.3,   // Minimum 30% similarity to include
+		ContextMaxPromptResults:   10,    // Cap at 10 results max (0 = no cap, threshold only)
+		ContextMaxTokensStartup:   16000, // Max tokens for SessionStart context injection
+		ContextMaxTokensPrompt:    8000,  // Max tokens for UserPromptSubmit context injection
+		DeduplicationEnabled:      true,  // Enable write-time vector dedup
+		DeduplicationThreshold:    0.9,   // Similarity threshold for merging (0.9 = very similar)
+		MaintenanceEnabled:        true,  // Enable scheduled maintenance
+		MaintenanceIntervalHours:  6,     // Run every 6 hours
+		ObservationRetentionDays:  0,     // 0 = no age-based deletion (keep all)
+		MaxObservationsPerProject: 0,     // 0 = no cap; a cap archives the oldest notes, it never deletes
+		SnapshotIntervalHours:     24,    // a snapshot at most once a day while the worker runs
+		SnapshotsDailyKeep:        7,     // and the newest seven of them
+		CleanupStaleObservations:  false, // Don't auto-cleanup stale observations
 		// WAL checkpoint loop tunables (issue #49). Defaults mirror the worker constants:
 		// check the WAL every 60s and TRUNCATE-checkpoint once it reaches 4 MiB.
 		WALCheckpointIntervalSeconds: 60,
@@ -321,6 +343,7 @@ func Load() (*Config, error) {
 		"CLAUDE_MNEMONIC_LLM_BACKEND_VERIFY":      &cfg.LLMBackendVerify,
 		"CLAUDE_MNEMONIC_LLM_BACKEND_BRIEF":       &cfg.LLMBackendBrief,
 		"CLAUDE_MNEMONIC_LLM_BACKEND_CONFLICT":    &cfg.LLMBackendConflict,
+		"CLAUDE_MNEMONIC_LLM_BACKEND_ROLLUP":      &cfg.LLMBackendRollup,
 	} {
 		if v, ok := settings[key].(string); ok && ValidBackend(strings.ToLower(strings.TrimSpace(v))) {
 			*target = strings.ToLower(strings.TrimSpace(v))
@@ -388,6 +411,23 @@ func Load() (*Config, error) {
 	}
 	if v, ok := settings["CLAUDE_MNEMONIC_RERANKING_MIN_IMPROVEMENT"].(float64); ok && v >= 0 {
 		cfg.RerankingMinImprovement = v
+	}
+	// Roll-up settings
+	if v, ok := settings["CLAUDE_MNEMONIC_ROLLUP_ENABLED"].(bool); ok {
+		cfg.RollupEnabled = v
+	}
+	for key, target := range map[string]*int{
+		"CLAUDE_MNEMONIC_ROLLUP_MIN_AGE_DAYS":       &cfg.RollupMinAgeDays,
+		"CLAUDE_MNEMONIC_ROLLUP_MAX_GROUPS_PER_RUN": &cfg.RollupMaxGroupsPerRun,
+		"CLAUDE_MNEMONIC_ROLLUP_MIN_GROUP_SIZE":     &cfg.RollupMinGroupSize,
+		"CLAUDE_MNEMONIC_ROLLUP_INTERVAL_MINUTES":   &cfg.RollupIntervalMinutes,
+	} {
+		if v, ok := settings[key].(float64); ok && v > 0 {
+			*target = int(v)
+		}
+	}
+	if v, ok := settings["CLAUDE_MNEMONIC_ROLLUP_KEEP_NEWEST"].(float64); ok && v >= 0 {
+		cfg.RollupKeepNewest = int(v) // 0 keeps none back
 	}
 	if v, ok := settings["CLAUDE_MNEMONIC_RERANKING_PURE_MODE"].(bool); ok {
 		cfg.RerankingPureMode = v

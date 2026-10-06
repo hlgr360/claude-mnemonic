@@ -616,6 +616,15 @@ func runMigrations(db *gorm.DB, sqlDB *sql.DB) error {
 				return tx.Migrator().DropTable("project_duplicate_dismissals")
 			},
 		},
+		{
+			ID: "022_observation_folds",
+			Migrate: func(tx *gorm.DB) error {
+				return tx.AutoMigrate(&ObservationFold{})
+			},
+			Rollback: func(tx *gorm.DB) error {
+				return tx.Migrator().DropTable("observation_folds")
+			},
+		},
 	})
 
 	if err := m.Migrate(); err != nil {

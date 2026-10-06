@@ -124,6 +124,14 @@ case "\$last" in
     first=\$(printf '%s' "\$last" | sed -n '/^OBSERVATIONS (/,\$p' | grep -o '\[#[0-9]*\]' | head -1)
     printf '## What this is\nA small tool that remembers things %s and a made-up citation [#999999]. Contact me@example.com for details.\n\n## Current state\nIt works.\n\n## Open items\n- an invented open item\n' "\$first"
     exit 0 ;;
+  *"ROLL-UP REQUEST"*)
+    # a roll-up: unless the suite asked this model to fail, echo the subject of the first note, plus what the worker must clean up
+    [ -f "$WORK/fake-claude-rollup-fail" ] && exit 1
+    line=\$(printf '%s' "\$last" | grep -m1 '^\[#[0-9]*\] (')
+    id=\$(printf '%s' "\$line" | grep -o '^\[#[0-9]*\]')
+    subject=\$(printf '%s' "\$line" | sed 's/^\[#[0-9]*\] ([^)]*) //')
+    printf 'TITLE: Condensed notes\n\n- Earlier work: %s %s and a made-up citation [#999999]. Mail me@example.com about it.\n- A second point that keeps the roll-up long enough to be stored.\n' "\$subject" "\$id"
+    exit 0 ;;
   *"CONFLICT CHECK REQUEST"*)
     # a conflict check: say the first older candidate has been superseded by the newer note
     first=\$(printf '%s' "\$last" | sed -n '/^OLDER NOTES:/,\$p' | grep -o '\[#[0-9]*\]' | head -1 | tr -d '[#]')
@@ -164,6 +172,19 @@ base_settings
 printf '{"CLAUDE_CODE_PATH": "%s/fake-claude", "CLAUDE_MNEMONIC_PROJECT_BRIEF_ENABLED": true, "CLAUDE_MNEMONIC_PROJECT_BRIEF_MIN_NEW_OBSERVATIONS": 3, "CLAUDE_MNEMONIC_PROJECT_BRIEF_INTERVAL_MINUTES": 1, "CLAUDE_MNEMONIC_PROJECT_BRIEF_MAX_PER_RUN": 3, %s}\n' "$WORK" "$NO_PROPOSALS" > "$WORK/home/.claude-mnemonic/settings.json"
 fresh_worker || exit 1
 suite "Project briefs: automatic and on request, shown first to Desktop"  python3 "$HERE/drive_brief.py"
+base_settings
+
+# Roll-ups, on request: the fake claude above condenses old notes. Switched off for the automatic pass, so the suite
+# drives it through the tools.
+printf '{"CLAUDE_CODE_PATH": "%s/fake-claude", "CLAUDE_MNEMONIC_ROLLUP_MIN_GROUP_SIZE": 8, "CLAUDE_MNEMONIC_ROLLUP_KEEP_NEWEST": 0, %s}\n' "$WORK" "$NO_PROPOSALS" > "$WORK/home/.claude-mnemonic/settings.json"
+fresh_worker || exit 1
+suite "Roll-ups: old notes condensed, originals archived, restorable"    python3 "$HERE/drive_rollup.py"
+base_settings
+
+# Roll-ups, automatic: switched on, a pass every minute (the first one 45 s after the worker starts).
+printf '{"CLAUDE_CODE_PATH": "%s/fake-claude", "CLAUDE_MNEMONIC_ROLLUP_ENABLED": true, "CLAUDE_MNEMONIC_ROLLUP_INTERVAL_MINUTES": 1, "CLAUDE_MNEMONIC_ROLLUP_MIN_GROUP_SIZE": 8, "CLAUDE_MNEMONIC_ROLLUP_KEEP_NEWEST": 0, %s}\n' "$WORK" "$NO_PROPOSALS" > "$WORK/home/.claude-mnemonic/settings.json"
+fresh_worker || exit 1
+suite "Roll-ups: the worker's own pass"                                  python3 "$HERE/drive_rollup_auto.py"
 base_settings
 
 # Conflict proposals: switched on with a low similarity bar, answered by the fake claude above. The first automatic

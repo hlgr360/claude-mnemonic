@@ -242,6 +242,35 @@ curl -s localhost:37777/api/projects/<project>/brief              # read it
 | `PROJECT_BRIEF_MAX_PER_RUN` | `3` | At most this many briefs per pass, the projects with the most new observations first |
 | `PROJECT_BRIEF_INTERVAL_MINUTES` | `60` | How often a pass looks for projects that need a brief |
 
+### Roll-ups
+
+A project's older notes pile up. A **roll-up** condenses a group of them into one note and **archives** the originals: they are kept, hidden from search and context, linked to the roll-up that replaced them, and restorable. Nothing is deleted.
+
+- **The selection is a rule; the model only writes the text.** Live notes older than `ROLLUP_MIN_AGE_DAYS` are grouped by month (a big month is split by session, at most 40 notes a group); a group needs `ROLLUP_MIN_GROUP_SIZE` notes. The newest `ROLLUP_KEEP_NEWEST` notes of a project are never rolled up, and neither are **decisions**, notes you **rated**, notes whose **scope was chosen on purpose** (that includes every note saved with the `remember` tool), global notes and roll-ups. Notes the cap archived are condensed too, so what they said comes back into search.
+- **The roll-up is an ordinary note** (concept `rollup`, titled "Roll-up: ...", scoped to its project) that cites its sources like `[#12, #40]`. The model's text is cleaned like a brief: no citation of a note that was not in the request, no email addresses, no private text, a bounded length. It is dated at the newest note it condenses (unless a cap is set), so it does not look like new work.
+- **Safe by order.** A snapshot is taken first; the roll-up is stored, then the originals are archived, then the record is kept; if any step fails the roll-up note is removed again and every note stays live. If no model answers, nothing is archived and the log says so.
+- **Restore** brings the originals back (vectors included) and archives the roll-up. A note you archived yourself for another reason in the meantime stays archived.
+
+```sh
+curl -s -X POST localhost:37777/api/projects/<project>/rollup -d '{"dry_run": true}'   # what a run would condense
+curl -s -X POST localhost:37777/api/projects/<project>/rollup                           # do it now
+curl -s localhost:37777/api/folds?project=<project>                                    # roll-ups (and consolidations), newest first
+curl -s -X POST localhost:37777/api/folds/<id>/restore                                 # undo one
+```
+
+The same in the MCP tool `memory_admin` (`action`: `rollup`, `folds`, `restore_fold`). `rollup` only previews unless `dry_run` is `false`, so a model cannot archive notes by accident.
+
+Roll-ups spend model usage and change what is injected, so the automatic pass is off by default.
+
+| Variable | Default | What it does |
+|----------|---------|--------------|
+| `ROLLUP_ENABLED` | `false` | Roll up old notes automatically in the background |
+| `ROLLUP_MIN_AGE_DAYS` | `60` | A note must be this old to be rolled up |
+| `ROLLUP_MIN_GROUP_SIZE` | `8` | A group needs at least this many notes |
+| `ROLLUP_KEEP_NEWEST` | `30` | The newest notes of a project that are never rolled up, whatever their age |
+| `ROLLUP_MAX_GROUPS_PER_RUN` | `3` | At most this many roll-ups per pass (and per manual request unless it says otherwise) |
+| `ROLLUP_INTERVAL_MINUTES` | `360` | How often a pass looks for notes to roll up |
+
 ### Conflict Review
 
 Over time notes go out of date: a newer note says the cache now lives for a day, and the older one still says an
@@ -353,6 +382,7 @@ machine. Nothing changes unless you switch a task; `GET /api/llm/status` shows w
 | `LLM_BACKEND_VERIFY` | `claude` | `claude` or `ollama`, for the stale-observation check |
 | `LLM_BACKEND_BRIEF` | `claude` | `claude` or `ollama`, for the project brief (see below) |
 | `LLM_BACKEND_CONFLICT` | `claude` | `claude` or `ollama`, for the conflict proposer (see above) |
+| `LLM_BACKEND_ROLLUP` | `claude` | `claude` or `ollama`, for roll-ups (see above). Check a local model with `scripts/llm-eval` before switching |
 | `LLM_FALLBACK_TO_CLAUDE` | `true` | Use the Claude CLI when Ollama is unreachable or fails |
 | `OLLAMA_MODEL` | *(none)* | Model to use, for example `gemma3:12b`. A task on `ollama` without a model stays on Claude |
 | `OLLAMA_URL` | `OLLAMA_HOST`, else `http://localhost:11434` | Where Ollama listens |
@@ -406,7 +436,7 @@ Four tools are exposed via MCP:
 - `memory_admin` - administration and analytics. Set `action` to one of:
   `stats`, `health`, `maintenance_stats`, `run_maintenance`, `importance`,
   `search_patterns`, `explain_ranking`, `temporal_trends`, `data_quality`,
-  `export`, `suggest_consolidations`, `patterns`.
+  `export`, `suggest_consolidations`, `patterns`, `rollup`, `folds`, `restore_fold`.
 
 Using Claude Desktop (chat, Cowork, Code tab)? See [DESKTOP.md](DESKTOP.md): it adds
 project selection, explicit `remember`, and project management.

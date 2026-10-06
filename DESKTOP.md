@@ -206,6 +206,14 @@ and from how many observations, because it can lag behind recent work, and its "
 Briefs spend Claude usage, so the automatic ones are off by default (`PROJECT_BRIEF_ENABLED`, see the README). You
 can write one by hand any time with `POST /api/projects/<project>/brief`.
 
+## Roll-ups
+
+Old automatically saved notes can be condensed into one roll-up note per month (the originals are archived, not
+deleted, and can be restored). Ask for it through `memory_admin`: `action: rollup` previews the groups, and only
+`dry_run: false` writes them, so say what it will do and get the user's approval first. `folds` lists roll-ups and
+`restore_fold` undoes one. Notes saved with `remember`, decisions and rated notes are never rolled up. See the README
+for the settings and the rules.
+
 ## Superseded notes
 
 When you decide in the dashboard's **Conflicts** tab that a newer note replaces an older one, the older note is no
