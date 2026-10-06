@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -16,7 +18,11 @@ import (
 // legacyProjectID is the pre-worktree-aware formula. Plain checkouts must keep
 // producing exactly this value so existing projects are not orphaned.
 func legacyProjectID(absPath string) string {
-	hash := sha256.Sum256([]byte(absPath))
+	key := absPath
+	if runtime.GOOS == "windows" {
+		key = strings.ToLower(absPath) // there are no legacy Windows IDs: the path is hashed lower-cased from the start
+	}
+	hash := sha256.Sum256([]byte(key))
 	return fmt.Sprintf("%s_%s", filepath.Base(absPath), hex.EncodeToString(hash[:3]))
 }
 

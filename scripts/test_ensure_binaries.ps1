@@ -134,9 +134,13 @@ try {
     } finally {
         if ($running -and -not $running.HasExited) { Stop-Process -Id $running.Id -Force -ErrorAction SilentlyContinue }
     }
+    # The old executable could not be deleted while it ran; the next upgrade removes what the last one left behind.
     Start-Sleep -Milliseconds 300
-    $r = Invoke-Installer $plugin4 $data4 'v-does-not-exist'
-    Check ((@(Get-ChildItem -Recurse -Force -Path $bin4 -Filter '*.old-*')).Count -eq 0) 'the next run leaves no renamed old executable behind'
+    $plugin4b = New-Plugin 'p4b' '1.0.2'
+    Publish (New-Release 'r102' '1.0.2' 'v3') 'v1.0.2'
+    $r = Invoke-Installer $plugin4b $data4 'v1.0.2'
+    Check ($r.Code -eq 0) "the next upgrade succeeds (code $($r.Code)): $($r.Text)"
+    Check ((@(Get-ChildItem -Recurse -Force -Path $bin4 -Filter '*.old-*')).Count -eq 0) 'the next upgrade leaves no renamed old executable behind'
 
     # 7. -Background returns at once and the install finishes in a hidden process that writes plugin-install.log.
     $plugin5 = New-Plugin 'p5' '1.2.3'
