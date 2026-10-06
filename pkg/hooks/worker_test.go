@@ -1425,7 +1425,9 @@ func TestEnsureWorkerRunning_RespectsDeadline(t *testing.T) {
 	// Use a port that nothing listens on.
 	t.Setenv("CLAUDE_MNEMONIC_WORKER_PORT", "19999")
 	// Point HOME to a temp dir so findWorkerBinary finds nothing.
-	t.Setenv("HOME", t.TempDir())
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // Windows
 	// Clear plugin root to avoid that path too.
 	t.Setenv("CLAUDE_PLUGIN_ROOT", "")
 

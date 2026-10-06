@@ -2,12 +2,15 @@
 # Claude Mnemonic MCP server: run the installed binary. In the plugin, the binaries are fetched first when they are
 # missing (this waits: the server cannot start without them).
 BIN="$HOME/.claude-mnemonic/bin/mcp-server"
+# Git Bash on Windows: the installed binary is the .exe.
+[ -x "$BIN.exe" ] && BIN="$BIN.exe"
 ENSURE="$(dirname "$0")/lib/ensure-binaries.sh"
 if [ ! -x "$BIN" ] && [ -f "$ENSURE" ]; then
     sh "$ENSURE" >&2
+    [ -x "$BIN.exe" ] && BIN="$BIN.exe"
 fi
 [ -x "$BIN" ] && exec "$BIN" "$@"
 echo "claude-mnemonic: mcp-server not found at $BIN and the download did not succeed (see above)." >&2
-echo "claude-mnemonic: it needs macOS on Apple silicon or Linux on x86-64 and network access to github.com; it cannot start in a sandbox such as Cowork's VM." >&2
+echo "claude-mnemonic: it needs macOS on Apple silicon, Linux on x86-64 or Windows on x86-64, and network access to github.com; it cannot start in a sandbox such as Cowork's VM." >&2
 echo "claude-mnemonic: Claude Desktop (chat and Cowork) gets the tools from the Desktop extension (.mcpb on the release); a source checkout can run: make install" >&2
 exit 1

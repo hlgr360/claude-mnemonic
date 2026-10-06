@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -16,7 +18,11 @@ import (
 // legacyProjectID is the pre-worktree-aware formula. Plain checkouts must keep
 // producing exactly this value so existing projects are not orphaned.
 func legacyProjectID(absPath string) string {
-	hash := sha256.Sum256([]byte(absPath))
+	key := absPath
+	if runtime.GOOS == "windows" {
+		key = strings.ToLower(absPath) // there are no legacy Windows IDs: the path is hashed lower-cased from the start
+	}
+	hash := sha256.Sum256([]byte(key))
 	return fmt.Sprintf("%s_%s", filepath.Base(absPath), hex.EncodeToString(hash[:3]))
 }
 
@@ -260,8 +266,38 @@ func TestCutPathPrefix(t *testing.T) {
 		{"/a/b", "/c", "", false},
 	}
 	for _, tt := range tests {
-		rest, ok := cutPathPrefix(tt.path, tt.prefix)
+		// The table is written with slashes; on Windows the paths and the remainder use backslashes.
+		rest, ok := cutPathPrefix(filepath.FromSlash(tt.path), filepath.FromSlash(tt.prefix))
 		assert.Equal(t, tt.ok, ok, "%s under %s", tt.path, tt.prefix)
-		assert.Equal(t, tt.rest, rest, "%s under %s", tt.path, tt.prefix)
+		assert.Equal(t, filepath.FromSlash(tt.rest), rest, "%s under %s", tt.path, tt.prefix)
 	}
+}
+
+func TestCutPathPrefixFold_WindowsPathsIgnoreCase(t *testing.T) {
+	p, prefix := filepath.FromSlash("/srv/Someone/Repo/x"), filepath.FromSlash("/srv/someone")
+	rest, ok := cutPathPrefixFold(p, prefix, true)
+	assert.True(t, ok)
+	assert.Equal(t, filepath.FromSlash("Repo/x"), rest)
+
+	_, ok = cutPathPrefixFold(p, prefix, false)
+	assert.False(t, ok, "elsewhere case matters")
+
+	_, ok = cutPathPrefixFold(filepath.FromSlash("/srv/SomeoneElse"), prefix, true)
+	assert.False(t, ok, "still whole elements only")
+}
+
+func TestSplitAndJoinPathRoundTrip(t *testing.T) {
+	dir := mkdir(t, t.TempDir(), "a", "b")
+	vol, parts := splitPath(dir)
+	assert.Equal(t, filepath.VolumeName(dir), vol, "the volume (C: on Windows) is not a path element")
+	for _, e := range parts {
+		assert.NotEqual(t, vol, e, "no element is the volume")
+	}
+	assert.Equal(t, filepath.Clean(dir), joinPath(vol, parts))
+}
+
+func TestProjectKeyFor(t *testing.T) {
+	assert.Equal(t, `c:\users\someone\repo`, projectKeyFor("windows", `C:\Users\Someone\Repo`), "one Windows directory, one ID")
+	assert.Equal(t, "/srv/Someone/Repo", projectKeyFor("darwin", "/srv/Someone/Repo"), "existing IDs elsewhere stay as they are")
+	assert.Equal(t, "/home/X/Repo", projectKeyFor("linux", "/home/X/Repo"))
 }

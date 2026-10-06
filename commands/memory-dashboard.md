@@ -1,6 +1,6 @@
 ---
 description: Open the Claude Mnemonic web dashboard in your browser
-allowed-tools: Bash(curl:*), Bash(open:*), Bash(xdg-open:*), Bash(grep:*), Bash(echo:*)
+allowed-tools: Bash(curl:*), Bash(open:*), Bash(xdg-open:*), Bash(explorer.exe:*), Bash(grep:*), Bash(echo:*)
 ---
 
 # Open the Claude Mnemonic dashboard
@@ -14,7 +14,7 @@ The dashboard shows your saved notes, session summaries, the knowledge graph, co
    ```bash
    port="${CLAUDE_MNEMONIC_WORKER_PORT:-$(grep -o '"CLAUDE_MNEMONIC_WORKER_PORT"[[:space:]]*:[[:space:]]*[0-9]*' ~/.claude-mnemonic/settings.json 2>/dev/null | grep -o '[0-9]*$')}"
    url="http://localhost:${port:-37777}"
-   if curl -sf "$url/health" >/dev/null; then (open "$url" 2>/dev/null || xdg-open "$url" 2>/dev/null); echo "$url"; else echo "NOT RUNNING $url"; fi
+   if curl -sf "$url/health" >/dev/null; then (open "$url" 2>/dev/null || xdg-open "$url" 2>/dev/null || explorer.exe "$url" 2>/dev/null); echo "$url"; else echo "NOT RUNNING $url"; fi
    ```
 
 2. If the output is a URL, tell the user the dashboard is open and give them the URL as a link, so they can open it again.

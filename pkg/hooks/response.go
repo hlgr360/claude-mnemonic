@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 )
 
@@ -30,7 +31,7 @@ func ProjectIDWithName(cwd string) string {
 	absPath = CanonicalProjectPath(absPath)
 
 	dirName := filepath.Base(absPath)
-	hash := sha256.Sum256([]byte(absPath))
+	hash := sha256.Sum256([]byte(projectKeyFor(runtime.GOOS, absPath)))
 	shortHash := hex.EncodeToString(hash[:3]) // 6 chars
 
 	return fmt.Sprintf("%s_%s", dirName, shortHash)
