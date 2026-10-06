@@ -380,7 +380,7 @@ func (s *Service) applyRollup(ctx context.Context, project string, g rollupGroup
 		}
 		return fmt.Errorf("archiving the originals: %w", err)
 	}
-	foldID, err := gorm.NewObservationFoldStore(store).Record(ctx, project, gorm.FoldRollup, rollupID, archived, g.Label)
+	foldID, err := gorm.NewObservationFoldStore(store).Record(ctx, project, gorm.FoldRollup, rollupID, archived, g.Label, "")
 	if err != nil {
 		// Without the record the roll-up could not be undone: put everything back.
 		_, _ = observationStore.UnarchiveWithReason(ctx, archived, gorm.FoldReason(gorm.FoldRollup, rollupID))
@@ -553,6 +553,10 @@ func (s *Service) restoreFold(ctx context.Context, foldID int64) (*FoldRestoreRe
 		} else {
 			log.Warn().Err(err).Int64("id", fold.SurvivorID).Msg("roll-up: could not archive the roll-up note when restoring")
 		}
+	}
+	if fold.Kind == gorm.FoldConsolidation {
+		// The survivor stays; it gives back what it took over from the duplicates.
+		s.revertConsolidation(ctx, fold)
 	}
 	if _, err := folds.MarkUndone(ctx, fold.ID); err != nil {
 		return nil, fmt.Errorf("marking the fold restored: %w", err)

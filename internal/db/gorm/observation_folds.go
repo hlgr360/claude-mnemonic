@@ -47,8 +47,10 @@ type ObservationFold struct {
 	Project string `gorm:"index;not null"`
 	Kind    string `gorm:"index;not null"`
 	// SourceIDs is a JSON array of the ids of the notes that were archived into the survivor.
-	SourceIDs      string `gorm:"type:text;not null"`
-	Note           string `gorm:"type:text;not null;default:''"`
+	SourceIDs string `gorm:"type:text;not null"`
+	Note      string `gorm:"type:text;not null;default:''"`
+	// Detail is JSON that undoing needs beyond the source ids: what a consolidation added to the survivor.
+	Detail         string `gorm:"type:text;not null;default:''"`
 	ID             int64  `gorm:"primaryKey;autoIncrement"`
 	SurvivorID     int64  `gorm:"index;not null"`
 	CreatedAtEpoch int64  `gorm:"not null"`
@@ -79,7 +81,7 @@ func NewObservationFoldStore(store *Store) *ObservationFoldStore {
 }
 
 // Record stores a fold and returns its id.
-func (s *ObservationFoldStore) Record(ctx context.Context, project, kind string, survivorID int64, sources []int64, note string) (int64, error) {
+func (s *ObservationFoldStore) Record(ctx context.Context, project, kind string, survivorID int64, sources []int64, note, detail string) (int64, error) {
 	if len(sources) == 0 {
 		return 0, errors.New("a fold needs at least one source note")
 	}
@@ -88,7 +90,7 @@ func (s *ObservationFoldStore) Record(ctx context.Context, project, kind string,
 		return 0, err
 	}
 	row := &ObservationFold{
-		Project: project, Kind: kind, SurvivorID: survivorID, SourceIDs: string(raw), Note: note,
+		Project: project, Kind: kind, SurvivorID: survivorID, SourceIDs: string(raw), Note: note, Detail: detail,
 		CreatedAtEpoch: time.Now().UnixMilli(),
 	}
 	if err := s.db.WithContext(ctx).Create(row).Error; err != nil {
@@ -251,4 +253,21 @@ func (s *ObservationStore) SetObservationCreated(ctx context.Context, id, epochM
 		"created_at_epoch": epochMs,
 		"created_at":       time.UnixMilli(epochMs).Format(time.RFC3339),
 	}).Error
+}
+
+// ConsolidationCandidates returns the newest live notes of a project that may be consolidated automatically (at most
+// limit), newest first. Protected notes are never returned.
+func (s *ObservationStore) ConsolidationCandidates(ctx context.Context, project string, limit int) ([]*models.Observation, error) {
+	var rows []Observation
+	q := s.db.WithContext(ctx).Where("project = ?", project).
+		Where("COALESCE(is_archived, 0) = 0 AND COALESCE(is_superseded, 0) = 0").
+		Where("NOT (" + protectedFromFolding + ")").
+		Order("created_at_epoch DESC, id DESC")
+	if limit > 0 {
+		q = q.Limit(limit)
+	}
+	if err := q.Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	return toModelObservations(rows), nil
 }

@@ -625,6 +625,16 @@ func runMigrations(db *gorm.DB, sqlDB *sql.DB) error {
 				return tx.Migrator().DropTable("observation_folds")
 			},
 		},
+		{
+			ID: "023_observation_fold_detail",
+			Migrate: func(tx *gorm.DB) error {
+				if tx.Migrator().HasColumn(&ObservationFold{}, "detail") {
+					return nil
+				}
+				return tx.Exec(`ALTER TABLE observation_folds ADD COLUMN detail TEXT NOT NULL DEFAULT ''`).Error
+			},
+			Rollback: func(tx *gorm.DB) error { return nil },
+		},
 	})
 
 	if err := m.Migrate(); err != nil {

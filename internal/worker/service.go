@@ -618,6 +618,13 @@ func (s *Service) initializeAsync() {
 		log.Info().Msg("Roll-up writer started")
 	}
 
+	// Consolidation uses no model, but it archives notes (reversibly), so it is opt-in too.
+	if s.config != nil && s.config.ConsolidationEnabled {
+		s.wg.Add(1)
+		go s.consolidationLoop()
+		log.Info().Msg("Consolidation started")
+	}
+
 	// Conflict proposals spend model usage too, so they are opt-in. They only ever propose; a person decides.
 	if s.config != nil && s.config.ConflictProposalsEnabled {
 		s.wg.Add(1)
@@ -1403,6 +1410,7 @@ func (s *Service) setupRoutes() {
 		r.Post("/api/projects/{id}/rollup", s.handlePostRollup)
 		r.Get("/api/folds", s.handleListFolds)
 		r.Post("/api/folds/{id}/restore", s.handleRestoreFold)
+		r.Post("/api/observations/consolidate", s.handleConsolidate)
 		r.Delete("/api/projects/{id}", s.handleDeleteProject)
 		r.Get("/api/conflicts", s.handleListConflicts)
 		r.Get("/api/conflicts/count", s.handleCountConflicts)

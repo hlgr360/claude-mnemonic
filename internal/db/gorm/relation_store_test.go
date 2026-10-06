@@ -304,3 +304,32 @@ func TestRelationStore_DeleteRelationsByObservationID(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, total)
 }
+
+func TestStoreRelationIfNewAndDeleteRelationsByIDs(t *testing.T) {
+	store, _, cleanup := testRelationStore(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	rel := models.NewObservationRelation(1, 2, models.RelationRelatesTo, 0.6, models.DetectionSourceConceptOverlap, "test")
+	id, created, err := store.StoreRelationIfNew(ctx, rel)
+	require.NoError(t, err)
+	assert.True(t, created)
+	assert.NotZero(t, id)
+
+	again := models.NewObservationRelation(1, 2, models.RelationRelatesTo, 0.9, models.DetectionSourceConceptOverlap, "again")
+	sameID, created, err := store.StoreRelationIfNew(ctx, again)
+	require.NoError(t, err)
+	assert.False(t, created, "the same source, target and type already existed")
+	assert.Equal(t, id, sameID)
+
+	other, created, err := store.StoreRelationIfNew(ctx, models.NewObservationRelation(1, 3, models.RelationRelatesTo, 0.5, models.DetectionSourceConceptOverlap, ""))
+	require.NoError(t, err)
+	assert.True(t, created)
+
+	require.NoError(t, store.DeleteRelationsByIDs(ctx, []int64{other}))
+	require.NoError(t, store.DeleteRelationsByIDs(ctx, nil))
+	left, err := store.GetRelationsByObservationID(ctx, 1)
+	require.NoError(t, err)
+	require.Len(t, left, 1)
+	assert.Equal(t, id, left[0].ID, "only the deleted one is gone")
+}

@@ -384,12 +384,12 @@ func (s *Server) handleToolsList(req *Request) *Response {
 		},
 		{
 			Name:        "memory_admin",
-			Description: "Memory system administration and analytics. Set 'action': stats, health, maintenance_stats, run_maintenance, importance, search_patterns, explain_ranking, temporal_trends, data_quality, export, suggest_consolidations, patterns, rollup, folds, restore_fold.",
+			Description: "Memory system administration and analytics. Set 'action': stats, health, maintenance_stats, run_maintenance, importance, search_patterns, explain_ranking, temporal_trends, data_quality, export, suggest_consolidations, patterns, rollup, folds, restore_fold, consolidate.",
 			InputSchema: map[string]any{
 				"type":     "object",
 				"required": []string{"action"},
 				"properties": map[string]any{
-					"action":                  map[string]any{"type": "string", "enum": []string{"stats", "health", "maintenance_stats", "run_maintenance", "importance", "search_patterns", "explain_ranking", "temporal_trends", "data_quality", "export", "suggest_consolidations", "patterns", "rollup", "folds", "restore_fold"}, "description": "Operation to perform"},
+					"action":                  map[string]any{"type": "string", "enum": []string{"stats", "health", "maintenance_stats", "run_maintenance", "importance", "search_patterns", "explain_ranking", "temporal_trends", "data_quality", "export", "suggest_consolidations", "patterns", "rollup", "folds", "restore_fold", "consolidate"}, "description": "Operation to perform"},
 					"project":                 map[string]any{"type": "string", "description": "Filter by project (importance, temporal_trends, data_quality, export, suggest_consolidations, patterns, explain_ranking)"},
 					"query":                   map[string]any{"type": "string", "description": "explain_ranking: query to analyze; patterns: search by name/description"},
 					"top_n":                   map[string]any{"type": "number", "description": "Top results (explain_ranking, search_patterns)"},
@@ -409,6 +409,8 @@ func (s *Server) handleToolsList(req *Request) *Response {
 					"max_groups":              map[string]any{"type": "number", "description": "rollup: most groups to condense in this run (default from settings)"},
 					"kind":                    map[string]any{"type": "string", "enum": []string{"rollup", "consolidation"}, "description": "folds: only this kind"},
 					"include_undone":          map[string]any{"type": "boolean", "description": "folds: include the ones that were restored"},
+					"ids":                     map[string]any{"type": "array", "items": map[string]any{"type": "number"}, "description": "consolidate: ids of near-duplicate notes of one project (a group from suggest_consolidations): all but one are archived into the survivor. Without confirm it only shows the plan and a token; ask the user, then call again with the same ids and confirm set to that token."},
+					"confirm":                 map[string]any{"type": "string", "description": "consolidate: the token from the preview, to apply exactly that. Only with the user's approval."},
 					"id":                      map[string]any{"type": "number", "description": "restore_fold: the id of the roll-up or consolidation (from folds) to undo: the originals are live again"},
 				},
 			},
@@ -524,6 +526,7 @@ var adminActions = map[string]string{
 	"rollup":                 "rollup_project",
 	"folds":                  "list_folds",
 	"restore_fold":           "restore_fold",
+	"consolidate":            "consolidate_observations",
 }
 
 // dispatchAction routes a multiplexed tool call to its underlying implementation by reading the "action" field.
@@ -667,6 +670,8 @@ func (s *Server) callTool(ctx context.Context, name string, args json.RawMessage
 		return s.handleListFoldsProxy(ctx, args)
 	case "restore_fold":
 		return s.handleRestoreFoldProxy(ctx, args)
+	case "consolidate_observations":
+		return s.handleConsolidateProxy(ctx, args)
 
 	default:
 		return "", fmt.Errorf("unknown tool: %s", name)
@@ -1614,6 +1619,21 @@ func (s *Server) handleListFoldsProxy(ctx context.Context, args json.RawMessage)
 		qp["include_undone"] = "true"
 	}
 	return s.proxyGetRaw(ctx, "/api/folds", qp)
+}
+
+// handleConsolidateProxy previews a consolidation, or applies it when the preview's token comes back.
+func (s *Server) handleConsolidateProxy(ctx context.Context, args json.RawMessage) (string, error) {
+	var params struct {
+		Confirm string  `json:"confirm"`
+		IDs     []int64 `json:"ids"`
+	}
+	if err := json.Unmarshal(args, &params); err != nil {
+		return "", fmt.Errorf("invalid arguments: %w", err)
+	}
+	if len(params.IDs) < 2 {
+		return "", fmt.Errorf("consolidate: ids is required: at least two notes (a group from suggest_consolidations)")
+	}
+	return s.proxyPostRaw(ctx, "/api/observations/consolidate", map[string]any{"ids": params.IDs, "confirm": params.Confirm})
 }
 
 // handleRestoreFoldProxy undoes a roll-up or consolidation.
