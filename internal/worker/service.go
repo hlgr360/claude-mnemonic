@@ -159,6 +159,8 @@ type Service struct {
 	rateLimiter        *PerClientRateLimiter
 	briefWriter        func(ctx context.Context, in sdk.BriefInput) (*sdk.BriefResult, error)
 	briefRunning       map[string]struct{}
+	rollupWriter       func(ctx context.Context, in sdk.RollupInput) (*sdk.RollupResult, error)
+	rollupRunning      map[string]struct{}
 	conflictProposer   conflictProposeFunc
 	relationNeighbours similarOlderFunc
 	relationWake       chan struct{}
@@ -178,6 +180,7 @@ type Service struct {
 	cachedObsCountsMu  sync.RWMutex
 	staleQueueOnce     sync.Once
 	briefMu            sync.Mutex
+	rollupMu           sync.Mutex
 	autoMergeRunning   atomic.Bool
 	ready              atomic.Bool
 	conflictRunning    atomic.Bool
@@ -606,6 +609,13 @@ func (s *Service) initializeAsync() {
 		s.wg.Add(1)
 		go s.briefLoop()
 		log.Info().Msg("Project brief writer started")
+	}
+
+	// Roll-ups spend model usage and archive notes (reversibly), so they are opt-in.
+	if s.config != nil && s.config.RollupEnabled {
+		s.wg.Add(1)
+		go s.rollupLoop()
+		log.Info().Msg("Roll-up writer started")
 	}
 
 	// Conflict proposals spend model usage too, so they are opt-in. They only ever propose; a person decides.
@@ -1390,6 +1400,9 @@ func (s *Service) setupRoutes() {
 		r.Get("/api/projects/{id}/catch-up", s.handleCatchUp)
 		r.Get("/api/projects/{id}/brief", s.handleGetBrief)
 		r.Post("/api/projects/{id}/brief", s.handlePostBrief)
+		r.Post("/api/projects/{id}/rollup", s.handlePostRollup)
+		r.Get("/api/folds", s.handleListFolds)
+		r.Post("/api/folds/{id}/restore", s.handleRestoreFold)
 		r.Delete("/api/projects/{id}", s.handleDeleteProject)
 		r.Get("/api/conflicts", s.handleListConflicts)
 		r.Get("/api/conflicts/count", s.handleCountConflicts)

@@ -155,6 +155,12 @@ func dropUnwantedSections(body string) string {
 // asked for, no citation of an observation that was not in the request, no email address, no private
 // text, and a bounded length.
 func cleanBriefBody(body string, known map[int64]bool) string {
+	return cleanModelBody(body, known, briefMaxBodyChars, true)
+}
+
+// cleanModelBody is the cleaning every written note goes through (briefs and roll-ups). dropOpenSections also removes
+// the sections a brief must not write (open items), which a roll-up has none of.
+func cleanModelBody(body string, known map[int64]bool, maxChars int, dropOpenSections bool) string {
 	body = strings.TrimSpace(body)
 	if strings.HasPrefix(body, "```") {
 		body = strings.TrimPrefix(body, "```markdown")
@@ -163,7 +169,9 @@ func cleanBriefBody(body string, known map[int64]bool) string {
 		body = strings.TrimSuffix(strings.TrimSpace(body), "```")
 		body = strings.TrimSpace(body)
 	}
-	body = dropUnwantedSections(body)
+	if dropOpenSections {
+		body = dropUnwantedSections(body)
+	}
 	body = citationRe.ReplaceAllStringFunc(body, func(m string) string {
 		lead := m[:len(m)-len(strings.TrimLeft(m, " \t"))]
 		var keep []string
@@ -180,13 +188,13 @@ func cleanBriefBody(body string, known map[int64]bool) string {
 	body = emailRe.ReplaceAllString(body, "[email removed]")
 	body = strings.TrimSpace(privacy.Clean(body))
 
-	if len(body) > briefMaxBodyChars {
-		end := briefMaxBodyChars
+	if len(body) > maxChars {
+		end := maxChars
 		for end > 0 && !utf8.RuneStart(body[end]) {
 			end-- // never cut a character in half
 		}
 		cut := body[:end]
-		if i := strings.LastIndex(cut, "\n"); i > briefMaxBodyChars/2 {
+		if i := strings.LastIndex(cut, "\n"); i > maxChars/2 {
 			cut = cut[:i]
 		}
 		body = strings.TrimSpace(cut) + "\n…"

@@ -714,3 +714,39 @@ func TestLoad_UnusableProjectAutoMergeSettingsKeepTheDefaults(t *testing.T) {
 	assert.False(t, cfg.ProjectAutoMergeEnabled, "a value that is not a boolean does not switch it on")
 	assert.Equal(t, 30, cfg.ProjectAutoMergeIntervalMin)
 }
+
+func TestLoad_RollupSettings(t *testing.T) {
+	writeSettings(t, `{}`)
+	cfg, err := Load()
+	assert.NoError(t, err)
+	assert.False(t, cfg.RollupEnabled, "roll-ups archive notes and spend model usage: off by default")
+	assert.Equal(t, 60, cfg.RollupMinAgeDays)
+	assert.Equal(t, 8, cfg.RollupMinGroupSize)
+	assert.Equal(t, 30, cfg.RollupKeepNewest)
+	assert.Equal(t, 3, cfg.RollupMaxGroupsPerRun)
+	assert.Equal(t, 360, cfg.RollupIntervalMinutes)
+	assert.Equal(t, BackendClaude, cfg.LLMBackendRollup)
+
+	writeSettings(t, `{"CLAUDE_MNEMONIC_ROLLUP_ENABLED": true, "CLAUDE_MNEMONIC_ROLLUP_MIN_AGE_DAYS": 30, "CLAUDE_MNEMONIC_ROLLUP_MIN_GROUP_SIZE": 5,
+		"CLAUDE_MNEMONIC_ROLLUP_KEEP_NEWEST": 0, "CLAUDE_MNEMONIC_ROLLUP_MAX_GROUPS_PER_RUN": 1, "CLAUDE_MNEMONIC_ROLLUP_INTERVAL_MINUTES": 15,
+		"CLAUDE_MNEMONIC_LLM_BACKEND_ROLLUP": "Ollama"}`)
+	cfg, err = Load()
+	assert.NoError(t, err)
+	assert.True(t, cfg.RollupEnabled)
+	assert.Equal(t, 30, cfg.RollupMinAgeDays)
+	assert.Equal(t, 5, cfg.RollupMinGroupSize)
+	assert.Equal(t, 0, cfg.RollupKeepNewest, "keeping none back is a valid choice")
+	assert.Equal(t, 1, cfg.RollupMaxGroupsPerRun)
+	assert.Equal(t, 15, cfg.RollupIntervalMinutes)
+	assert.Equal(t, BackendOllama, cfg.LLMBackendRollup)
+
+	writeSettings(t, `{"CLAUDE_MNEMONIC_ROLLUP_ENABLED": "yes", "CLAUDE_MNEMONIC_ROLLUP_MIN_AGE_DAYS": 0, "CLAUDE_MNEMONIC_ROLLUP_MIN_GROUP_SIZE": -2,
+		"CLAUDE_MNEMONIC_ROLLUP_KEEP_NEWEST": -1, "CLAUDE_MNEMONIC_ROLLUP_MAX_GROUPS_PER_RUN": 0}`)
+	cfg, err = Load()
+	assert.NoError(t, err)
+	assert.False(t, cfg.RollupEnabled, "text is not a switch")
+	assert.Equal(t, 60, cfg.RollupMinAgeDays, "an age of zero is not one")
+	assert.Equal(t, 8, cfg.RollupMinGroupSize)
+	assert.Equal(t, 30, cfg.RollupKeepNewest, "a negative count is not one")
+	assert.Equal(t, 3, cfg.RollupMaxGroupsPerRun)
+}

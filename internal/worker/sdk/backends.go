@@ -18,10 +18,11 @@ const (
 	TaskVerify      Task = "verify"
 	TaskBrief       Task = "brief"
 	TaskConflict    Task = "conflict"
+	TaskRollup      Task = "rollup"
 )
 
 // allTasks lists every routable task.
-var allTasks = []Task{TaskObservation, TaskSummary, TaskVerify, TaskBrief, TaskConflict}
+var allTasks = []Task{TaskObservation, TaskSummary, TaskVerify, TaskBrief, TaskConflict, TaskRollup}
 
 // taskBackend returns the backend the config selects for a task.
 func taskBackend(cfg *config.Config, task Task) string {
@@ -36,6 +37,8 @@ func taskBackend(cfg *config.Config, task Task) string {
 		return cfg.LLMBackendBrief
 	case TaskConflict:
 		return cfg.LLMBackendConflict
+	case TaskRollup:
+		return cfg.LLMBackendRollup
 	}
 	return config.BackendClaude
 }

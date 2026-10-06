@@ -24,6 +24,7 @@ func cfgWith(summary, observation, verify string, fallback bool) *config.Config 
 	cfg.LLMBackendSummary, cfg.LLMBackendObservation, cfg.LLMBackendVerify = summary, observation, verify
 	cfg.LLMBackendBrief = config.BackendClaude
 	cfg.LLMBackendConflict = config.BackendClaude
+	cfg.LLMBackendRollup = config.BackendClaude
 	cfg.LLMFallbackToClaude = fallback
 	return cfg
 }
@@ -47,6 +48,7 @@ func TestNeedsClaude(t *testing.T) {
 	allLocal.LLMBackendBrief = config.BackendOllama
 	assert.True(t, needsClaude(allLocal), "the conflict task is still on Claude")
 	allLocal.LLMBackendConflict = config.BackendOllama
+	allLocal.LLMBackendRollup = config.BackendOllama
 	assert.False(t, needsClaude(allLocal), "everything local with no fallback works without the CLI")
 }
 
@@ -175,7 +177,7 @@ func TestIsAvailable(t *testing.T) {
 	assert.True(t, (&Processor{claudePath: claudeStandIn(t, "x")}).IsAvailable())
 
 	local := &Processor{completers: map[Task]llm.Completer{
-		TaskSummary: &stubCompleter{}, TaskObservation: &stubCompleter{}, TaskVerify: &stubCompleter{}, TaskBrief: &stubCompleter{}, TaskConflict: &stubCompleter{},
+		TaskSummary: &stubCompleter{}, TaskObservation: &stubCompleter{}, TaskVerify: &stubCompleter{}, TaskBrief: &stubCompleter{}, TaskConflict: &stubCompleter{}, TaskRollup: &stubCompleter{},
 	}}
 	assert.True(t, local.IsAvailable(), "every task local: the CLI is not needed")
 
