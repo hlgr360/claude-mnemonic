@@ -37,6 +37,8 @@ export interface RestoreReport {
 }
 
 export interface RollupGroup {
+  /** "month": raw notes are condensed. "quarter": the monthly roll-ups of a finished quarter, into the final record. */
+  level?: 'month' | 'quarter'
   label: string
   from: string
   to: string
@@ -51,6 +53,12 @@ export interface RollupGroup {
 /** The answer to a roll-up request: a preview (dry_run) lists the groups, a run says what happened to each. */
 export interface RollupReport {
   project: string
+  /** How far over its target the project is: "calm", "over target" or "far over target"; absent without a target. */
+  pressure?: string
+  /** How old a note had to be to qualify, how many live notes the project has, and the target (0 or absent: none). */
+  age_days?: number
+  live?: number
+  target?: number
   dry_run: boolean
   groups: RollupGroup[]
   candidates: number

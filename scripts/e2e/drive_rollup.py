@@ -222,6 +222,85 @@ check("it is no longer listed", len(json.loads(text)["folds"]) == 2)
 err, text = tool("memory_admin", action="folds", project=project, include_undone=True)
 check("unless the undone ones are asked for", len(json.loads(text)["folds"]) == 3)
 
+print("== a quarter: three months of roll-ups become one final record")
+# The latest calendar quarter that ended more than 90 days ago, so every note of it is old enough whatever the ladder says.
+def settled_quarter():
+    y, q = now.year, (now.month - 1) // 3 + 1
+    while True:
+        end = datetime.datetime(y + (1 if q == 4 else 0), 1 if q == 4 else q * 3 + 1, 1, tzinfo=datetime.timezone.utc)
+        if end + datetime.timedelta(days=90) <= now:
+            return y, q
+        y, q = (y - 1, 4) if q == 1 else (y, q - 1)
+
+
+qy, qq = settled_quarter()
+qlabel = f"{qy}-Q{qq}"
+qfolder = os.path.join(os.path.dirname(folder), "quarters")
+os.makedirs(qfolder)
+qproject = json.loads(tool("project_resolve", path=qfolder)[1])["id"]
+qwords = "amber basalt cobalt dune ember fjord garnet harbor indigo jasper kelp lagoon marble nectar onyx prairie quartz reef sable tundra umber velvet willow xenon".split()
+qids = []
+for m in range(3):
+    for i in range(8):
+        k = m * 8 + i
+        remember_title = f"Quarter entry {k} about the {qwords[k]} {qwords[(k * 7 + 3) % 24]} register"
+        for _ in range(4):
+            err, out = tool("remember", path=qfolder, title=remember_title, text=f"Entry {k}: the {qwords[k]} register was checked, the {qwords[(k * 5 + 1) % 24]} line replaced, number {k * 7919}.", type="discovery")
+            if not err:
+                break
+            time.sleep(1.5)
+        if err:
+            raise SystemExit(f"setup step failed: remember {k}: {out[:200]}")
+listed = api(f"/api/observations?project={qproject}&limit=100")["observations"]
+qids = sorted(o["id"] for o in listed)
+check("24 notes were stored for the quarter", len(qids) == 24, len(qids))
+con = sqlite3.connect(DB, timeout=30)
+for k, oid in enumerate(qids):
+    month, i = divmod(k, 8)
+    t = datetime.datetime(qy, (qq - 1) * 3 + 1 + month, 12, 12, 0, tzinfo=datetime.timezone.utc) + datetime.timedelta(minutes=i)
+    con.execute("UPDATE observations SET scope_source = 'auto', created_at_epoch = ?, created_at = ? WHERE id = ?", (int(t.timestamp() * 1000), t.isoformat(), oid))
+con.commit()
+con.close()
+
+
+def qlive():
+    return {o["id"]: o for o in api(f"/api/observations?project={qproject}&limit=100")["observations"]}
+
+
+err, text = tool("memory_admin", action="rollup", project=qproject, dry_run=False)
+check("the three months were rolled up", not err and len([g for g in json.loads(text)["groups"] if not g.get("error") and g["level"] == "month"]) == 3, text[:300])
+months = [g["rollup_id"] for g in json.loads(text)["groups"]]
+check("only the three monthly roll-ups are live", set(qlive()) == set(months), sorted(qlive()))
+
+err, text = tool("memory_admin", action="rollup", project=qproject)
+pre = json.loads(text)
+check("the preview offers one quarter group made of the three monthly roll-ups",
+      len(pre["groups"]) == 1 and pre["groups"][0]["level"] == "quarter" and pre["groups"][0]["label"] == qlabel and sorted(pre["groups"][0]["ids"]) == sorted(months), pre)
+before_calls = prompts().count("ROLL-UP REQUEST")
+err, text = tool("memory_admin", action="rollup", project=qproject, dry_run=False)
+run = json.loads(text)
+check("the quarter record was written", not err and len(run["groups"]) == 1 and not run["groups"][0].get("error") and run["groups"][0]["level"] == "quarter", text[:300])
+quarter_id = run["groups"][0]["rollup_id"]
+check("the model was asked once more, for the quarter", prompts().count("ROLL-UP REQUEST") == before_calls + 1 and "LEVEL: quarter" in prompts() and f"PERIOD: {qlabel}" in prompts())
+live = qlive()
+check("the quarter record is the only live note", set(live) == {quarter_id}, sorted(live))
+quarter = live[quarter_id]
+check("it is a roll-up and a quarter record, titled with the quarter", "rollup" in quarter["concepts"] and "rollup-quarter" in quarter["concepts"] and quarter["title"].startswith(f"Quarter {qlabel}:"), quarter)
+check("it says it is the final record", "final record" in quarter["narrative"], quarter["narrative"][-300:])
+err, text = tool("memory_admin", action="rollup", project=qproject)
+check("nothing more is offered for it: it is the final record", json.loads(text)["groups"] == [], text[:200])
+err, text = tool("memory_admin", action="folds", project=qproject, kind="rollup")
+qfolds = [f for f in json.loads(text)["folds"] if f["survivor"] == quarter_id]
+check("the history names the quarter and its three sources", len(qfolds) == 1 and qfolds[0]["label"] == qlabel and sorted(qfolds[0]["sources"]) == sorted(months), qfolds)
+
+print("== restoring the quarter brings the months back, and they are not condensed again at once")
+err, text = tool("memory_admin", action="restore_fold", id=qfolds[0]["id"])
+rep = json.loads(text)
+check("the three monthly roll-ups are live again and the quarter record is archived", not err and len(rep["restored"]) == 3 and rep["survivor_archived"] is True, text[:300])
+check("so the project holds the three monthly roll-ups", set(qlive()) == set(months), sorted(qlive()))
+err, text = tool("memory_admin", action="rollup", project=qproject)
+check("a restore sticks: no quarter is offered again straight away", json.loads(text)["groups"] == [], text[:200])
+
 proc.stdin.close()
 proc.wait(timeout=10)
 print(f"\n{ok} passed, {fail} failed")

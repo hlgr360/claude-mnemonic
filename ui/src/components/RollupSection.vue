@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import type { RollupReport } from '@/types'
-import { describeFoldError, notesText, previewRollup, rollupGroupLine, rollupOutcome, runRollup } from '@/utils/folds'
+import { describeFoldError, notesText, previewRollup, rollupGroupLine, rollupOutcome, rollupPressureSentence, runRollup } from '@/utils/folds'
 
 const props = defineProps<{
   /** The project to roll up; null means none is chosen. */
@@ -63,6 +63,10 @@ watch(() => props.project, () => {
       <strong>archived</strong>: kept, hidden from search and sessions, and restorable. Decisions, rated notes, notes you saved on purpose
       and the newest notes are never rolled up.
     </p>
+    <p class="text-sm text-slate-300 mb-1">
+      Once a quarter is over, its monthly roll-ups are condensed once more into one <strong>quarter record</strong>. A quarter record is the final
+      record: it is kept forever and is never rolled up, consolidated or archived by any rule.
+    </p>
     <p class="text-xs text-slate-500 mb-4">A model (Claude, or your local model) writes each roll-up, so this uses some of its usage.</p>
 
     <div v-if="!project" data-testid="rollup-no-project" class="glass rounded-xl p-6 border border-white/10 text-center text-slate-400 text-sm">
@@ -82,6 +86,7 @@ watch(() => props.project, () => {
       </button>
 
       <div v-if="preview" data-testid="rollup-preview-result" class="mt-4">
+        <p v-if="rollupPressureSentence(preview)" data-testid="rollup-pressure" class="text-xs text-slate-400 mb-2">{{ rollupPressureSentence(preview) }}</p>
         <p v-if="preview.groups.length === 0" data-testid="rollup-nothing" class="text-sm text-slate-300">
           Nothing to roll up: {{ preview.candidates === 0 ? 'no old notes qualify.' : `${notesText(preview.candidates)} qualify, but not enough in one month to be worth a roll-up.` }}
         </p>

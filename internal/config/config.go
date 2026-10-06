@@ -95,6 +95,10 @@ type Config struct {
 	ConsolidationMaxPerRun int `json:"consolidation_max_per_run"`
 	// ConsolidationIntervalMinutes is how often the automatic pass looks for near-identical notes.
 	ConsolidationIntervalMinutes int `json:"consolidation_interval_minutes"`
+	// RollupTargetLiveNotes is how many live notes a project should hold (0 is no target). With a target, how old a note
+	// must be to be rolled up depends on how far over it the project is: 90 days up to the target, 60 up to twice, 30
+	// beyond; and a pass may write 1x, 2x or 3x RollupMaxGroupsPerRun groups. RollupMinAgeDays then does not apply.
+	RollupTargetLiveNotes int `json:"rollup_target_live_notes"`
 	// RollupMinAgeDays is how old a note must be before it can be rolled up.
 	RollupMinAgeDays int `json:"rollup_min_age_days"`
 	// RollupMaxGroupsPerRun bounds how many roll-ups one pass writes, so the usage stays small.
@@ -127,6 +131,9 @@ type Config struct {
 	ProjectBriefEnabled          bool  `json:"project_brief_enabled"`
 	// ConsolidationEnabled turns on the automatic consolidation of near-identical notes (no model is used).
 	ConsolidationEnabled bool `json:"consolidation_enabled"`
+	// RollupQuartersEnabled lets a roll-up pass condense the monthly roll-ups of a finished quarter into one quarter note,
+	// the final record of that quarter, kept forever. It only matters when roll-ups are used.
+	RollupQuartersEnabled bool `json:"rollup_quarters_enabled"`
 	// RollupEnabled turns on the automatic roll-up of old notes (a model condenses them, the originals are archived).
 	RollupEnabled            bool `json:"rollup_enabled"`
 	ConflictProposalsEnabled bool `json:"conflict_proposals_enabled"`
@@ -258,6 +265,8 @@ func Default() *Config {
 		ConsolidationMaxPerRun:       5,
 		ConsolidationIntervalMinutes: 360,
 		RollupEnabled:                false,
+		RollupQuartersEnabled:        true,
+		RollupTargetLiveNotes:        0,
 		RollupMinAgeDays:             60,
 		RollupMaxGroupsPerRun:        3,
 		RollupMinGroupSize:           8,
@@ -444,6 +453,12 @@ func Load() (*Config, error) {
 	// Roll-up settings
 	if v, ok := settings["CLAUDE_MNEMONIC_ROLLUP_ENABLED"].(bool); ok {
 		cfg.RollupEnabled = v
+	}
+	if v, ok := settings["CLAUDE_MNEMONIC_ROLLUP_QUARTERS_ENABLED"].(bool); ok {
+		cfg.RollupQuartersEnabled = v
+	}
+	if v, ok := settings["CLAUDE_MNEMONIC_ROLLUP_TARGET_LIVE_NOTES"].(float64); ok && v >= 0 {
+		cfg.RollupTargetLiveNotes = int(v) // 0 switches the ladder off
 	}
 	for key, target := range map[string]*int{
 		"CLAUDE_MNEMONIC_ROLLUP_MIN_AGE_DAYS":       &cfg.RollupMinAgeDays,

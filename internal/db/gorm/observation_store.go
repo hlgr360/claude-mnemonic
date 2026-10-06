@@ -140,6 +140,7 @@ func (s *ObservationStore) processCleanup(project string) {
 		if err := s.db.WithContext(ctx).Model(&Observation{}).
 			Where("project = ?", project).
 			Where("COALESCE(is_archived, 0) = 0 AND COALESCE(is_superseded, 0) = 0").
+			Where(NotFinalRecordSQL).
 			Count(&beyond).Error; err == nil && beyond > int64(limit) {
 			s.beforeArchive(ctx, "cap")
 		}
@@ -882,7 +883,8 @@ func (s *ObservationStore) ArchiveOldObservations(ctx context.Context, project s
 		// Find observations to archive (not already archived, older than cutoff)
 		query := tx.Model(&Observation{}).
 			Where("created_at_epoch < ?", cutoffEpoch).
-			Where("COALESCE(is_archived, 0) = 0")
+			Where("COALESCE(is_archived, 0) = 0").
+			Where(NotFinalRecordSQL)
 
 		if project != "" {
 			query = query.Where("project = ?", project)
@@ -1003,6 +1005,7 @@ func (s *ObservationStore) ArchiveBeyondLimit(ctx context.Context, project strin
 		err := tx.Model(&Observation{}).
 			Where("project = ?", project).
 			Where("COALESCE(is_archived, 0) = 0 AND COALESCE(is_superseded, 0) = 0").
+			Where(NotFinalRecordSQL). // a quarter note is the final record: it neither counts toward the cap nor is archived by it
 			Order("created_at_epoch DESC, id DESC").
 			Offset(keep).
 			Pluck("id", &archived).Error

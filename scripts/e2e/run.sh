@@ -181,8 +181,9 @@ fresh_worker || exit 1
 suite "Roll-ups: old notes condensed, originals archived, restorable"    python3 "$HERE/drive_rollup.py"
 base_settings
 
-# Roll-ups, automatic: switched on, a pass every minute (the first one 45 s after the worker starts).
-printf '{"CLAUDE_CODE_PATH": "%s/fake-claude", "CLAUDE_MNEMONIC_ROLLUP_ENABLED": true, "CLAUDE_MNEMONIC_ROLLUP_INTERVAL_MINUTES": 1, "CLAUDE_MNEMONIC_ROLLUP_MIN_GROUP_SIZE": 8, "CLAUDE_MNEMONIC_ROLLUP_KEEP_NEWEST": 0, %s}\n' "$WORK" "$NO_PROPOSALS" > "$WORK/home/.claude-mnemonic/settings.json"
+# Roll-ups, automatic: switched on, a pass every minute (the first one 45 s after the worker starts), with a target of 4 live notes
+# per project so that the pressure ladder is exercised.
+printf '{"CLAUDE_CODE_PATH": "%s/fake-claude", "CLAUDE_MNEMONIC_ROLLUP_ENABLED": true, "CLAUDE_MNEMONIC_ROLLUP_INTERVAL_MINUTES": 1, "CLAUDE_MNEMONIC_ROLLUP_MIN_GROUP_SIZE": 8, "CLAUDE_MNEMONIC_ROLLUP_KEEP_NEWEST": 0, "CLAUDE_MNEMONIC_ROLLUP_TARGET_LIVE_NOTES": 4, %s}\n' "$WORK" "$NO_PROPOSALS" > "$WORK/home/.claude-mnemonic/settings.json"
 fresh_worker || exit 1
 suite "Roll-ups: the worker's own pass"                                  python3 "$HERE/drive_rollup_auto.py"
 base_settings

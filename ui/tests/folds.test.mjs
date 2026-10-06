@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
-  FoldApiError, applyConsolidation, archivedReasonText, consolidationAdds, consolidationSummary, describeFoldError, findDuplicateGroups,
+  FoldApiError, applyConsolidation, foldLabel, isQuarterFold, rollupPressureSentence, archivedReasonText, consolidationAdds, consolidationSummary, describeFoldError, findDuplicateGroups,
   foldHeadline, foldKindLabel, foldsQuery, listArchived, listFolds, notesText, previewConsolidation, previewRollup, restoreFold,
   restoreSentence, rollupGroupLine, rollupOutcome, runRollup, similarityPercent, unarchiveNote
 } from '../src/utils/folds.ts'
@@ -130,4 +130,37 @@ test('errors become sentences for the person', () => {
   assert.match(describeFoldError(new FoldApiError(503, 'x')), /No model is available.*Nothing was changed/)
   assert.match(describeFoldError(new FoldApiError(502, 'boom')), /could not write the roll-up: boom/)
   assert.equal(describeFoldError(new Error('network down')), 'network down')
+})
+
+test('a quarter fold is the final record, and a month fold is a roll-up', () => {
+  const month = { kind: 'rollup', label: '2026-03', sources: [1, 2, 3] }
+  const quarter = { kind: 'rollup', label: '2026-Q1', sources: [10, 11, 12] }
+  assert.equal(isQuarterFold(quarter), true)
+  assert.equal(isQuarterFold(month), false)
+  assert.equal(isQuarterFold({ kind: 'consolidation', label: '2026-Q1' }), false)
+  assert.equal(isQuarterFold({ kind: 'rollup', label: '2026-Q5' }), false)
+  assert.equal(foldLabel(quarter), 'Quarter record')
+  assert.equal(foldLabel(month), 'Roll-up')
+  assert.equal(foldLabel({ kind: 'consolidation', label: '' }), 'Consolidation')
+  assert.equal(foldHeadline(quarter), '3 monthly roll-ups condensed into 2026-Q1')
+  assert.equal(foldHeadline({ ...quarter, sources: [10] }), '1 monthly roll-up condensed into 2026-Q1')
+  assert.equal(foldHeadline(month), '3 notes rolled up (2026-03)')
+})
+
+test('a quarter group and its outcome', () => {
+  assert.equal(rollupGroupLine({ level: 'quarter', label: '2026-Q1', ids: [1, 2, 3], from: '2026-01-28', to: '2026-03-30' }),
+    'Quarter 2026-Q1: 3 monthly roll-ups, 2026-01-28 to 2026-03-30')
+  assert.equal(rollupGroupLine({ level: 'month', label: '2026-03', ids: [1, 2], from: '2026-03-02', to: '2026-03-28' }), '2026-03: 2 notes, 2026-03-02 to 2026-03-28')
+  assert.equal(rollupOutcome({ groups: [{ level: 'quarter', archived: 3 }], remaining: 0 }), '1 quarter record written, 3 notes archived.')
+  assert.equal(rollupOutcome({ groups: [{ level: 'quarter', archived: 3 }, { level: 'month', archived: 10 }, { level: 'month', archived: 8 }], remaining: 0 }),
+    '2 roll-ups and 1 quarter record written, 21 notes archived.')
+})
+
+test('why notes qualify: the age, and how far over its target the project is', () => {
+  assert.equal(rollupPressureSentence({ age_days: 60 }), 'Notes older than 60 days qualify.')
+  assert.equal(rollupPressureSentence({ age_days: 60, target: 0, pressure: '' }), 'Notes older than 60 days qualify.')
+  assert.equal(rollupPressureSentence({ age_days: 90, target: 300, pressure: 'calm', live: 120 }), 'This project has 120 notes, under its target of 300. Notes older than 90 days qualify.')
+  assert.equal(rollupPressureSentence({ age_days: 60, target: 300, pressure: 'over target', live: 450 }), 'This project has 450 notes, over its target of 300. Notes older than 60 days qualify.')
+  assert.equal(rollupPressureSentence({ age_days: 30, target: 300, pressure: 'far over target', live: 900 }), 'This project has 900 notes, more than twice its target of 300. Notes older than 30 days qualify.')
+  assert.equal(rollupPressureSentence({}), '')
 })

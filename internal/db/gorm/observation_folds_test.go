@@ -4,6 +4,7 @@ package gorm
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -265,4 +266,91 @@ func TestListArchivedObservations(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, liveOne.IsArchived)
 	assert.Empty(t, liveOne.ArchivedReason)
+}
+
+// quarterNote stores a quarter note (a roll-up that is also marked as a quarter) dated daysAgo days back.
+func quarterNote(t *testing.T, s *ObservationStore, project, title string, daysAgo int) int64 {
+	t.Helper()
+	id, _, err := s.StoreObservation(context.Background(), "sess-"+project, project, &models.ParsedObservation{
+		Type: models.ObsTypeDiscovery, Title: title, Narrative: title + " narrative", Scope: models.ScopeProject,
+		Concepts: []string{RollupConcept, QuarterConcept}}, 1, 1)
+	require.NoError(t, err)
+	require.NoError(t, s.SetObservationCreated(context.Background(), id, time.Now().UnixMilli()-int64(daysAgo)*dayMs))
+	return id
+}
+
+func TestAQuarterNoteIsExemptFromTheCapAndTheAgeArchive(t *testing.T) {
+	s, _, cleanup := testObservationStore(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	quarter := quarterNote(t, s, "p", "Q1 record", 400) // the oldest note of all
+	var plain []int64
+	for i := 0; i < 5; i++ {
+		plain = append(plain, foldNote(t, s, "p", fmt.Sprintf("plain %d", i), models.ObsTypeDiscovery, "", 300-i*10))
+	}
+
+	archived, err := s.ArchiveBeyondLimit(ctx, "p", 2)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, plain[:3], archived, "the cap archives the oldest plain notes beyond the newest two")
+	assert.NotContains(t, archived, quarter, "the oldest note of all is a quarter: it neither counts nor is archived")
+
+	live, err := s.GetObservationByID(ctx, quarter)
+	require.NoError(t, err)
+	assert.False(t, live.IsArchived)
+
+	// The age-based archive (maxAgeDays 100 reaches everything here) leaves it too.
+	byAge, err := s.ArchiveOldObservations(ctx, "p", 100, "age")
+	require.NoError(t, err)
+	assert.NotContains(t, byAge, quarter)
+	assert.Len(t, byAge, 2, "the two plain notes the cap kept")
+	live, err = s.GetObservationByID(ctx, quarter)
+	require.NoError(t, err)
+	assert.False(t, live.IsArchived, "still live after both rules")
+}
+
+func TestMonthlyRollupsAndRollupLabels(t *testing.T) {
+	s, store, cleanup := testObservationStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	folds := NewObservationFoldStore(store)
+
+	mkRollup := func(title string, concepts []string, daysAgo int) int64 {
+		id, _, err := s.StoreObservation(ctx, "sess", "p", &models.ParsedObservation{Type: models.ObsTypeDiscovery, Title: title,
+			Narrative: title + " narrative", Scope: models.ScopeProject, Concepts: concepts}, 1, 1)
+		require.NoError(t, err)
+		require.NoError(t, s.SetObservationCreated(ctx, id, time.Now().UnixMilli()-int64(daysAgo)*dayMs))
+		return id
+	}
+	march := mkRollup("March roll-up", []string{RollupConcept}, 200)
+	april := mkRollup("April roll-up", []string{RollupConcept}, 170)
+	quarter := mkRollup("Quarter", []string{RollupConcept, QuarterConcept}, 100)
+	archivedMonth := mkRollup("Archived month", []string{RollupConcept}, 220)
+	require.NoError(t, s.ArchiveObservation(ctx, archivedMonth, "x"))
+	plain := foldNote(t, s, "p", "plain", models.ObsTypeDiscovery, "", 150)
+	other, _, err := s.StoreObservation(ctx, "sess", "q", &models.ParsedObservation{Type: models.ObsTypeDiscovery, Title: "other", Concepts: []string{RollupConcept}}, 1, 1)
+	require.NoError(t, err)
+
+	got, err := s.MonthlyRollups(ctx, "p")
+	require.NoError(t, err)
+	assert.Equal(t, []int64{march, april}, idsOf(got), "live monthly roll-ups of the project, oldest first: not the quarter, an archived one, a plain note or another project's")
+	assert.NotContains(t, idsOf(got), plain)
+	assert.NotContains(t, idsOf(got), other)
+	assert.NotContains(t, idsOf(got), quarter)
+
+	f1, err := folds.Record(ctx, "p", FoldRollup, march, []int64{1, 2}, "2026-03", "")
+	require.NoError(t, err)
+	_, err = folds.Record(ctx, "p", FoldRollup, april, []int64{3}, "2026-04 (part 2)", "")
+	require.NoError(t, err)
+	_, err = folds.Record(ctx, "p", FoldConsolidation, plain, []int64{4}, "ignored", "")
+	require.NoError(t, err)
+	labels, err := folds.RollupLabels(ctx, "p")
+	require.NoError(t, err)
+	assert.Equal(t, map[int64]string{march: "2026-03", april: "2026-04 (part 2)"}, labels, "roll-up folds only")
+
+	_, err = folds.MarkUndone(ctx, f1)
+	require.NoError(t, err)
+	labels, err = folds.RollupLabels(ctx, "p")
+	require.NoError(t, err)
+	assert.NotContains(t, labels, march, "an undone fold no longer names its roll-up")
 }

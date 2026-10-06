@@ -121,9 +121,23 @@ export function foldKindLabel(kind: FoldKind): string {
   return kind === 'rollup' ? 'Roll-up' : 'Consolidation'
 }
 
+/** A quarter's roll-up is labelled "2026-Q1" (a month's is "2026-03"). */
+const QUARTER_LABEL = /^\d{4}-Q[1-4]$/
+
+/** Whether the fold condensed the monthly roll-ups of a quarter into the final record of that quarter. */
+export function isQuarterFold(f: Pick<Fold, 'kind' | 'label'>): boolean {
+  return f.kind === 'rollup' && QUARTER_LABEL.test(f.label)
+}
+
+/** The name of a fold's kind as shown: a quarter's roll-up is the final record. */
+export function foldLabel(f: Pick<Fold, 'kind' | 'label'>): string {
+  return isQuarterFold(f) ? 'Quarter record' : foldKindLabel(f.kind)
+}
+
 /** One line for the list: what the fold did. */
 export function foldHeadline(f: Fold): string {
   const n = f.sources.length
+  if (isQuarterFold(f)) return `${n === 1 ? '1 monthly roll-up' : `${n} monthly roll-ups`} condensed into ${f.label}`
   if (f.kind === 'rollup') return `${notesText(n)} rolled up${f.label ? ` (${f.label})` : ''}`
   return `${notesText(n)} folded into #${f.survivor}`
 }
@@ -138,10 +152,19 @@ export function restoreSentence(r: RestoreReport): string {
   return parts.join(' ')
 }
 
-/** "2026-03: 10 notes, 2026-03-02 to 2026-03-28" */
+/** "2026-03: 10 notes, 2026-03-02 to 2026-03-28", or "Quarter 2026-Q1: 3 monthly roll-ups, 2026-01-28 to 2026-03-30". */
 export function rollupGroupLine(g: RollupGroup): string {
   const range = g.from === g.to ? g.from : `${g.from} to ${g.to}`
+  if (g.level === 'quarter') return `Quarter ${g.label}: ${g.ids.length === 1 ? '1 monthly roll-up' : `${g.ids.length} monthly roll-ups`}, ${range}`
   return `${g.label}: ${notesText(g.ids.length)}, ${range}`
+}
+
+/** Why these notes qualify: the age, and when the project has a target, how far over it the project is. */
+export function rollupPressureSentence(rep: Pick<RollupReport, 'pressure' | 'age_days' | 'live' | 'target'>): string {
+  const age = rep.age_days ? `Notes older than ${rep.age_days} days qualify.` : ''
+  if (!rep.target || !rep.pressure) return age
+  const state = rep.pressure === 'calm' ? 'under its target' : rep.pressure === 'over target' ? 'over its target' : 'more than twice its target'
+  return `This project has ${notesText(rep.live ?? 0)}, ${state} of ${rep.target}. ${age}`.trim()
 }
 
 /** What a roll-up run did, as a sentence. */
@@ -150,7 +173,13 @@ export function rollupOutcome(rep: RollupReport): string {
   const failed = rep.groups.length - done.length
   const archived = done.reduce((sum, g) => sum + g.archived, 0)
   if (rep.groups.length === 0) return 'Nothing to roll up.'
-  const parts = [done.length === 0 ? 'No roll-up was written.' : `${done.length === 1 ? '1 roll-up' : `${done.length} roll-ups`} written, ${notesText(archived)} archived.`]
+  const quarters = done.filter(g => g.level === 'quarter').length
+  const months = done.length - quarters
+  const written = [
+    months > 0 ? (months === 1 ? '1 roll-up' : `${months} roll-ups`) : '',
+    quarters > 0 ? (quarters === 1 ? '1 quarter record' : `${quarters} quarter records`) : ''
+  ].filter(Boolean).join(' and ')
+  const parts = [done.length === 0 ? 'No roll-up was written.' : `${written} written, ${notesText(archived)} archived.`]
   if (failed > 0) parts.push(`${failed === 1 ? '1 group' : `${failed} groups`} failed; their notes are still live.`)
   if (rep.remaining > 0) parts.push(`${rep.remaining === 1 ? '1 more group is' : `${rep.remaining} more groups are`} left for a later run.`)
   return parts.join(' ')

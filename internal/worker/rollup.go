@@ -42,8 +42,12 @@ var (
 	ErrRollupBusy = errors.New("a roll-up for this project is already being written")
 )
 
-// rollupGroup is notes that one roll-up condenses: the notes of one month, or one slice of a big month.
+// rollupGroup is what one roll-up condenses: the notes of one month (or one slice of a big month), or, at the quarter
+// level, the monthly roll-ups of one calendar quarter.
 type rollupGroup struct {
+	// Level is sdk.LevelMonth or sdk.LevelQuarter.
+	Level string
+	// Label is the month ("2026-03") or the quarter ("2026-Q1").
 	Label string
 	Notes []*models.Observation
 }
@@ -94,7 +98,7 @@ func groupForRollup(notes []*models.Observation, minSize, maxNotes int) []rollup
 			if len(chunks) > 1 {
 				label = fmt.Sprintf("%s (part %d)", month, i+1)
 			}
-			out = append(out, rollupGroup{Label: label, Notes: c})
+			out = append(out, rollupGroup{Level: sdk.LevelMonth, Label: label, Notes: c})
 		}
 	}
 	return out
@@ -161,7 +165,7 @@ func topConcepts(notes []*models.Observation, n int) []string {
 	for _, o := range notes {
 		for _, c := range o.Concepts {
 			c = strings.TrimSpace(c)
-			if c == "" || c == gorm.RollupConcept {
+			if c == "" || c == gorm.RollupConcept || c == gorm.QuarterConcept {
 				continue
 			}
 			if _, ok := count[c]; !ok {
@@ -187,6 +191,21 @@ func rollupObservation(g rollupGroup, res *sdk.RollupResult) *models.ParsedObser
 		title = "notes of " + g.Label
 	}
 	span := fmt.Sprintf("%s to %s", time.UnixMilli(first).UTC().Format("2006-01-02"), time.UnixMilli(last).UTC().Format("2006-01-02"))
+	if g.Level == sdk.LevelQuarter {
+		if strings.TrimSpace(res.Title) == "" {
+			title = "the quarter " + g.Label
+		}
+		return &models.ParsedObservation{
+			Type:  majorityType(g.Notes),
+			Title: "Quarter " + g.Label + ": " + title,
+			Narrative: res.Body + fmt.Sprintf("\n\nThe final record of %s, written from %d monthly roll-ups (%s). It is kept forever and is never rolled up "+
+				"again. The monthly roll-ups are archived, not deleted; restore them from the dashboard, or with the restore action of the memory_admin tool.",
+				g.Label, len(g.Notes), span),
+			Facts:    []string{fmt.Sprintf("Final record of %s, condensing %d monthly roll-ups", g.Label, len(g.Notes))},
+			Concepts: append([]string{gorm.RollupConcept, gorm.QuarterConcept}, topConcepts(g.Notes, rollupConceptsKept)...),
+			Scope:    models.ScopeProject,
+		}
+	}
 	return &models.ParsedObservation{
 		Type:  majorityType(g.Notes),
 		Title: "Roll-up: " + title,
@@ -200,6 +219,8 @@ func rollupObservation(g rollupGroup, res *sdk.RollupResult) *models.ParsedObser
 
 // RollupGroupReport says what happened to one group.
 type RollupGroupReport struct {
+	// Level is "month" or "quarter": a quarter group condenses monthly roll-ups, not raw notes.
+	Level string `json:"level"`
 	Label string `json:"label"`
 	From  string `json:"from"`
 	To    string `json:"to"`
@@ -216,45 +237,111 @@ type RollupGroupReport struct {
 
 // RollupReport is the result of a roll-up run for one project.
 type RollupReport struct {
-	Project string              `json:"project"`
-	Groups  []RollupGroupReport `json:"groups"`
+	Project string `json:"project"`
+	// Pressure is how far over its target the project is ("calm", "over target", "far over target"), empty without a
+	// target; AgeDays is how old a note had to be to qualify, Live the project's live notes, Target the setting.
+	Pressure string              `json:"pressure,omitempty"`
+	Groups   []RollupGroupReport `json:"groups"`
 	// Candidates is how many notes qualified, Remaining how many groups were left for a later run.
 	Candidates int `json:"candidates"`
 	Remaining  int `json:"remaining"`
+	AgeDays    int `json:"age_days"`
+	Live       int `json:"live"`
+	Target     int `json:"target,omitempty"`
 	// DryRun is true when nothing was written: the groups are what a run would condense.
 	DryRun bool `json:"dry_run"`
 }
 
 func groupReport(g rollupGroup) RollupGroupReport {
+	level := g.Level
+	if level == "" {
+		level = sdk.LevelMonth
+	}
 	return RollupGroupReport{
-		Label: g.Label, IDs: g.ids(),
+		Level: level, Label: g.Label, IDs: g.ids(),
 		From: time.UnixMilli(g.Notes[0].CreatedAtEpoch).UTC().Format("2006-01-02"),
 		To:   time.UnixMilli(g.Notes[len(g.Notes)-1].CreatedAtEpoch).UTC().Format("2006-01-02"),
 	}
 }
 
-// planRollup selects the notes of a project that may be rolled up and groups them.
-func (s *Service) planRollup(ctx context.Context, project string) (groups []rollupGroup, candidates int, err error) {
+// rollupPlan is what a roll-up of a project would do now.
+type rollupPlan struct {
+	// Groups are the quarter groups first (they free the monthly roll-ups, and are the final record), then the month groups.
+	Groups     []rollupGroup
+	Pressure   rollupPressure
+	Candidates int
+	Live       int
+}
+
+// planRollup selects what may be rolled up in a project and groups it: the raw notes older than the pressure's age, by
+// month, and, when quarters are on, the monthly roll-ups of finished quarters. Notes of a fold that a person restored
+// lately are left out.
+func (s *Service) planRollup(ctx context.Context, project string) (*rollupPlan, error) {
 	s.initMu.RLock()
-	observationStore := s.observationStore
+	observationStore, store := s.observationStore, s.store
 	s.initMu.RUnlock()
-	if observationStore == nil {
-		return nil, 0, ErrRollupUnavailable
+	if observationStore == nil || store == nil {
+		return nil, ErrRollupUnavailable
 	}
 	cfg := s.config
-	minAge, keep, minSize := cfg.RollupMinAgeDays, cfg.RollupKeepNewest, cfg.RollupMinGroupSize
-	if minAge <= 0 {
-		minAge = 60
-	}
+	keep, minSize := cfg.RollupKeepNewest, cfg.RollupMinGroupSize
 	if minSize <= 0 {
 		minSize = 8
 	}
-	cutoff := time.Now().Add(-time.Duration(minAge) * 24 * time.Hour).UnixMilli()
+	live, err := observationStore.CountLiveObservationsSince(ctx, project, 0)
+	if err != nil {
+		return nil, err
+	}
+	pressure := rollupPressureFor(cfg, live)
+	now := time.Now()
+	folds := gorm.NewObservationFoldStore(store)
+	restored, err := folds.UndoneSourceIDs(ctx, project, now.Add(-rollupRestoreGraceDays*24*time.Hour).UnixMilli())
+	if err != nil {
+		return nil, err
+	}
+
+	plan := &rollupPlan{Pressure: pressure, Live: live}
+	if cfg.RollupQuartersEnabled {
+		rollups, err := observationStore.MonthlyRollups(ctx, project)
+		if err != nil {
+			return nil, err
+		}
+		labels, err := folds.RollupLabels(ctx, project)
+		if err != nil {
+			return nil, err
+		}
+		var fresh []*models.Observation
+		for _, r := range rollups {
+			if !restored[r.ID] {
+				fresh = append(fresh, r)
+			}
+		}
+		plan.Groups = append(plan.Groups, groupQuarters(fresh, labels, now, quarterSettleDays, quarterMinRollups)...)
+	}
+
+	cutoff := now.Add(-time.Duration(pressure.AgeDays) * 24 * time.Hour).UnixMilli()
 	notes, err := observationStore.RollupCandidates(ctx, project, cutoff, keep)
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
-	return groupForRollup(notes, minSize, rollupGroupMaxNotes), len(notes), nil
+	kept := notes[:0]
+	for _, n := range notes {
+		if !restored[n.ID] {
+			kept = append(kept, n)
+		}
+	}
+	plan.Candidates = len(kept)
+	plan.Groups = append(plan.Groups, groupForRollup(kept, minSize, rollupGroupMaxNotes)...)
+	return plan, nil
+}
+
+// perProjectGroups is how many groups a pass may write for one project: the setting, times the pressure's factor.
+func (s *Service) perProjectGroups(p rollupPressure) int {
+	n := s.config.RollupMaxGroupsPerRun
+	if n <= 0 {
+		n = 3
+	}
+	return n * p.Factor
 }
 
 // rollupProject condenses up to maxGroups groups of a project's older notes. With dryRun it only reports the groups.
@@ -292,16 +379,17 @@ func (s *Service) rollupProject(ctx context.Context, project string, maxGroups i
 		s.rollupMu.Unlock()
 	}()
 
-	groups, candidates, err := s.planRollup(ctx, project)
+	plan, err := s.planRollup(ctx, project)
 	if err != nil {
 		return nil, err
 	}
-	rep := &RollupReport{Project: project, DryRun: dryRun, Candidates: candidates, Groups: []RollupGroupReport{}}
-	if maxGroups <= 0 {
-		maxGroups = s.config.RollupMaxGroupsPerRun
+	groups := plan.Groups
+	rep := &RollupReport{
+		Project: project, DryRun: dryRun, Candidates: plan.Candidates, Groups: []RollupGroupReport{},
+		Pressure: plan.Pressure.Name, AgeDays: plan.Pressure.AgeDays, Live: plan.Live, Target: s.config.RollupTargetLiveNotes,
 	}
 	if maxGroups <= 0 {
-		maxGroups = 3
+		maxGroups = s.perProjectGroups(plan.Pressure)
 	}
 	if len(groups) > maxGroups {
 		rep.Remaining = len(groups) - maxGroups
@@ -354,7 +442,7 @@ func (s *Service) applyRollup(ctx context.Context, project string, g rollupGroup
 	s.initMu.RUnlock()
 
 	genCtx, cancel := context.WithTimeout(ctx, rollupGenerateTimeout)
-	res, err := write(genCtx, sdk.RollupInput{Now: time.Now(), Name: projects.DisplayName(project), Observations: g.Notes})
+	res, err := write(genCtx, sdk.RollupInput{Level: g.Level, Period: g.Label, Now: time.Now(), Name: projects.DisplayName(project), Observations: g.Notes})
 	cancel()
 	if err != nil {
 		return err // the model did not answer, or not usably: nothing was stored or archived
@@ -429,19 +517,36 @@ func (s *Service) runRollupPass(ctx context.Context) int {
 		log.Warn().Err(err).Msg("roll-up: could not read the project aliases")
 		return 0
 	}
-	budget := cfg.RollupMaxGroupsPerRun
-	if budget <= 0 {
-		budget = 3
+	// The projects furthest over their target go first, and the pass may write as many groups as the most pressed project
+	// is allowed (the setting times 1, 2 or 3; just the setting without a target).
+	type candidate struct {
+		project  string
+		pressure rollupPressure
+		live     int64
 	}
-	written, failures := 0, 0
+	var queue []candidate
+	maxFactor := 1
 	for _, r := range rows {
-		if budget <= 0 || ctx.Err() != nil || failures >= rollupMaxFailuresInARow {
-			break
-		}
 		if _, isAlias := aliases[r.Project]; isAlias || r.Observations == 0 {
 			continue
 		}
-		rep, err := s.rollupProject(ctx, r.Project, budget, false, &failures)
+		p := rollupPressureFor(cfg, int(r.Observations))
+		queue = append(queue, candidate{project: r.Project, pressure: p, live: int64(r.Observations)})
+		maxFactor = max(maxFactor, p.Factor)
+	}
+	sort.SliceStable(queue, func(i, j int) bool {
+		if queue[i].pressure.Factor != queue[j].pressure.Factor {
+			return queue[i].pressure.Factor > queue[j].pressure.Factor
+		}
+		return queue[i].live > queue[j].live
+	})
+	budget := s.perProjectGroups(rollupPressure{Factor: maxFactor})
+	written, failures := 0, 0
+	for _, c := range queue {
+		if budget <= 0 || ctx.Err() != nil || failures >= rollupMaxFailuresInARow {
+			break
+		}
+		rep, err := s.rollupProject(ctx, c.project, min(budget, s.perProjectGroups(c.pressure)), false, &failures)
 		switch {
 		case errors.Is(err, ErrRollupUnavailable):
 			log.Info().Msg("roll-up: no model backend is available; notes stay live")
@@ -449,7 +554,7 @@ func (s *Service) runRollupPass(ctx context.Context) int {
 		case errors.Is(err, ErrRollupBusy):
 			continue
 		case err != nil:
-			log.Warn().Err(err).Str("project", r.Project).Msg("roll-up: could not look for notes to roll up")
+			log.Warn().Err(err).Str("project", c.project).Msg("roll-up: could not look for notes to roll up")
 			continue
 		}
 		for _, g := range rep.Groups {

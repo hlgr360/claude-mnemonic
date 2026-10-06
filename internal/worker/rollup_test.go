@@ -135,9 +135,10 @@ func countOf(list []string, s string) int {
 // ---- the flow, with a fake writer and the real stores ----
 
 type fakeRollupWriter struct {
-	err   error
-	calls [][]int64
-	mu    sync.Mutex
+	err    error
+	calls  [][]int64
+	inputs []sdk.RollupInput
+	mu     sync.Mutex
 }
 
 func (f *fakeRollupWriter) write(_ context.Context, in sdk.RollupInput) (*sdk.RollupResult, error) {
@@ -149,6 +150,7 @@ func (f *fakeRollupWriter) write(_ context.Context, in sdk.RollupInput) (*sdk.Ro
 	}
 	f.mu.Lock()
 	f.calls = append(f.calls, ids)
+	f.inputs = append(f.inputs, in)
 	f.mu.Unlock()
 	if f.err != nil {
 		return nil, f.err
@@ -396,10 +398,18 @@ func TestRestoreFold_Rollup(t *testing.T) {
 	_, err = svc.restoreFold(ctx, 99999)
 	assert.ErrorIs(t, err, ErrFoldNotFound)
 
-	// The roll-up can happen again for the notes that are live again.
+	// A person restored them on purpose: they are left alone for a while, so the next pass does not fold them again.
 	again, err := svc.rollupProject(ctx, "shop_aaaaaa", 0, true, &failures)
 	require.NoError(t, err)
-	assert.Equal(t, 7, again.Candidates)
+	assert.Equal(t, 0, again.Candidates, "restored notes are not offered for the restore grace period")
+	assert.Empty(t, again.Groups)
+
+	// After the grace period they qualify again.
+	longAgo := time.Now().Add(-(rollupRestoreGraceDays + 1) * 24 * time.Hour).UnixMilli()
+	require.NoError(t, svc.store.DB.Exec("UPDATE observation_folds SET undone_at_epoch = ?", longAgo).Error)
+	later, err := svc.rollupProject(ctx, "shop_aaaaaa", 0, true, &failures)
+	require.NoError(t, err)
+	assert.Equal(t, 7, later.Candidates, "the seven notes that came back qualify again")
 }
 
 func TestRollupHandlers(t *testing.T) {

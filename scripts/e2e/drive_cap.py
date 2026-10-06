@@ -4,7 +4,7 @@
 Real MCP server, real worker, real embeddings. By default there is no cap: a project that used to be cut to its newest 100
 notes holds all of them. Archiving a note (what the optional cap and the later roll-ups do) removes it from search, full-text
 and semantic, and unarchiving brings it back."""
-import json, os, subprocess, sys, tempfile, time, urllib.request
+import json, os, subprocess, sys, tempfile, time, urllib.error, urllib.request
 
 E2E = os.environ.get("E2E_DIR") or os.path.dirname(os.path.abspath(__file__))  # work dir holding bin/ and home/
 PORT = os.environ.get("E2E_PORT", "37999")
@@ -38,11 +38,18 @@ def tool(name, **a):
 
 
 def api(path, method="GET", body=None):
-    req = urllib.request.Request(f"http://localhost:{PORT}{path}", method=method,
-                                 data=json.dumps(body).encode() if body is not None else None, headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=30) as r:
-        raw = r.read()
-        return json.loads(raw) if raw else None
+    # The worker rate-limits a client that polls right after a burst of requests (the 105 stores): wait and ask again.
+    for attempt in range(6):
+        req = urllib.request.Request(f"http://localhost:{PORT}{path}", method=method,
+                                     data=json.dumps(body).encode() if body is not None else None, headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                raw = r.read()
+                return json.loads(raw) if raw else None
+        except urllib.error.HTTPError as e:
+            if e.code != 429 or attempt == 5:
+                raise
+            time.sleep(2 + attempt)
 
 
 rpc("initialize", {"protocolVersion": "2025-11-25", "clientInfo": {"name": "claude-ai"}})

@@ -2,7 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import type { Fold, FoldKind, Observation } from '@/types'
 import {
-  describeFoldError, foldHeadline, foldKindLabel, getNote, listFolds, notesText, restoreFold, restoreSentence, FoldApiError
+  describeFoldError, foldHeadline, foldLabel, getNote, isQuarterFold, listFolds, notesText, restoreFold, restoreSentence, FoldApiError
 } from '@/utils/folds'
 import { formatRelativeTime } from '@/utils/formatters'
 
@@ -67,7 +67,7 @@ async function restore() {
   confirming.value = false
   try {
     const report = await restoreFold(f.id)
-    notice.value = `${foldKindLabel(f.kind)} restored. ${restoreSentence(report)}`
+    notice.value = `${foldLabel(f)} restored. ${restoreSentence(report)}`
     error.value = ''
     emit('changed')
     await load(null)
@@ -86,7 +86,7 @@ watch(selectedId, () => {
 watch([() => props.project, showRestored, kind], () => load(null))
 onMounted(() => void load(null))
 
-const kindIcon = (k: FoldKind) => (k === 'rollup' ? 'fa-boxes-stacked' : 'fa-code-merge')
+const kindIcon = (f: Fold) => (isQuarterFold(f) ? 'fa-calendar-check' : f.kind === 'rollup' ? 'fa-boxes-stacked' : 'fa-code-merge')
 </script>
 
 <template>
@@ -138,8 +138,8 @@ const kindIcon = (k: FoldKind) => (k === 'rollup' ? 'fa-boxes-stacked' : 'fa-cod
             @click="selectedId = f.id"
           >
             <div class="flex items-center gap-2 mb-1">
-              <i class="fas text-xs" :class="[kindIcon(f.kind), f.kind === 'rollup' ? 'text-violet-300' : 'text-sky-300']" />
-              <span class="text-xs font-medium text-slate-300">{{ foldKindLabel(f.kind) }}</span>
+              <i class="fas text-xs" :class="[kindIcon(f), isQuarterFold(f) ? 'text-fuchsia-300' : f.kind === 'rollup' ? 'text-violet-300' : 'text-sky-300']" />
+              <span class="text-xs font-medium text-slate-300">{{ foldLabel(f) }}</span>
               <span v-if="f.undone" class="px-1.5 rounded-full bg-slate-500/30 text-[11px] text-slate-200">restored</span>
               <span class="ml-auto text-[11px] text-slate-500">{{ formatRelativeTime(f.created_epoch) }}</span>
             </div>
@@ -150,14 +150,15 @@ const kindIcon = (k: FoldKind) => (k === 'rollup' ? 'fa-boxes-stacked' : 'fa-cod
       </ul>
 
       <div v-if="selected" data-testid="fold-detail" class="flex-1 min-w-0 glass rounded-xl border border-white/10 p-4 w-full">
-        <div class="text-sm font-medium text-slate-100">{{ foldKindLabel(selected.kind) }}: {{ foldHeadline(selected) }}</div>
+        <div class="text-sm font-medium text-slate-100">{{ foldLabel(selected) }}: {{ foldHeadline(selected) }}</div>
         <div class="text-xs text-slate-500 mt-1">
           {{ shortProject(selected.project) }} · {{ formatRelativeTime(selected.created_epoch) }}
           <template v-if="selected.undone"> · restored {{ formatRelativeTime(selected.undone_epoch ?? selected.created_epoch) }}</template>
         </div>
 
         <div class="mt-3 text-sm text-slate-300">
-          <template v-if="selected.kind === 'rollup'">The roll-up note</template>
+          <template v-if="isQuarterFold(selected)">The quarter note (the final record, kept forever)</template>
+          <template v-else-if="selected.kind === 'rollup'">The roll-up note</template>
           <template v-else>The note that was kept</template>:
           <strong class="text-amber-100" data-testid="fold-survivor">#{{ selected.survivor }}<template v-if="selected.survivor_title"> {{ selected.survivor_title }}</template></strong>
         </div>
