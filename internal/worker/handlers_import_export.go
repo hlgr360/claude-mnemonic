@@ -300,17 +300,7 @@ func (s *Service) handleArchiveObservations(w http.ResponseWriter, r *http.Reque
 		Int("failed", len(failedIDs)).
 		Msg("Observations archived")
 
-	// An archived note leaves the vector index, so search cannot return it (unarchiving puts it back).
-	if len(archivedIDs) > 0 && s.vectorSync != nil {
-		ids := append([]int64(nil), archivedIDs...)
-		s.asyncVectorSync(func() {
-			ctx, cancel := context.WithTimeout(s.ctx, 10*time.Second)
-			defer cancel()
-			if err := s.vectorSync.DeleteObservations(ctx, ids); err != nil && s.ctx.Err() == nil {
-				log.Warn().Err(err).Int("count", len(ids)).Msg("Failed to drop archived observations from sqlite-vec")
-			}
-		})
-	}
+	s.dropArchivedFromVectors(archivedIDs)
 
 	// Invalidate cache if any observations were archived
 	if len(archivedIDs) > 0 {
@@ -332,6 +322,22 @@ func (s *Service) handleArchiveObservations(w http.ResponseWriter, r *http.Reque
 	}
 
 	writeJSON(w, response)
+}
+
+// dropArchivedFromVectors takes archived notes out of the vector index, so search cannot return them (unarchiving puts
+// them back). Every path that archives notes calls it.
+func (s *Service) dropArchivedFromVectors(ids []int64) {
+	if len(ids) == 0 || s.vectorSync == nil {
+		return
+	}
+	ids = append([]int64(nil), ids...)
+	s.asyncVectorSync(func() {
+		ctx, cancel := context.WithTimeout(s.ctx, 10*time.Second)
+		defer cancel()
+		if err := s.vectorSync.DeleteObservations(ctx, ids); err != nil && s.ctx.Err() == nil {
+			log.Warn().Err(err).Int("count", len(ids)).Msg("Failed to drop archived observations from sqlite-vec")
+		}
+	})
 }
 
 // handleUnarchiveObservation restores an archived observation.
@@ -558,14 +564,17 @@ func (s *Service) handleBulkStatusUpdate(w http.ResponseWriter, r *http.Request)
 		}
 
 	case "archive":
+		var archivedIDs []int64
 		for _, id := range req.IDs {
 			if err := s.observationStore.ArchiveObservation(ctx, id, req.Reason); err != nil {
 				failed++
 				errors = append(errors, fmt.Sprintf("id %d: %v", id, err))
 			} else {
 				updated++
+				archivedIDs = append(archivedIDs, id)
 			}
 		}
+		s.dropArchivedFromVectors(archivedIDs)
 
 	case "set_feedback":
 		if req.Feedback < -1 || req.Feedback > 1 {
