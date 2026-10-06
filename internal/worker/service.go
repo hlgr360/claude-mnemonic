@@ -453,6 +453,7 @@ func (s *Service) initializeAsync() {
 	observationStore := gorm.NewObservationStore(store, nil, conflictStore, relationStore)
 	// 0 (the default) is no cap; a cap archives the oldest notes of a project, it never deletes them.
 	observationStore.SetMaxObservationsPerProject(s.config.MaxObservationsPerProject)
+	observationStore.SetBeforeArchive(s.snapshotBeforeCleanup)
 
 	// Create session manager
 	sessionManager := session.NewManager(sessionStore)
@@ -593,6 +594,12 @@ func (s *Service) initializeAsync() {
 	// Start periodic WAL checkpoint loop to bound SQLite WAL file growth (issue #49).
 	s.wg.Add(1)
 	go s.walCheckpointLoop()
+
+	// A regular snapshot of the database, so there is a copy between the ones taken before a destructive action.
+	if s.config != nil && s.config.SnapshotIntervalHours > 0 {
+		s.wg.Add(1)
+		go s.snapshotLoop()
+	}
 
 	// Project briefs spend Claude usage, so the automatic pass only runs when it is switched on.
 	if s.config != nil && s.config.ProjectBriefEnabled {
@@ -769,6 +776,7 @@ func (s *Service) reinitializeDatabase() {
 	observationStore := gorm.NewObservationStore(store, nil, conflictStore, relationStore)
 	// 0 (the default) is no cap; a cap archives the oldest notes of a project, it never deletes them.
 	observationStore.SetMaxObservationsPerProject(s.config.MaxObservationsPerProject)
+	observationStore.SetBeforeArchive(s.snapshotBeforeCleanup)
 
 	// Create new session manager
 	sessionManager := session.NewManager(sessionStore)

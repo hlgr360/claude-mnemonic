@@ -407,7 +407,7 @@ func TestSanitizeLabelAndPrune(t *testing.T) {
 	for _, n := range []string{"snapshot-1.db", "snapshot-2.db", "notes.txt", "other.db"} {
 		require.NoError(t, os.WriteFile(filepath.Join(dir, n), nil, 0o600))
 	}
-	pruneSnapshots(dir, 1)
+	pruneSnapshots(dir, 1, false)
 	_, e1 := os.Stat(filepath.Join(dir, "snapshot-1.db"))
 	_, e2 := os.Stat(filepath.Join(dir, "snapshot-2.db"))
 	_, e3 := os.Stat(filepath.Join(dir, "notes.txt"))
@@ -465,4 +465,56 @@ func TestProjectAdmin_WritesWaitForAConcurrentWriterInsteadOfFailing(t *testing.
 		require.NoError(t, err)
 		assert.Zero(t, f.count(t, `SELECT COUNT(*) FROM observations WHERE project = ?`, doomed))
 	})
+}
+
+func TestStore_DailySnapshotsArePrunedApartFromTheOnesTakenBeforeAnAction(t *testing.T) {
+	f := newAdminFixture(t)
+	dir := t.TempDir()
+
+	var action string
+	for i, label := range []string{"before delete/x", "merge-y"} {
+		p, err := f.store.Snapshot(f.ctx, dir, label, 10)
+		require.NoError(t, err, i)
+		action = p
+	}
+	for i := 0; i < 5; i++ {
+		_, err := f.store.Snapshot(f.ctx, dir, DailySnapshotLabel, 3)
+		require.NoError(t, err)
+	}
+
+	count := func(daily bool) int { return len(snapshotNames(dir, daily)) }
+	assert.Equal(t, 3, count(true), "only the newest three regular snapshots are kept")
+	assert.Equal(t, 2, count(false), "a week of regular snapshots never pushes out the ones taken before an action")
+	_, err := os.Stat(action)
+	assert.NoError(t, err)
+
+	// And the other way round: many action snapshots leave the regular ones alone.
+	for i := 0; i < 4; i++ {
+		_, err := f.store.Snapshot(f.ctx, dir, "before-cap", 3)
+		require.NoError(t, err)
+	}
+	assert.Equal(t, 3, count(false))
+	assert.Equal(t, 3, count(true))
+}
+
+func TestSnapshotSummaryAndNewestDaily(t *testing.T) {
+	dir := t.TempDir()
+	n, newest := SnapshotSummary(dir)
+	assert.Equal(t, 0, n)
+	assert.True(t, newest.IsZero())
+	assert.True(t, NewestDailySnapshot(dir).IsZero(), "no snapshot yet")
+
+	old := time.Now().Add(-48 * time.Hour)
+	for _, name := range []string{"snapshot-1-daily.db", "snapshot-2-before-cap.db", "notes.txt"} {
+		path := filepath.Join(dir, name)
+		require.NoError(t, os.WriteFile(path, nil, 0o600))
+		require.NoError(t, os.Chtimes(path, old, old))
+	}
+	fresh := filepath.Join(dir, "snapshot-3-merge-x.db")
+	require.NoError(t, os.WriteFile(fresh, nil, 0o600))
+
+	n, newest = SnapshotSummary(dir)
+	assert.Equal(t, 3, n, "only snapshot files count")
+	assert.WithinDuration(t, time.Now(), newest, time.Minute, "the newest of any kind")
+	assert.WithinDuration(t, old, NewestDailySnapshot(dir), time.Minute, "a snapshot taken for an action does not make the regular one current")
 }
