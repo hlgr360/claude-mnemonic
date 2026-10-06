@@ -136,6 +136,17 @@ check("found again by search (its vectors are put back)", wait_until(lambda: zeb
 summary = {p["project"]: p for p in api("/api/projects/summary")}
 check("the project counts 105 again", summary[project]["observations"] == 105, summary.get(project))
 
+print("== archive through bulk-status: its vectors leave the index too")
+vectors = lambda: api("/api/stats").get("vectorCount", 0)
+vectors_before = vectors()
+done = api("/api/observations/bulk-status", "POST", {"action": "archive", "ids": [zebra_id], "reason": "e2e bulk"})
+check("the worker archived it", done["updated"] == 1, done)
+check("its vectors are dropped from the index", wait_until(lambda: vectors() < vectors_before, 40), (vectors_before, vectors()))
+check("it is no longer found by search", zebra_id not in search("zebra ledger reconciliation"), search("zebra ledger reconciliation"))
+api(f"/api/observations/{zebra_id}/unarchive", "POST", {})
+check("restoring it puts its vectors back", wait_until(lambda: vectors() >= vectors_before, 40), (vectors_before, vectors()))
+check("and it is found again", wait_until(lambda: zebra_id in search("zebra ledger reconciliation"), 40), search("zebra ledger reconciliation"))
+
 proc.stdin.close()
 proc.wait(timeout=10)
 print(f"\n{ok} passed, {fail} failed")
