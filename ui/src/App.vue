@@ -8,6 +8,7 @@ import StatsCards from '@/components/StatsCards.vue'
 import FilterTabs from '@/components/FilterTabs.vue'
 import Timeline from '@/components/Timeline.vue'
 import ConflictsPanel from '@/components/ConflictsPanel.vue'
+import FoldsPanel from '@/components/FoldsPanel.vue'
 import GraphView from '@/components/GraphView.vue'
 import ScopeReview from '@/components/ScopeReview.vue'
 import Sidebar from '@/components/Sidebar.vue'
@@ -137,7 +138,7 @@ function onConflictsChanged() {
             @review-scopes="showScopeReview = true"
           />
 
-          <p v-if="showing && currentFilter !== 'conflicts' && currentFilter !== 'graph'" data-testid="showing-note" class="text-xs text-slate-500 -mt-2 mb-3 px-1">
+          <p v-if="showing && currentFilter !== 'conflicts' && currentFilter !== 'graph' && currentFilter !== 'folds'" data-testid="showing-note" class="text-xs text-slate-500 -mt-2 mb-3 px-1">
             {{ showing }}
           </p>
 
@@ -152,6 +153,13 @@ function onConflictsChanged() {
             v-else-if="currentFilter === 'conflicts'"
             :project="currentProject"
             @changed="onConflictsChanged"
+          />
+
+          <!-- Roll-ups, consolidations and archived notes -->
+          <FoldsPanel
+            v-else-if="currentFilter === 'folds'"
+            :project="currentProject"
+            @changed="refresh"
           />
 
           <!-- Timeline -->

@@ -262,6 +262,8 @@ The same in the MCP tool `memory_admin` (`action`: `rollup`, `folds`, `restore_f
 
 Roll-ups spend model usage and change what is injected, so the automatic pass is off by default.
 
+**In the dashboard** (`http://localhost:37777`, the **Roll-ups** tab, with a project chosen in the sidebar): *History* lists every roll-up and consolidation with the notes it replaced and a **Restore** button (it asks first); *Roll up* previews the groups a run would condense and writes them; *Duplicates* finds near-identical notes, shows what a consolidation would keep and archive, and applies it on your confirmation; *Archived notes* lists everything that is put away, with the reason, and puts a note back. Roll-up notes carry a **ROLL-UP** badge in the timeline. `GET /api/observations?archived_only=true` lists the archived notes, and a note's JSON says `is_archived` and `archived_reason`.
+
 | Variable | Default | What it does |
 |----------|---------|--------------|
 | `ROLLUP_ENABLED` | `false` | Roll up old notes automatically in the background |

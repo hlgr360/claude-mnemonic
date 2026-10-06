@@ -224,6 +224,8 @@ if [ "$RUN_UI" = "1" ]; then
   if [ ! -d "$ROOT/ui/dist" ] || ! command -v node >/dev/null; then
     echo; echo "######## dashboard: skipped (needs ui/dist from 'npm run build' in ui/, and node)"
   else
+    # The Roll-ups tab writes a roll-up through the fake claude above.
+    printf '{"CLAUDE_CODE_PATH": "%s/fake-claude", "CLAUDE_MNEMONIC_ROLLUP_MIN_GROUP_SIZE": 8, "CLAUDE_MNEMONIC_ROLLUP_KEEP_NEWEST": 0, %s}\n' "$WORK" "$NO_PROPOSALS" > "$WORK/home/.claude-mnemonic/settings.json"
     fresh_worker || exit 1
     (nohup python3 "$HERE/serve_ui.py" "$ROOT/ui/dist" "http://localhost:$WORKER_PORT" "$UI_PORT" > "$WORK/ui.log" 2>&1 &)
     sleep 1

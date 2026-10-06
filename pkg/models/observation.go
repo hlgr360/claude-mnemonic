@@ -118,6 +118,7 @@ type Observation struct {
 	FileMtimes      JSONInt64Map     `db:"file_mtimes" json:"file_mtimes,omitempty"`
 	SDKSessionID    string           `db:"sdk_session_id" json:"sdk_session_id"`
 	Project         string           `db:"project" json:"project"`
+	ArchivedReason  string           `db:"-" json:"archived_reason,omitempty"`
 	Scope           ObservationScope `db:"scope" json:"scope"`
 	Type            ObservationType  `db:"type" json:"type"`
 	CreatedAt       string           `db:"created_at" json:"created_at"`
@@ -139,6 +140,9 @@ type Observation struct {
 	RetrievalCount  int              `db:"retrieval_count" json:"retrieval_count"`
 	IsStale         bool             `db:"-" json:"is_stale,omitempty"`
 	IsSuperseded    bool             `db:"is_superseded" json:"is_superseded,omitempty"`
+	// IsArchived marks a note that is kept but hidden (a roll-up, a consolidation, the cap or a person archived it);
+	// ArchivedReason says why. Only the listings that ask for archived notes return them.
+	IsArchived bool `db:"-" json:"is_archived,omitempty"`
 }
 
 // ParsedObservation represents an observation parsed from SDK response XML.
@@ -199,6 +203,7 @@ func DetermineScope(concepts []string) ObservationScope {
 type ObservationJSON struct {
 	FileMtimes      map[string]int64 `json:"file_mtimes,omitempty"`
 	Subtitle        string           `json:"subtitle,omitempty"`
+	ArchivedReason  string           `json:"archived_reason,omitempty"`
 	SDKSessionID    string           `json:"sdk_session_id"`
 	Scope           ObservationScope `json:"scope"`
 	Type            ObservationType  `json:"type"`
@@ -221,6 +226,7 @@ type ObservationJSON struct {
 	ScoreUpdatedAt  int64            `json:"score_updated_at_epoch,omitempty"`
 	IsStale         bool             `json:"is_stale,omitempty"`
 	IsSuperseded    bool             `json:"is_superseded,omitempty"`
+	IsArchived      bool             `json:"is_archived,omitempty"`
 }
 
 // MarshalJSON implements json.Marshaler for Observation.
@@ -246,7 +252,9 @@ func (o *Observation) MarshalJSON() ([]byte, error) {
 		UserFeedback:    o.UserFeedback,
 		RetrievalCount:  o.RetrievalCount,
 		// Conflict detection fields
-		IsSuperseded: o.IsSuperseded,
+		IsSuperseded:   o.IsSuperseded,
+		IsArchived:     o.IsArchived,
+		ArchivedReason: o.ArchivedReason,
 	}
 	if o.Title.Valid {
 		j.Title = o.Title.String

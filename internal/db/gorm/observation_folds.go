@@ -271,3 +271,21 @@ func (s *ObservationStore) ConsolidationCandidates(ctx context.Context, project 
 	}
 	return toModelObservations(rows), nil
 }
+
+// ListArchivedObservations returns the archived notes (of one project, or of all when project is empty), the most
+// recently archived first, and how many there are in all.
+func (s *ObservationStore) ListArchivedObservations(ctx context.Context, project string, limit, offset int) ([]*models.Observation, int64, error) {
+	q := s.db.WithContext(ctx).Model(&Observation{}).Where("is_archived = 1")
+	if project != "" {
+		q = q.Where("project = ?", project)
+	}
+	var total int64
+	if err := q.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var rows []Observation
+	if err := q.Order("archived_at_epoch DESC, id DESC").Limit(limit).Offset(offset).Find(&rows).Error; err != nil {
+		return nil, 0, err
+	}
+	return toModelObservations(rows), total, nil
+}

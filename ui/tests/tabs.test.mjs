@@ -14,7 +14,7 @@ test('the default is one of the tabs, and All is still a tab', () => {
 })
 
 test('the tabs are the ones the dashboard has, in order, each with a label and an icon', () => {
-  assert.deepEqual(FILTER_TABS.map(t => t.key), ['all', 'observations', 'summaries', 'prompts', 'graph', 'conflicts'])
+  assert.deepEqual(FILTER_TABS.map(t => t.key), ['all', 'observations', 'summaries', 'prompts', 'graph', 'conflicts', 'folds'])
   for (const t of FILTER_TABS) {
     assert.ok(t.label.length > 0 && t.icon.startsWith('fa-'), t.key)
   }

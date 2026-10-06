@@ -1172,6 +1172,8 @@ func toModelObservation(o *Observation) *models.Observation {
 		LastRetrievedAt: o.LastRetrievedAt,
 		ScoreUpdatedAt:  o.ScoreUpdatedAt,
 		IsSuperseded:    o.IsSuperseded != 0, // Convert int to bool
+		IsArchived:      o.IsArchived != 0,
+		ArchivedReason:  o.ArchivedReason.String,
 	}
 }
 
