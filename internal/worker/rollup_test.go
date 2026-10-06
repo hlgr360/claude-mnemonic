@@ -484,3 +484,44 @@ func TestRollupProject_ACallerThatGivesUpHalfWayDoesNotLeaveNotesArchivedWithout
 	require.NoError(t, err)
 	require.NotNil(t, fold, "and it has the record that restores it")
 }
+
+func TestObservationsListArchivedOnly(t *testing.T) {
+	svc, _, cleanup := rollupService(t, nil)
+	defer cleanup()
+	ctx := context.Background()
+	old := addOldNotes(t, svc, "shop_aaaaaa", 8, models.ObsTypeDiscovery)
+	addObs(t, svc, "shop_aaaaaa", 2)
+	failures := 0
+	rep, err := svc.rollupProject(ctx, "shop_aaaaaa", 0, false, &failures)
+	require.NoError(t, err)
+	require.Len(t, rep.Groups, 1)
+
+	rec := doRequest(t, svc, http.MethodGet, "/api/observations?project=shop_aaaaaa&archived_only=true", nil)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var archived struct {
+		Observations []map[string]any `json:"observations"`
+		Total        int              `json:"total"`
+	}
+	decode(t, rec, &archived)
+	assert.Equal(t, 8, archived.Total)
+	require.Len(t, archived.Observations, 8)
+	ids := map[float64]bool{}
+	for _, o := range archived.Observations {
+		ids[o["id"].(float64)] = true
+		assert.Equal(t, true, o["is_archived"])
+		assert.Equal(t, fmt.Sprintf("rolled-up into #%d", rep.Groups[0].RollupID), o["archived_reason"])
+	}
+	for _, id := range old {
+		assert.True(t, ids[float64(id)])
+	}
+
+	rec = doRequest(t, svc, http.MethodGet, "/api/observations?project=shop_aaaaaa", nil)
+	var live struct {
+		Observations []map[string]any `json:"observations"`
+	}
+	decode(t, rec, &live)
+	assert.Len(t, live.Observations, 3, "the usual list is the two recent notes and the roll-up")
+	for _, o := range live.Observations {
+		assert.NotContains(t, o, "is_archived")
+	}
+}

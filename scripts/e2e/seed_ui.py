@@ -89,6 +89,23 @@ d = os.path.join(base, "fresh"); os.makedirs(d)
 ids["fresh"] = json.loads(tool("project_resolve", path=d))["id"]
 time.sleep(0.05)
 tool("remember", path=d, title="Freshly saved note about the pantry", text="Saved last, with the default importance score.")
+
+# A project for the Roll-ups tab: nine old notes of one month (an automatic scope, so a roll-up may condense them), three
+# near-identical recent notes (for the duplicates view) and a note a person put away.
+d = os.path.join(base, "tidy"); os.makedirs(d)
+ids["tidy"] = json.loads(tool("project_resolve", path=d))["id"]
+berths = "amber basalt cobalt dune ember fjord garnet harbor indigo".split()
+for i, w in enumerate(berths):
+    tool("remember", path=d, title=f"Berth {w} inspection {i}", text=f"The {w} berth {i} fender was inspected and the {berths[(i * 4 + 1) % 9]} chain replaced, ticket {i * 313}.")
+crane = "The harbour crane control board was replaced after the second inspection found a cracked relay in the hoist circuit"
+for i, tail in enumerate((" today", " again", " once more")):
+    tool("remember", path=d, title="Crane board replaced", text=crane + tail)
+tool("remember", path=d, title="Note put away by a person", text="A note about the old ferry timetable that nobody needs any more.")
+import urllib.request as _u
+_rows = json.loads(_u.urlopen(f"http://localhost:{PORT}/api/observations?project={ids['tidy']}&limit=50", timeout=30).read())["observations"]
+_tidy = {}
+for o in _rows:
+    _tidy.setdefault(o["title"], []).append(o["id"])
 ids["summ_only"] = "summ-only_a1b2c3"
 db = sqlite3.connect(f"{E2E}/home/.claude-mnemonic/claude-mnemonic.db", timeout=30)
 db.execute("DELETE FROM sdk_sessions WHERE project = ?", (ids["obs_only"],))
@@ -98,8 +115,19 @@ for i, title in enumerate(("First summary", "Second summary")):
                (time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), f"sdk-summ-only-{i}", ids["summ_only"], title, now + i))
 for t in legacy_titles:
     db.execute("UPDATE observations SET scope = 'global', scope_source = 'auto' WHERE project = ? AND title = ?", (ids["scoped"], t))
+import datetime
+_m = datetime.datetime.now(datetime.timezone.utc)
+_y, _mo = divmod(_m.year * 12 + _m.month - 1 - 4, 12)
+_base = datetime.datetime(_y, _mo + 1, 10, 12, 0, tzinfo=datetime.timezone.utc)
+for k, w in enumerate(berths):
+    t = _base + datetime.timedelta(minutes=k)
+    db.execute("UPDATE observations SET scope_source = 'auto', created_at_epoch = ?, created_at = ? WHERE id = ?",
+               (int(t.timestamp() * 1000), t.isoformat(), _tidy[f"Berth {w} inspection {k}"][0]))
+for oid in _tidy["Crane board replaced"]:
+    db.execute("UPDATE observations SET scope_source = 'auto' WHERE id = ?", (oid,))
 # The bulk notes have earned a higher importance than a note that has just been saved (which starts at 1).
 db.execute("UPDATE observations SET importance_score = 1.5 WHERE project = ?", (ids["bulk"],))
 db.commit(); db.close()
+post("/api/observations/archive", {"ids": _tidy["Note put away by a person"], "reason": "put away in the e2e"})
 print(json.dumps(ids))
 p.stdin.close(); p.wait(timeout=10)

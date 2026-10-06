@@ -56,7 +56,7 @@ const tabs = FILTER_TABS
       </button>
 
       <!-- Stats -->
-      <div v-if="currentFilter !== 'conflicts' && currentFilter !== 'graph'" class="ml-auto flex items-center gap-3 text-xs text-slate-500">
+      <div v-if="currentFilter !== 'conflicts' && currentFilter !== 'graph' && currentFilter !== 'folds'" class="ml-auto flex items-center gap-3 text-xs text-slate-500">
         <span>{{ observationCount }} obs</span>
         <span>·</span>
         <span>{{ promptCount }} prompts</span>

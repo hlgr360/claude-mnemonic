@@ -228,3 +228,41 @@ func TestFoldDetailIsKept(t *testing.T) {
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"facts":["x"],"relations":[7]}`, got.Detail)
 }
+
+func TestListArchivedObservations(t *testing.T) {
+	s, _, cleanup := testObservationStore(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	live := foldNote(t, s, "p", "live", models.ObsTypeDiscovery, "", 5)
+	first := foldNote(t, s, "p", "archived first", models.ObsTypeDiscovery, "", 5)
+	second := foldNote(t, s, "p", "archived second", models.ObsTypeBugfix, "", 5)
+	otherProject := foldNote(t, s, "q", "archived elsewhere", models.ObsTypeDiscovery, "", 5)
+	require.NoError(t, s.ArchiveObservation(ctx, first, "my reason"))
+	time.Sleep(3 * time.Millisecond)
+	require.NoError(t, s.ArchiveObservation(ctx, second, FoldReason(FoldRollup, 99)))
+	require.NoError(t, s.ArchiveObservation(ctx, otherProject, "x"))
+
+	got, total, err := s.ListArchivedObservations(ctx, "p", 10, 0)
+	require.NoError(t, err)
+	assert.EqualValues(t, 2, total)
+	assert.Equal(t, []int64{second, first}, idsOf(got), "the most recently archived first; live notes and other projects left out")
+	assert.True(t, got[0].IsArchived)
+	assert.Equal(t, "rolled-up into #99", got[0].ArchivedReason)
+	assert.Equal(t, "my reason", got[1].ArchivedReason)
+
+	all, total, err := s.ListArchivedObservations(ctx, "", 10, 0)
+	require.NoError(t, err)
+	assert.EqualValues(t, 3, total)
+	assert.Len(t, all, 3)
+
+	page, total, err := s.ListArchivedObservations(ctx, "p", 1, 1)
+	require.NoError(t, err)
+	assert.EqualValues(t, 2, total, "the total is of all archived notes, not of the page")
+	assert.Equal(t, []int64{first}, idsOf(page))
+
+	liveOne, err := s.GetObservationByID(ctx, live)
+	require.NoError(t, err)
+	assert.False(t, liveOne.IsArchived)
+	assert.Empty(t, liveOne.ArchivedReason)
+}

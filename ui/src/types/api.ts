@@ -52,7 +52,7 @@ export interface SSEEvent {
   queueDepth?: number
 }
 
-export type FilterType = 'all' | 'observations' | 'summaries' | 'prompts' | 'conflicts' | 'graph'
+export type FilterType = 'all' | 'observations' | 'summaries' | 'prompts' | 'conflicts' | 'graph' | 'folds'
 
 export interface ComponentHealth {
   name: string

@@ -215,6 +215,17 @@ const splitPath = (path: string, components = 3) => {
           >
             SUPERSEDED
           </Badge>
+          <Badge
+            v-if="observation.concepts?.includes('rollup')"
+            data-testid="rollup-badge"
+            icon="fa-boxes-stacked"
+            color-class="text-violet-300"
+            bg-class="bg-violet-500/15"
+            border-class="border-violet-500/40"
+            title="Written by a model from older notes of this project; the originals are archived and can be restored on the Roll-ups tab"
+          >
+            ROLL-UP
+          </Badge>
           <button
             data-testid="scope-badge"
             class="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full border transition-colors"

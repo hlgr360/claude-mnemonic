@@ -32,6 +32,10 @@ export interface Observation {
   is_stale?: boolean
   /** Hidden from injection and search by a decision in the conflict review. */
   is_superseded?: boolean
+  /** The note is kept but hidden: a roll-up, a consolidation, the cap or a person put it away. */
+  is_archived?: boolean
+  /** Why: "rolled-up into #12", "consolidated into #12", the cap's reason, or the person's. */
+  archived_reason?: string
   // Importance scoring fields
   importance_score: number
   user_feedback: number  // -1 (thumbs down), 0 (neutral), 1 (thumbs up)

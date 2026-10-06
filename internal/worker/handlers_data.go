@@ -49,8 +49,12 @@ func (s *Service) handleGetObservations(w http.ResponseWriter, r *http.Request) 
 	var err error
 	var usedVector bool
 
+	// archived_only=true lists the archived notes themselves (the most recently archived first), for the dashboard's
+	// view of what roll-ups, consolidations, the cap and people have put away.
+	archivedOnly := r.URL.Query().Get("archived_only") == "true"
+
 	// Use vector search if query is provided and vector client is available
-	if query != "" && s.vectorClient != nil && s.vectorClient.IsConnected() {
+	if !archivedOnly && query != "" && s.vectorClient != nil && s.vectorClient.IsConnected() {
 		where := sqlitevec.BuildWhereFilter(sqlitevec.DocTypeObservation, project)
 		vectorResults, vecErr := s.vectorClient.Query(ctx, query, pagination.Limit*2, where)
 		if vecErr == nil && len(vectorResults) > 0 {
@@ -67,7 +71,9 @@ func (s *Service) handleGetObservations(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Fall back to SQLite if vector search not used
-	if !usedVector {
+	if archivedOnly {
+		observations, total, err = s.observationStore.ListArchivedObservations(ctx, project, pagination.Limit, pagination.Offset)
+	} else if !usedVector {
 		if project != "" {
 			// Strict project filtering for dashboard - only observations from this project
 			observations, total, err = s.observationStore.GetObservationsByProjectStrictOrdered(ctx, project, pagination.Limit, pagination.Offset, order, includeArchived)
