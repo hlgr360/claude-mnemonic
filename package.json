@@ -1,0 +1,15 @@
+{
+  "name": "claude-mnemonic-pi",
+  "private": true,
+  "description": "claude-mnemonic persistent memory for the pi coding agent, shared with Claude Code and Claude Desktop",
+  "license": "MIT",
+  "repository": "github:hlgr360/claude-mnemonic",
+  "keywords": ["pi-package"],
+  "type": "module",
+  "pi": {
+    "extensions": ["./pi-extension/index.ts"]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  }
+}
