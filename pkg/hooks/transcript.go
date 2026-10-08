@@ -18,8 +18,8 @@ const (
 
 // Message is one user or assistant turn of a Claude Code transcript, text only.
 type Message struct {
-	Role string // "user" or "assistant"
-	Text string
+	Role string `json:"role"` // "user" or "assistant"
+	Text string `json:"text"`
 }
 
 type transcriptLine struct {
@@ -79,6 +79,22 @@ func ReadConversation(path string) []Message {
 		}
 		if text := strings.TrimSpace(textOf(line.Message.Content)); text != "" {
 			out = append(out, Message{Role: line.Type, Text: text})
+		}
+	}
+	return out
+}
+
+// Conversation returns the messages a client passed inline (clients without a Claude Code transcript, such as pi,
+// send them this way), else the text turns read from the transcript at path. Inline messages keep only user and
+// assistant turns with text, as ReadConversation does.
+func Conversation(inline []Message, path string) []Message {
+	if len(inline) == 0 {
+		return ReadConversation(path)
+	}
+	var out []Message
+	for _, m := range inline {
+		if text := strings.TrimSpace(m.Text); text != "" && (m.Role == "user" || m.Role == "assistant") {
+			out = append(out, Message{Role: m.Role, Text: text})
 		}
 	}
 	return out

@@ -75,6 +75,24 @@ func TestReadConversation_OnlyReadsTheTailOfAHugeTranscript(t *testing.T) {
 	assert.Less(t, len(got), 702)
 }
 
+func TestConversation_PrefersInlineMessagesAndCleansThem(t *testing.T) {
+	path := writeTranscript(t, entry("user", "from the transcript"))
+	inline := []Message{{"user", "  from pi  "}, {"toolResult", "dropped"}, {"assistant", " "}, {"assistant", "answer"}}
+	assert.Equal(t, []Message{{"user", "from pi"}, {"assistant", "answer"}}, Conversation(inline, path))
+}
+
+func TestConversation_FallsBackToTheTranscript(t *testing.T) {
+	path := writeTranscript(t, entry("user", "from the transcript"))
+	assert.Equal(t, []Message{{"user", "from the transcript"}}, Conversation(nil, path))
+	assert.Empty(t, Conversation(nil, ""))
+}
+
+func TestMessage_DecodesTheInlineHookFormat(t *testing.T) {
+	var got []Message
+	require.NoError(t, json.Unmarshal([]byte(`[{"role":"user","text":"hi"}]`), &got))
+	assert.Equal(t, []Message{{"user", "hi"}}, got)
+}
+
 func TestLastOf(t *testing.T) {
 	msgs := []Message{{"user", "a"}, {"assistant", "b"}, {"user", "c"}}
 	assert.Equal(t, "c", LastOf(msgs, "user"))

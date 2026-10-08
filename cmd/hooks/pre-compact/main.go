@@ -20,6 +20,8 @@ type Input struct {
 	TranscriptPath string `json:"transcript_path"`
 	// Trigger is "manual" (/compact) or "auto".
 	Trigger string `json:"trigger"`
+	// Messages, when set, replace the transcript (clients without a Claude Code transcript send them).
+	Messages []hooks.Message `json:"messages"`
 }
 
 func main() {
@@ -46,7 +48,7 @@ func handlePreCompact(ctx *hooks.HookContext, input *Input) (string, error) {
 		return "", nil
 	}
 
-	msgs := hooks.ReadConversation(input.TranscriptPath)
+	msgs := hooks.Conversation(input.Messages, input.TranscriptPath)
 	conversation := hooks.Excerpt(msgs, excerptChars)
 	if conversation == "" {
 		return "", nil
