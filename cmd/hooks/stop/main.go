@@ -19,7 +19,9 @@ var debug = os.Getenv("CLAUDE_MNEMONIC_DEBUG") != ""
 type Input struct {
 	hooks.BaseInput
 	TranscriptPath string `json:"transcript_path"`
-	StopHookActive bool   `json:"stop_hook_active"`
+	// Messages, when set, replace the transcript (clients without a Claude Code transcript send them).
+	Messages       []hooks.Message `json:"messages"`
+	StopHookActive bool            `json:"stop_hook_active"`
 }
 
 // TranscriptMessage represents a message in the transcript JSONL file.
@@ -142,7 +144,9 @@ func handleStop(ctx *hooks.HookContext, input *Input) (string, error) {
 
 	// Parse transcript to get last messages for summary context
 	lastUser, lastAssistant := "", ""
-	if input.TranscriptPath != "" {
+	if msgs := hooks.Conversation(input.Messages, ""); len(msgs) > 0 {
+		lastUser, lastAssistant = hooks.LastOf(msgs, "user"), hooks.LastOf(msgs, "assistant")
+	} else if input.TranscriptPath != "" {
 		lastUser, lastAssistant = parseTranscript(input.TranscriptPath)
 	}
 

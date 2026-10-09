@@ -130,6 +130,16 @@ You do not have to remember the address:
 - **Claude Code:** run **`/memory-dashboard`**. It opens the dashboard in your browser (it finds a custom `WORKER_PORT` itself) and says so if the worker is not running. The first session after an install or an update also shows you a one-line message with the address (for you only; it is not added to what the model sees).
 - **Claude Desktop:** ask for your memory dashboard; the `dashboard` tool gives chat the link to click.
 
+### pi
+
+The [pi coding agent](https://github.com/earendil-works/pi) uses the same memory through the extension in [`pi-extension/`](pi-extension). It needs the binaries in `~/.claude-mnemonic/bin` (from the plugin, `install.sh` or `make install`), then:
+
+```bash
+pi install git:github.com/hlgr360/claude-mnemonic@v<version>   # the release you installed, v0.21.105.4 or later
+```
+
+Details: [PI.md](PI.md).
+
 ### Verifying Release Signatures
 
 All release checksums are signed with [cosign](https://github.com/sigstore/cosign) using keyless signing (the signature covers the platform archives, the plugin zip and the Desktop extension). To verify:
