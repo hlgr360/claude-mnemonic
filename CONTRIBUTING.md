@@ -79,6 +79,7 @@ Releases are built by `.github/workflows/release-native.yaml` ("Release (fork)")
   The workflow then builds, signs and publishes. A tag that already has a release fails loudly rather than replacing it.
 - **After the release: the catalogue, then the org.**
   - **The catalogue** (`hlgr360/agent-plugins`) holds the plugin itself: the release's zip unpacked into `plugins/claude-mnemonic/`, with the in-repo source `./plugins/claude-mnemonic` (it was an `archive` source with the zip's URL and sha256, which Claude Desktop's marketplace sync did not accept; the first run migrates it). `scripts/update-catalogue.sh <tag>` does it: it refuses unless the release is published, the zip's sha256 equals the one in `checksums.txt`, the signature verifies, the zip's `plugin.json` says the tag's version and is within the upload form's limits, and the version is higher than the catalogue's; it installs the edited catalogue in an isolated Claude config, then commits with this checkout's git identity, pushes a branch and opens the pull request. `--dry-run` shows the change and does nothing else. It never merges: read the PR and merge it yourself. `scripts/update-catalogue.sh` with no tag uses the latest release.
+  - **pi** needs nothing: the tag is the pi release (`pi install git:github.com/hlgr360/claude-mnemonic@<tag>`).
   - **The Claude org inventory** is an upload of the same zip in the admin panel, by hand. The upload form has limits that `claude plugin validate` does not check (so far: the description is at most 500 characters); `scripts/check_plugin_manifest.py` holds the known ones and the build runs it.
 - **Build one locally** on a supported platform: `scripts/build-release.sh 0.0.1-local` (`DIST=<dir>` for the output, `SKIP_UI=1` to reuse an existing dashboard build). It rewrites `ui/package.json`, `ui/tsconfig.tsbuildinfo` and `internal/worker/static`; restore them with `git checkout --` before committing. Do not run the unpacked `worker` to read its version: it has no version flag and starts a real worker.
 - **`.goreleaser.yaml`** is no longer the release path. It is kept valid because the pull request check runs `goreleaser check` on it.
@@ -103,6 +104,27 @@ Claude Desktop does not give a plugin's local MCP server to chat, and Cowork sta
 - **How it starts.** `/bin/sh server/mcp-server`, so the packed file needs no executable bit; on Windows `platform_overrides.win32` runs `cmd.exe /c server\mcp-server.cmd` (a batch file hands stdio to the server unchanged, which a PowerShell wrapper might not; PowerShell is used for the download only). macOS on Apple silicon and Windows on x86-64 (what the downloaders have a build for).
 - **Checks.** `npx @anthropic-ai/mcpb validate` runs in the build (and in the release workflow); `scripts/test_desktop_extension.py` covers the content, the version mapping, reproducibility and the wrapper (`RUN_MCPB_VALIDATE=1` also runs the real validator).
 - **Install / distribute.** Settings > Extensions > Install Extension (or drag the file onto Desktop); for an organization, Organization settings > Connectors > Desktop > "Add custom extension", and "Upload new version" for the next release. Neither is automated here.
+
+## The pi extension
+
+pi has no command hooks and no plugin format, so `pi-extension/index.ts` runs the hook binaries from
+`~/.claude-mnemonic/bin` on pi's events (session start, prompt, tool result, end of a run, compaction) with the input
+Claude Code would give them, registers the MCP server (`exposure: "direct"`), sets the status in pi's footer from the
+`statusline` binary and adds `/memory-dashboard` and `/memory-statusline`. Details and the event table: `PI.md`.
+
+- **No binaries of its own.** It uses whatever the plugin, `install.sh` or `make install` installed, so the project id is
+  computed in one place and a folder is the same project in pi and in Claude Code. Without the binaries it does nothing.
+- **Conversation inline.** pi has no Claude Code transcript; `stop` and `pre-compact` take the recent turns in a
+  `messages` field (`hooks.Conversation`). Keep that field when changing those hooks.
+- **Packaging.** The root `package.json` (private, no dependencies, the `pi-package` keyword, pi as a peer dependency)
+  makes the repository a pi package. Users install it by tag: `pi install git:github.com/hlgr360/claude-mnemonic@<tag>`,
+  so every release tag is also a pi release and nothing is published separately. Nothing in it is stamped with a
+  version.
+- **Checks.** Typecheck against pi's published types (`npm i @earendil-works/pi-coding-agent typescript @types/node` in a
+  scratch directory, then `npx tsc --noEmit --strict --target es2022 --module nodenext --moduleResolution nodenext
+  --skipLibCheck --types node index.ts`), and try it with `pi -e .` from the checkout. `pi --mode rpc -e .` shows the
+  status and notifications as JSON events. `--no-extensions` also turns off pi's MCP support, so the MCP server cannot
+  be tested with it.
 
 ## Security scanning
 
@@ -164,7 +186,8 @@ Upstream (`lukaszraczylo/claude-mnemonic`) is a separate project with its own ha
 
 ## Where things are
 
-- `README.md`: features, install, configuration. `DESKTOP.md`: Claude Desktop (tools, instructions, project management, duplicates).
+- `README.md`: features, install, configuration. `DESKTOP.md`: Claude Desktop (tools, instructions, project management, duplicates). `PI.md`: pi.
+- `pi-extension/`: the pi extension; the root `package.json` makes the repository a pi package.
 - `design/`: design notes. `docs/`: the project website.
 - `scripts/e2e/`: the end-to-end suites (`drive_*.py`, `ui_e2e.mjs`, `seed_ui.py`, `run.sh`). `scripts/llm-eval/`: the evaluation of local models.
 - `.golangci.yml`: the lint configuration (`gosec`, `govet` with `fieldalignment`, `staticcheck`, `errcheck`, `gofmt`).

@@ -24,6 +24,11 @@ share one memory, and a folder is the same project in all of them: the project i
 
 Without the binaries the extension says so once per session and does nothing else.
 
+The worker writes the summaries and extracts the observations with the Claude Code CLI (`claude`), whatever app the
+session came from. With pi alone, install the CLI (signed in with your Claude subscription), or switch those tasks to a
+local Ollama model (`LLM_BACKEND_SUMMARY`, `LLM_BACKEND_OBSERVATION`, ...; see the README). Without either, pi still
+gets the saved context and the tools, but its sessions add no new notes.
+
 ## What happens when
 
 | pi event | Hook binary | Effect |
