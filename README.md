@@ -6,7 +6,7 @@
 [![License](https://img.shields.io/github/license/hlgr360/claude-mnemonic?style=flat-square)](LICENSE)
 [![Go](https://img.shields.io/badge/Go-1.24+-00ADD8?style=flat-square&logo=go)](https://go.dev)
 
-> **This is a fork** of [lukaszraczylo/claude-mnemonic](https://github.com/lukaszraczylo/claude-mnemonic) (MIT). It adds Claude Desktop support ([DESKTOP.md](DESKTOP.md)), project management (duplicates, aliases, merge), a dashboard link and command, a signed release pipeline and a Claude plugin. Its releases are named for the upstream version they contain plus a fork number: `0.21.95.1` is upstream `0.21.95` plus this fork's first release.
+> **This is a fork** of [lukaszraczylo/claude-mnemonic](https://github.com/lukaszraczylo/claude-mnemonic) (MIT). It adds Claude Desktop support ([DESKTOP.md](DESKTOP.md)), pi support ([PI.md](PI.md)), project management (duplicates, aliases, merge), a dashboard link and command, a signed release pipeline and a Claude plugin. Its releases are named for the upstream version they contain plus a fork number: `0.21.95.1` is upstream `0.21.95` plus this fork's first release.
 
 ---
 
@@ -38,24 +38,26 @@ It captures what Claude learns during your coding sessions - bug fixes, architec
 - **Improved Reliability** - Better handling of connectivity issues and dead connections
 </details>
 
-## One memory for Claude Code and Claude Desktop
+## One memory for Claude Code, Claude Desktop and pi
 
-Claude Code and Claude Desktop (chat, Cowork and the Code tab) use **one local memory service**: a worker on your computer (port 37777, data in `~/.claude-mnemonic`) with one database and one dashboard. What Claude Code saves in a session, Desktop chat can search, and the other way round. Nothing is sent to a server.
+Claude Code, Claude Desktop (chat, Cowork and the Code tab) and the [pi coding agent](https://github.com/earendil-works/pi) use **one local memory service**: a worker on your computer (port 37777, data in `~/.claude-mnemonic`) with one database and one dashboard. What Claude Code or pi saves in a session, Desktop chat can search, and the other way round; a folder is the same project in Claude Code and in pi. Nothing is sent to a server.
 
 | App | Install | What it gives |
 |---|---|---|
 | **Claude Code** (the terminal, and the Desktop Code tab) | the **plugin**, from the marketplace | Hooks that save what happens in a session and load the project's memory at the start, the MCP tools (search, related, ...), skills and commands |
 | **Claude Desktop chat and Cowork** | the **extension** (a `.mcpb` file) | The memory tools, with a few extra ones for choosing a project (Desktop does not give a plugin's tools to chat, and Cowork starts them where they cannot reach the worker) |
+| **pi** | the **pi package**, `pi install git:github.com/hlgr360/claude-mnemonic@<tag>` | The same as Claude Code: automatic saving and loading, the MCP tools, the status in pi's footer and the commands. It runs the binaries the plugin or `install.sh` installed |
 
-Use the one for the app you use, or both: they share the worker and the database. The extension cannot replace the plugin in Claude Code (the automatic saving comes from the plugin's hooks), and the plugin cannot replace the extension in Desktop.
+Use the one for the app you use, or several: they share the worker and the database. The extension cannot replace the plugin in Claude Code (the automatic saving comes from the plugin's hooks), and the plugin cannot replace the extension in Desktop.
 
-Details for Desktop (the tools, project handling, what was measured): [DESKTOP.md](DESKTOP.md).
+Details for Desktop (the tools, project handling, what was measured): [DESKTOP.md](DESKTOP.md). For pi: [PI.md](PI.md).
 
 ## Requirements
 
 | Dependency | Required | Purpose |
 |------------|----------|---------|
-| **Claude Code** or **Claude Desktop** | Yes (either, or both) | Where the memory is used |
+| **Claude Code**, **Claude Desktop** or **pi** | Yes (any of them) | Where the memory is used |
+| **Claude Code CLI** (`claude`), or [Ollama](#local-llm-settings-ollama-optional) | Yes, one of them | The worker writes summaries and extracts observations with it; with pi alone, install the CLI or switch the tasks to Ollama |
 
 That's it. No Python. No external services. Everything runs locally.
 
@@ -487,6 +489,9 @@ Four tools are exposed via MCP:
 Using Claude Desktop (chat, Cowork, Code tab)? See [DESKTOP.md](DESKTOP.md): it adds
 project selection, explicit `remember`, and project management.
 
+In pi the same four tools are declared to the model as `mcp__claude_mnemonic__search`, `..._timeline`,
+`..._observation` and `..._memory_admin` (see [PI.md](PI.md)).
+
 ## Slash Commands
 
 Available commands within Claude Code:
@@ -495,6 +500,8 @@ Available commands within Claude Code:
 |---------|-------------|
 | `/memory-dashboard` | Open the web dashboard in your browser |
 | `/memory-restart` | Restart the worker process when experiencing issues |
+
+In pi, the extension adds `/memory-dashboard` (shows the dashboard's address) and `/memory-statusline` (`on`, `off`, `status`: the status in pi's footer); see [PI.md](PI.md).
 
 The names say what they do and are unique on purpose: where the plugin's name cannot be typed as a prefix (Claude Desktop), the short name is all there is. In Claude Code the full form is `/claude-mnemonic:memory-dashboard` and `/claude-mnemonic:memory-restart`. They were renamed from the shorter `dashboard` and `restart`, which no longer exist.
 
@@ -548,9 +555,10 @@ Your data (`~/.claude-mnemonic`: the database, settings and embeddings) is **kep
 
 - **Claude Code:** `/plugin uninstall claude-mnemonic@hlgr360`.
 - **Claude Desktop:** Settings > Extensions, remove Claude Mnemonic.
+- **pi:** `pi remove git:github.com/hlgr360/claude-mnemonic` (the MCP server goes with it; nothing was written to `mcp.json`).
 - **Everything, including your data** (the database cannot be recovered): stop the worker (`lsof -ti :37777 | xargs kill`) and delete `~/.claude-mnemonic`.
 
-Switching between routes only needs the first two lines; never delete the data for that.
+Switching between routes only needs the lines for the apps; never delete the data for that.
 
 ## Architecture
 
@@ -572,7 +580,7 @@ Everything runs locally. No Python. No external vector database. No API calls.
 | Linux arm64 | Supported |
 | Windows amd64 | Supported |
 
-The table is what the worker builds for. Through the plugin and the extension the supported platforms are macOS on Apple silicon (both), Windows on x86-64 (both) and Linux on x86-64 (plugin only); anything else builds from source.
+The table is what the worker builds for. Through the plugin and the extension the supported platforms are macOS on Apple silicon (both), Windows on x86-64 (both) and Linux on x86-64 (plugin only); anything else builds from source. The pi package runs wherever the binaries are installed (tested on macOS; on Windows it uses the `.exe` names but has not been run).
 
 ## Development
 
